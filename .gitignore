@@ -17,4 +17,13 @@ node_modules/
 .agents/
 .claude/
 .codex/
-.trellis/
+.trellis/.developer
+.trellis/.current-task
+.trellis/.runtime/
+.trellis/.ralph-state.json
+.trellis/.agents/
+.trellis/.agent-log
+.trellis/.session-id
+.trellis/**/*.tmp
+.trellis/**/__pycache__/
+.trellis/**/*.pyc
