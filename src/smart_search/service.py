@@ -142,6 +142,15 @@ MAIN_SEARCH_PROVIDER_ALIASES = {
 }
 
 
+def _get_extra_provider_ids() -> list[str]:
+    extras = config.openai_compatible_extra_providers
+    return [f"openai-compatible-extra-{i}" for i in range(len(extras))]
+
+
+def _get_full_fallback_chain() -> list[str]:
+    return MAIN_SEARCH_FALLBACK_CHAIN + _get_extra_provider_ids()
+
+
 def _elapsed_ms(start: float) -> float:
     return round((time.time() - start) * 1000, 2)
 
@@ -596,7 +605,7 @@ def get_capability_status() -> dict[str, Any]:
     status = {
         "main_search": {
             "configured": main_configured,
-            "fallback_chain": MAIN_SEARCH_FALLBACK_CHAIN,
+            "fallback_chain": _get_full_fallback_chain(),
             "ok": bool(main_configured),
         },
         "web_search": {
@@ -687,7 +696,11 @@ def _configured_main_search_provider_ids() -> list[str]:
     if config.openai_compatible_api_url and config.openai_compatible_api_key:
         configured.add("openai-compatible")
 
-    return [provider for provider in MAIN_SEARCH_FALLBACK_CHAIN if provider in configured]
+    extras = config.openai_compatible_extra_providers
+    for i, _ in enumerate(extras):
+        configured.add(f"openai-compatible-extra-{i}")
+
+    return [provider for provider in _get_full_fallback_chain() if provider in configured]
 
 
 def _main_search_provider_configs(model_override: str = "", providers: str = "auto") -> list[dict[str, Any]]:
@@ -717,9 +730,26 @@ def _main_search_provider_configs(model_override: str = "", providers: str = "au
             "source": "OPENAI_COMPATIBLE_*",
         }
 
+    extras = config.openai_compatible_extra_providers
+    for i, extra in enumerate(extras):
+        pid = f"openai-compatible-extra-{i}"
+        url = extra.get("url", "") or extra.get("api_url", "")
+        key = extra.get("key", "") or extra.get("api_key", "")
+        model = extra.get("model", "") or model_override or config._base_model_value()
+        if url and key:
+            by_provider[pid] = {
+                "provider": pid,
+                "mode": "chat-completions",
+                "api_url": url,
+                "api_key": key,
+                "model": model,
+                "tools": [],
+                "source": f"OPENAI_COMPATIBLE_EXTRA_{i}",
+            }
+
     return [
         by_provider[provider]
-        for provider in MAIN_SEARCH_FALLBACK_CHAIN
+        for provider in _get_full_fallback_chain()
         if provider in by_provider and _provider_allowed(provider, provider_filter)
     ]
 
@@ -1104,6 +1134,84 @@ async def call_tavily_map(
         return {"ok": False, "error_type": "network_error", "error": f"映射错误: {str(e)}"}
 
 
+async def _run_main_search_parallel(
+    provider_configs: list[dict[str, Any]],
+    main_providers: list[Any],
+    query: str,
+    platform: str = "",
+) -> tuple[list[dict[str, Any]], str, list[dict]]:
+    """Run all main_search providers in parallel and collect results."""
+
+    async def _run_one(config: dict, provider: Any) -> dict:
+        start = time.time()
+        try:
+            result = await provider.search(query, platform)
+            elapsed = _elapsed_ms(start)
+            if result:
+                answer, sources = split_answer_and_sources(result)
+                return {
+                    "provider": provider.get_provider_name(),
+                    "provider_id": config["provider"],
+                    "model": config["model"],
+                    "mode": config["mode"],
+                    "ok": True,
+                    "content": answer,
+                    "sources": sources,
+                    "elapsed_ms": elapsed,
+                    "error_type": "",
+                    "error": "",
+                }
+            return {
+                "provider": provider.get_provider_name(),
+                "provider_id": config["provider"],
+                "model": config["model"],
+                "mode": config["mode"],
+                "ok": False,
+                "content": "",
+                "sources": [],
+                "elapsed_ms": elapsed,
+                "error_type": "empty",
+                "error": f"{provider.get_provider_name()} 返回空结果",
+            }
+        except Exception as e:
+            elapsed = _elapsed_ms(start)
+            return {
+                "provider": provider.get_provider_name(),
+                "provider_id": config["provider"],
+                "model": config["model"],
+                "mode": config["mode"],
+                "ok": False,
+                "content": "",
+                "sources": [],
+                "elapsed_ms": elapsed,
+                "error_type": "error",
+                "error": f"{provider.get_provider_name()} 异常: {e}",
+            }
+
+    tasks = [_run_one(cfg, prov) for cfg, prov in zip(provider_configs, main_providers)]
+    results = await asyncio.gather(*tasks)
+
+    successful = [r for r in results if r["ok"]]
+    failed = [r for r in results if not r["ok"]]
+
+    # Build combined content with clear provider labels
+    combined_parts = []
+    all_sources: list[dict] = []
+    seen_urls: set[str] = set()
+    for r in successful:
+        label = f"**Provider: {r['provider']}** (model: {r['model']}, {r['elapsed_ms']:.0f}ms)"
+        combined_parts.append(f"{label}\n\n{r['content']}")
+        for src in r["sources"]:
+            url = src.get("url", "")
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                all_sources.append(src)
+
+    combined_content = "\n\n---\n\n".join(combined_parts) if combined_parts else ""
+
+    return results, combined_content, all_sources
+
+
 async def search(
     query: str,
     platform: str = "",
@@ -1113,6 +1221,7 @@ async def search(
     fallback: str = "",
     providers: str = "auto",
     stream: bool | None = None,
+    parallel: bool = False,
 ) -> dict[str, Any]:
     start = time.time()
     session_id = new_session_id()
@@ -1210,37 +1319,68 @@ async def search(
     primary_result = None
     successful_main_config: dict[str, Any] | None = None
     last_primary_error: dict[str, Any] | None = None
-    for provider_config, search_provider in zip(selected_main_provider_configs, main_providers):
-        primary_start = time.time()
-        try:
-            candidate_result = await search_provider.search(query, platform)
-            if candidate_result:
-                primary_result = candidate_result
-                successful_main_config = provider_config
-                provider_attempts.append(_attempt("main_search", search_provider.get_provider_name(), "ok", primary_start, result_count=1))
-                break
-            last_primary_error = _primary_search_error_result(
-                start,
-                session_id,
-                query,
-                provider_config["mode"],
-                "network_error",
-                f"{search_provider.get_provider_name()} 返回空结果",
-            )
-            provider_attempts.append(_attempt("main_search", search_provider.get_provider_name(), "empty", primary_start))
-        except Exception as e:
-            error_result = _primary_search_exception_result(start, session_id, query, provider_config["mode"], search_provider.get_provider_name(), e)
-            last_primary_error = error_result
-            provider_attempts.append(
-                _attempt(
-                    "main_search",
-                    search_provider.get_provider_name(),
-                    "error",
-                    primary_start,
-                    error_type=error_result["error_type"],
-                    error=error_result["error"],
+    parallel_results: list[dict] = []
+    all_sources: list[dict] = []
+
+    if parallel or config.parallel_enabled:
+        # Parallel mode: run all providers simultaneously
+        # Bypass fallback restrictions — in parallel mode we want ALL providers
+        selected_main_provider_configs = main_provider_configs
+        main_providers = _main_search_providers(main_provider_configs, "auto")
+        raw_results, combined_content, all_sources = await _run_main_search_parallel(
+            selected_main_provider_configs, main_providers, query, platform
+        )
+        parallel_results = raw_results
+        successful = [r for r in raw_results if r["ok"]]
+        if successful:
+            primary_result = combined_content
+            successful_main_config = {
+                "provider": successful[0]["provider_id"],
+                "mode": successful[0]["mode"],
+                "model": successful[0]["model"],
+            }
+            for r in successful:
+                provider_attempts.append(_attempt("main_search", r["provider"], "ok", start, result_count=1))
+            for r in raw_results:
+                if not r["ok"]:
+                    provider_attempts.append(_attempt("main_search", r["provider"], r["error_type"], start, error_type=r["error_type"], error=r["error"]))
+        else:
+            last_primary_error = _primary_search_error_result(start, session_id, query, "chat-completions", "network_error", "所有 provider 均搜索失败")
+            for r in raw_results:
+                provider_attempts.append(_attempt("main_search", r["provider"], r["error_type"], start, error_type=r["error_type"], error=r["error"]))
+    else:
+        # Sequential fallback mode (original behavior)
+        for provider_config, search_provider in zip(selected_main_provider_configs, main_providers):
+            primary_start = time.time()
+            try:
+                candidate_result = await search_provider.search(query, platform)
+                if candidate_result:
+                    primary_result = candidate_result
+                    successful_main_config = provider_config
+                    provider_attempts.append(_attempt("main_search", search_provider.get_provider_name(), "ok", primary_start, result_count=1))
+                    break
+                last_primary_error = _primary_search_error_result(
+                    start,
+                    session_id,
+                    query,
+                    provider_config["mode"],
+                    "network_error",
+                    f"{search_provider.get_provider_name()} 返回空结果",
                 )
-            )
+                provider_attempts.append(_attempt("main_search", search_provider.get_provider_name(), "empty", primary_start))
+            except Exception as e:
+                error_result = _primary_search_exception_result(start, session_id, query, provider_config["mode"], search_provider.get_provider_name(), e)
+                last_primary_error = error_result
+                provider_attempts.append(
+                    _attempt(
+                        "main_search",
+                        search_provider.get_provider_name(),
+                        "error",
+                        primary_start,
+                        error_type=error_result["error_type"],
+                        error=error_result["error"],
+                    )
+                )
     if primary_result is None:
         result = last_primary_error or _primary_search_error_result(start, session_id, query, primary_api_mode, "network_error", "搜索失败或无结果")
         result["provider_attempts"] = provider_attempts
@@ -1273,7 +1413,12 @@ async def search(
     if firecrawl_count:
         firecrawl_results = None if isinstance(gathered[idx], BaseException) else gathered[idx]
 
-    answer, primary_sources = split_answer_and_sources(primary_result)
+    if parallel or config.parallel_enabled:
+        # Parallel mode: sources already extracted by _run_main_search_parallel
+        answer = primary_result or ""
+        primary_sources = all_sources if parallel_results else []
+    else:
+        answer, primary_sources = split_answer_and_sources(primary_result)
     extra_source_items = extra_results_to_sources(tavily_results, firecrawl_results)
     for item_provider, results in (("tavily", tavily_results), ("firecrawl", firecrawl_results)):
         if results:
@@ -1324,6 +1469,7 @@ async def search(
         "validation_level": validation_level,
         "minimum_profile_ok": minimum.get("ok", False),
         "capability_status": minimum.get("capability_status", {}),
+        "parallel_results": parallel_results if parallel_results else None,
         "elapsed_ms": _elapsed_ms(start),
     }
 

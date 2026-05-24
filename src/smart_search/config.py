@@ -28,6 +28,8 @@ class Config:
         "OPENAI_COMPATIBLE_API_KEY",
         "OPENAI_COMPATIBLE_MODEL",
         "OPENAI_COMPATIBLE_STREAM",
+        "OPENAI_COMPATIBLE_EXTRA",
+        "SMART_SEARCH_PARALLEL",
         "SMART_SEARCH_VALIDATION_LEVEL",
         "SMART_SEARCH_FALLBACK_MODE",
         "SMART_SEARCH_MINIMUM_PROFILE",
@@ -219,6 +221,8 @@ class Config:
             "OPENAI_COMPATIBLE_API_KEY",
             "OPENAI_COMPATIBLE_MODEL",
             "OPENAI_COMPATIBLE_STREAM",
+            "OPENAI_COMPATIBLE_EXTRA",
+            "SMART_SEARCH_PARALLEL",
             "SMART_SEARCH_VALIDATION_LEVEL",
             "SMART_SEARCH_FALLBACK_MODE",
             "SMART_SEARCH_MINIMUM_PROFILE",
@@ -244,6 +248,8 @@ class Config:
             "OPENAI_COMPATIBLE_API_KEY",
             "OPENAI_COMPATIBLE_MODEL",
             "OPENAI_COMPATIBLE_STREAM",
+            "OPENAI_COMPATIBLE_EXTRA",
+            "SMART_SEARCH_PARALLEL",
             "SMART_SEARCH_VALIDATION_LEVEL",
             "SMART_SEARCH_FALLBACK_MODE",
             "SMART_SEARCH_MINIMUM_PROFILE",
@@ -312,6 +318,21 @@ class Config:
     @property
     def openai_compatible_stream(self) -> bool:
         return (self._get_config_value("OPENAI_COMPATIBLE_STREAM", "false") or "false").lower() in ("true", "1", "yes")
+
+    @property
+    def openai_compatible_extra_providers(self) -> list[dict]:
+        raw = self._get_config_value("OPENAI_COMPATIBLE_EXTRA", "[]") or "[]"
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return parsed
+            return []
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    @property
+    def parallel_enabled(self) -> bool:
+        return (self._get_config_value("SMART_SEARCH_PARALLEL", "false") or "false").lower() in ("true", "1", "yes")
 
     def parse_xai_tools(self, raw: str | None = None) -> list[str]:
         raw = raw or self.xai_tools_raw
@@ -537,6 +558,8 @@ class Config:
             "OPENAI_COMPATIBLE_API_KEY": self._mask_api_key(self.openai_compatible_api_key) if self.openai_compatible_api_key else "未配置",
             "OPENAI_COMPATIBLE_MODEL": self.openai_compatible_model,
             "OPENAI_COMPATIBLE_STREAM": self.openai_compatible_stream,
+            "OPENAI_COMPATIBLE_EXTRA": json.dumps(self.openai_compatible_extra_providers, ensure_ascii=False) if self.openai_compatible_extra_providers else "未配置",
+            "SMART_SEARCH_PARALLEL": self.parallel_enabled,
             "SMART_SEARCH_VALIDATION_LEVEL": validation_level,
             "SMART_SEARCH_FALLBACK_MODE": fallback_mode,
             "SMART_SEARCH_MINIMUM_PROFILE": minimum_profile,

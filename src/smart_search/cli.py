@@ -1740,6 +1740,7 @@ async def _run_async(args: argparse.Namespace) -> int:
             "validation": args.validation,
             "fallback": args.fallback,
             "providers": args.providers,
+            "parallel": args.parallel,
         }
         if args.stream is not None:
             search_kwargs["stream"] = args.stream
@@ -1989,6 +1990,7 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument("--validation", choices=["fast", "balanced", "strict"], default="")
     search_parser.add_argument("--fallback", choices=["auto", "off"], default="")
     search_parser.add_argument("--providers", default="auto")
+    search_parser.add_argument("--parallel", dest="parallel", action="store_true", default=False, help="Run all configured main_search providers in parallel.")
     stream_group = search_parser.add_mutually_exclusive_group()
     stream_group.add_argument("--stream", dest="stream", action="store_true", default=None, help="Use stream=true for OpenAI-compatible main search.")
     stream_group.add_argument("--no-stream", dest="stream", action="store_false", help="Force stream=false for OpenAI-compatible main search.")
