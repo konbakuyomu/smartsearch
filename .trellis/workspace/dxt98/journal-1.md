@@ -690,3 +690,41 @@ Added the live research executor with capability-first provider-advantage routin
 ### Next Steps
 
 - None - task complete
+
+
+## Session 19: Research router Jina and Zhipu MCP beta closeout
+
+**Date**: 2026-06-06
+**Task**: Research router Jina and Zhipu MCP beta closeout
+**Branch**: `codex/update-anysearch-readme-links`
+
+### Summary
+
+Closed out the beta provider work: Jina fetch-only support, Zhipu Coding Plan MCP schema/error handling, live research router and same-capability fallback, provider-boundary documentation, Jina capability probe script, and release notes for 0.1.14-beta.2.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b19d00c` | (see git log) |
+| `539cb0e` | (see git log) |
+| `6798283` | (see git log) |
+| `205c7a6` | (see git log) |
+| `d01814c` | (see git log) |
+| `c775043` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
