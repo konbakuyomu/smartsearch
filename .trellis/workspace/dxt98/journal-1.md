@@ -657,3 +657,36 @@ Added controlled Jina web_fetch support and separate Zhipu Coding Plan Remote MC
 ### Next Steps
 
 - None - task complete
+
+
+## Session 18: Research router and fallback
+
+**Date**: 2026-06-06
+**Task**: Research router and fallback
+**Branch**: `codex/update-anysearch-readme-links`
+
+### Summary
+
+Added the live research executor with capability-first provider-advantage routing, same-capability fallback, safe research provider overrides, evidence-only synthesis, synchronized docs/skills/provider contract, and completed full unit, regression, mock smoke, live doctor, live research, and live smoke verification.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6798283` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
