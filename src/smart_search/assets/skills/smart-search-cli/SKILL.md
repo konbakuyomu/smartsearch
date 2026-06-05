@@ -137,7 +137,7 @@ Research provider advantage routing:
 - Context7: library/API/framework docs resolution and docs retrieval.
 - Exa: official domains, papers, product/company pages, date/domain-filtered low-noise discovery, and adjacent-source discovery.
 - Zhipu REST: Chinese, domestic, current, policy, and announcement searches.
-- Zhipu MCP: separate Coding Plan quota route through `webSearchPrime` and `webReader`.
+- Zhipu MCP: separate Coding Plan quota route through `web_search_prime` and `webReader`.
 - Tavily: broad source discovery and site map.
 - Jina: known public URL, PDF, and arXiv clean extraction; ReaderLM-v2 requires `JINA_API_KEY`.
 - Firecrawl: robust fetch fallback, JS-heavy/dynamic pages, browser-like extraction, OCR/PDF/structured extraction.
@@ -172,7 +172,7 @@ smart-search deep "https://example.com/source" --format json
 - xAI Responses is the default main answer route for Grok/xAI. In `fallback=auto`, a failed xAI Responses main route can fall back to OpenAI-compatible only when the OpenAI-compatible provider is separately configured.
 - Docs/API/library routing should prefer Context7 first. Exa is for official-domain or low-noise supplemental discovery, not the default docs answer route.
 - Zhipu Web Search API is a general web-search reinforcement and same-capability fallback for Chinese, domestic, current, or domain-filtered source discovery.
-- Zhipu Coding Plan Remote MCP is a separate route: `webSearchPrime` maps to `web_search`, `webReader` maps to `web_fetch`, and zread tools map to explicit repo/docs discovery commands. Do not mix it into the existing `/paas/v4/web_search` REST provider.
+- Zhipu Coding Plan Remote MCP is a separate route: `web_search_prime` maps to `web_search`, `webReader` maps to `web_fetch`, and zread tools map to explicit repo/docs discovery commands. Do not mix it into the existing `/paas/v4/web_search` REST provider.
 - `search` calls Tavily and/or Firecrawl only when `--extra-sources N` is greater than 0.
 - With both Tavily and Firecrawl configured, `search --extra-sources N` splits extra sources between them, with Tavily receiving about 60% and Firecrawl the rest.
 - Search JSON separates `primary_sources`, `extra_sources`, and backward-compatible merged `sources`.

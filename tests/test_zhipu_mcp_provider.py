@@ -60,13 +60,13 @@ async def test_zhipu_mcp_web_search_calls_tool_and_parses_results(monkeypatch):
 
     assert data["ok"] is True
     assert data["provider"] == "zhipu-mcp"
-    assert data["tool"] == "webSearchPrime"
+    assert data["tool"] == "web_search_prime"
     assert data["results"][0]["url"] == "https://example.com"
     call = FakeZhipuMCPClient.calls[0]
     assert call["headers"]["Authorization"] == "Bearer zmcp-secret"
     assert call["json"]["method"] == "tools/call"
-    assert call["json"]["params"]["name"] == "webSearchPrime"
-    assert call["json"]["params"]["arguments"] == {"query": "query", "count": 2}
+    assert call["json"]["params"]["name"] == "web_search_prime"
+    assert call["json"]["params"]["arguments"] == {"search_query": "query"}
 
 
 @pytest.mark.asyncio
@@ -89,6 +89,48 @@ async def test_zhipu_mcp_reader_returns_content(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_zhipu_mcp_reader_json_error_text_is_provider_error(monkeypatch):
+    FakeZhipuMCPClient.response = httpx.Response(
+        200,
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"content": [{"type": "text", "text": '"{\\"error\\":\\"fetch failed\\"}"'}]},
+        },
+        request=httpx.Request("POST", "https://open.bigmodel.cn/api/mcp/web_reader/mcp"),
+    )
+    monkeypatch.setattr("smart_search.providers.zhipu_mcp.httpx.AsyncClient", FakeZhipuMCPClient)
+
+    provider = ZhipuMCPProvider("https://open.bigmodel.cn/api/mcp/web_reader/mcp", "zmcp-secret", provider_id="zhipu-mcp-reader")
+    data = json.loads(await provider.web_reader("https://example.com"))
+
+    assert data["ok"] is False
+    assert data["error_type"] == "provider_error"
+    assert data["error"] == "fetch failed"
+
+
+@pytest.mark.asyncio
+async def test_zhipu_mcp_content_mcp_401_is_auth_error(monkeypatch):
+    FakeZhipuMCPClient.response = httpx.Response(
+        200,
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"content": [{"type": "text", "text": "MCP error -401: Api key not found"}]},
+        },
+        request=httpx.Request("POST", "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp"),
+    )
+    monkeypatch.setattr("smart_search.providers.zhipu_mcp.httpx.AsyncClient", FakeZhipuMCPClient)
+
+    provider = ZhipuMCPProvider("https://open.bigmodel.cn/api/mcp/web_search_prime/mcp", "zmcp-secret")
+    data = json.loads(await provider.web_search("query"))
+
+    assert data["ok"] is False
+    assert data["error_type"] == "auth_error"
+    assert "Api key not found" in data["error"]
+
+
+@pytest.mark.asyncio
 async def test_zhipu_mcp_zread_tools_send_expected_arguments(monkeypatch):
     FakeZhipuMCPClient.response = httpx.Response(
         200,
@@ -108,14 +150,12 @@ async def test_zhipu_mcp_zread_tools_send_expected_arguments(monkeypatch):
         "read_file",
     ]
     assert FakeZhipuMCPClient.calls[0]["json"]["params"]["arguments"] == {
-        "repo": "owner/repo",
+        "repo_name": "owner/repo",
         "query": "install",
-        "max_results": 3,
     }
     assert FakeZhipuMCPClient.calls[2]["json"]["params"]["arguments"] == {
-        "repo": "owner/repo",
-        "path": "README.md",
-        "ref": "main",
+        "repo_name": "owner/repo",
+        "file_path": "README.md",
     }
 
 

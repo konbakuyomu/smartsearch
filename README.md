@@ -136,7 +136,7 @@ Fallback is same-capability only:
 | --- | --- |
 | `main_search` | xAI Responses -> OpenAI-compatible |
 | `docs_search` | Context7 for library/API/docs intent; Exa for official domains, papers, product pages, and trusted-site discovery |
-| `web_search` | Zhipu Web Search API -> Zhipu Coding Plan MCP `webSearchPrime` -> Tavily -> Firecrawl |
+| `web_search` | Zhipu Web Search API -> Zhipu Coding Plan MCP `web_search_prime` -> Tavily -> Firecrawl |
 | `web_fetch` | Tavily -> Jina Reader with `JINA_API_KEY` -> Zhipu Coding Plan MCP `webReader` -> Firecrawl |
 
 AnySearch is intentionally not part of the `web_search` fallback chain and is not required by the `standard` minimum profile. Use its explicit commands for acceptance and boundary testing before promoting any vertical domain into a future route.
@@ -200,7 +200,7 @@ The research router is capability-first plus provider-advantage:
 
 - Context7 first for library/API/framework docs, with Exa as official-domain, paper, product, or trusted low-noise discovery.
 - Zhipu Web Search API first for Chinese, domestic, current, policy, and announcement searches.
-- Zhipu Coding Plan MCP remains a separate quota route through `webSearchPrime` and `webReader`.
+- Zhipu Coding Plan MCP remains a separate quota route through `web_search_prime` and `webReader`.
 - Jina is favored for known public URLs, PDFs, and arXiv extraction; ReaderLM-v2 still requires `JINA_API_KEY`.
 - Firecrawl is favored for JS-heavy, dynamic, browser-like, OCR/PDF, or robust fallback extraction.
 - AnySearch participates only when vertical intent is clear, such as CVE, finance, legal, academic, or codebase/repository searches.
@@ -240,7 +240,7 @@ Important boundaries:
 - Legacy `SMART_SEARCH_API_URL`, `SMART_SEARCH_API_KEY`, `SMART_SEARCH_API_MODE`, `SMART_SEARCH_MODEL`, and `SMART_SEARCH_XAI_TOOLS` are not supported config keys. Use `XAI_*` or `OPENAI_COMPATIBLE_*` explicitly.
 - Do not force xAI `web_search` / `x_search` tools or legacy `search_parameters` into the OpenAI-compatible Chat Completions route.
 - `zhipu-search` support is the Web Search API route, not Zhipu Chat Completions `tools=[web_search]`, not Search Agent, and not the MCP Server.
-- Zhipu Coding Plan support is a separate Remote MCP route. `webSearchPrime` maps to `web_search`, `webReader` maps to `web_fetch`, and zread tools map to explicit repo/docs discovery commands. It is not mixed into the existing `/paas/v4/web_search` Zhipu REST provider.
+- Zhipu Coding Plan support is a separate Remote MCP route. `web_search_prime` maps to `web_search`, `webReader` maps to `web_fetch`, and zread tools map to explicit repo/docs discovery commands. It is not mixed into the existing `/paas/v4/web_search` Zhipu REST provider.
 - Jina Reader is not a general search provider. `JINA_API_KEY` is required for Jina to count toward `standard`; `JINA_RESPOND_WITH=readerlm-v2` also requires `JINA_API_KEY`.
 - `ZHIPU_SEARCH_ENGINE` defaults to `search_std`. Supported official values include `search_std`, `search_pro`, `search_pro_sogou`, and `search_pro_quark`; custom values remain allowed for future services.
 - `TAVILY_API_URL` affects Tavily only. It does not proxy Zhipu. For Tavily Hikari / pooled endpoints, use `https://<host>/api/tavily`; setup normalizes root-host or `/mcp` inputs to that REST base.
@@ -319,7 +319,7 @@ Provider timeouts:
 | `exa-search` | `exa`, `x` | Exa source discovery |
 | `exa-similar` | `xs` | Similar pages from one URL |
 | `zhipu-search` | `z`, `zp` | Zhipu Web Search API |
-| `zhipu-mcp-search` | `zmcp-search` | Zhipu Coding Plan MCP `webSearchPrime` |
+| `zhipu-mcp-search` | `zmcp-search` | Zhipu Coding Plan MCP `web_search_prime` |
 | `zhipu-mcp-reader` | `zmcp-reader` | Zhipu Coding Plan MCP `webReader` |
 | `zhipu-mcp-search-doc` | `zmcp-doc` | Search open-source repository docs through zread MCP |
 | `zhipu-mcp-repo-structure` | `zmcp-tree` | Read repository structure through zread MCP |

@@ -842,7 +842,7 @@ async def test_zhipu_mcp_web_search_error_records_attempt_and_falls_back_same_ca
         return {
             "ok": False,
             "provider": "zhipu-mcp",
-            "tool": "webSearchPrime",
+            "tool": "web_search_prime",
             "error_type": "provider_error",
             "error": "provider unavailable",
         }
@@ -1816,7 +1816,7 @@ async def test_zhipu_mcp_service_wrappers_decode_provider_json(monkeypatch):
 
         async def web_search(self, query, count=5):
             calls.append(("web_search", query, count))
-            return json.dumps({"ok": True, "provider": self.provider_id, "tool": "webSearchPrime", "query": query})
+            return json.dumps({"ok": True, "provider": self.provider_id, "tool": "web_search_prime", "query": query})
 
         async def web_reader(self, url):
             calls.append(("web_reader", url))
@@ -1844,7 +1844,7 @@ async def test_zhipu_mcp_service_wrappers_decode_provider_json(monkeypatch):
     tree = await service.zhipu_mcp_repo_structure("owner/repo", ref="main")
     file_data = await service.zhipu_mcp_read_file("owner/repo", "README.md", ref="main")
 
-    assert search["tool"] == "webSearchPrime"
+    assert search["tool"] == "web_search_prime"
     assert reader["content"] == "# Page"
     assert doc["tool"] == "search_doc"
     assert tree["tool"] == "get_repo_structure"

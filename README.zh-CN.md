@@ -129,7 +129,7 @@ Trellis、hooks、agents 或 commands。
 | --- | --- |
 | `main_search` | xAI Responses -> OpenAI-compatible |
 | `docs_search` | Context7 处理库/API/文档意图；Exa 处理官方域名、论文、产品页、可信站点发现 |
-| `web_search` | 智谱 Web Search API -> 智谱 Coding Plan MCP `webSearchPrime` -> Tavily -> Firecrawl |
+| `web_search` | 智谱 Web Search API -> 智谱 Coding Plan MCP `web_search_prime` -> Tavily -> Firecrawl |
 | `web_fetch` | Tavily -> 带 `JINA_API_KEY` 的 Jina Reader -> 智谱 Coding Plan MCP `webReader` -> Firecrawl |
 
 AnySearch 当前只作为实验 `vertical_search` 暴露，不进入 `web_search` 兜底链，也不是 `standard` 最低配置要求。请先用显式命令做验收和能力边界判断，再决定未来是否把某个垂直域提升成正式路线。
@@ -207,7 +207,7 @@ smart-search rs "https://example.com/source" --fallback off --format markdown
 
 - Context7 优先处理库/API/框架文档，Exa 用于官方域名、论文、产品页、可信站点和低噪声发现。
 - 智谱 Web Search API 优先处理中文、国内、时效、政策、公告搜索。
-- 智谱 Coding Plan MCP 仍是单独额度路线，通过 `webSearchPrime` 和 `webReader` 加入对应 capability。
+- 智谱 Coding Plan MCP 仍是单独额度路线，通过 `web_search_prime` 和 `webReader` 加入对应 capability。
 - Jina 优先用于已知公开 URL、PDF、arXiv 正文抽取；ReaderLM-v2 仍要求 `JINA_API_KEY`。
 - Firecrawl 优先用于 JS-heavy、动态页面、浏览器式抽取、OCR/PDF 或强兜底抓取。
 - AnySearch 只在垂直意图清楚时加入，例如 CVE、金融、法律、学术、代码库/仓库搜索。
@@ -249,7 +249,7 @@ smart-search deep "https://example.com/source" --format json
 - 旧的 `SMART_SEARCH_API_URL`、`SMART_SEARCH_API_KEY`、`SMART_SEARCH_API_MODE`、`SMART_SEARCH_MODEL`、`SMART_SEARCH_XAI_TOOLS` 不再是受支持配置项。请显式使用 `XAI_*` 或 `OPENAI_COMPATIBLE_*`。
 - 不要给 OpenAI-compatible Chat Completions 中转强塞 xAI 的 `web_search` / `x_search` 工具或旧 `search_parameters`。
 - `zhipu-search` 对应的是智谱 Web Search API，不是 Chat Completions `tools=[web_search]`，不是 Search Agent，也不是 MCP Server。
-- 智谱 Coding Plan 是单独的 Remote MCP 路线：`webSearchPrime` 对应 `web_search`，`webReader` 对应 `web_fetch`，zread 工具对应显式仓库/文档发现命令。它不会混进现有 `/paas/v4/web_search` 智谱 REST provider。
+- 智谱 Coding Plan 是单独的 Remote MCP 路线：`web_search_prime` 对应 `web_search`，`webReader` 对应 `web_fetch`，zread 工具对应显式仓库/文档发现命令。它不会混进现有 `/paas/v4/web_search` 智谱 REST provider。
 - Jina Reader 不是通用搜索 provider。只有配置 `JINA_API_KEY` 后才计入 `standard`；`JINA_RESPOND_WITH=readerlm-v2` 也必须配置 `JINA_API_KEY`。
 - `ZHIPU_SEARCH_ENGINE` 默认是 `search_std`。官方值包括 `search_std`、`search_pro`、`search_pro_sogou`、`search_pro_quark`；`config set` 仍允许自定义值，方便官方以后新增服务。
 - `TAVILY_API_URL` 只影响 Tavily，不会代理智谱。Tavily Hikari / 号池用 `https://<host>/api/tavily`；setup 会把根域名或 `/mcp` 输入规范化成这个 REST base。
@@ -361,7 +361,7 @@ smart-search anysearch-batch "AAPL" "RAG papers" --max-results 2 --format json
 | `exa-search` | `exa`、`x` | Exa 来源发现 |
 | `exa-similar` | `xs` | 从一个 URL 找相似页面 |
 | `zhipu-search` | `z`、`zp` | 智谱 Web Search API |
-| `zhipu-mcp-search` | `zmcp-search` | 智谱 Coding Plan MCP `webSearchPrime` |
+| `zhipu-mcp-search` | `zmcp-search` | 智谱 Coding Plan MCP `web_search_prime` |
 | `zhipu-mcp-reader` | `zmcp-reader` | 智谱 Coding Plan MCP `webReader` |
 | `zhipu-mcp-search-doc` | `zmcp-doc` | 通过 zread MCP 搜开源仓库文档 |
 | `zhipu-mcp-repo-structure` | `zmcp-tree` | 通过 zread MCP 读仓库结构 |

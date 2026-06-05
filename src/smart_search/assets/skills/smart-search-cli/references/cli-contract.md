@@ -133,7 +133,7 @@ Zhipu Web Search API setup:
 Zhipu Coding Plan Remote MCP setup:
 
 - `ZHIPU_MCP_API_KEY` configures the Coding Plan MCP auth token and must be sent as `Authorization: Bearer ...`; it must never be logged unmasked.
-- `ZHIPU_MCP_SEARCH_API_URL` defaults to `https://open.bigmodel.cn/api/mcp/web_search_prime/mcp` and calls `webSearchPrime` for `web_search`.
+- `ZHIPU_MCP_SEARCH_API_URL` defaults to `https://open.bigmodel.cn/api/mcp/web_search_prime/mcp` and calls `web_search_prime` for `web_search`.
 - `ZHIPU_MCP_READER_API_URL` defaults to `https://open.bigmodel.cn/api/mcp/web_reader/mcp` and calls `webReader` for `web_fetch`.
 - `ZHIPU_MCP_ZREAD_API_URL` defaults to `https://open.bigmodel.cn/api/mcp/zread/mcp` and calls `search_doc`, `get_repo_structure`, and `read_file` through explicit repo/docs commands.
 - Zhipu Coding Plan MCP must be implemented as a separate Remote MCP-over-HTTP provider layer. Do not route it through the existing `/paas/v4/web_search` Zhipu REST provider.
@@ -251,7 +251,7 @@ Research provider advantage routing:
 - Context7 first for library/API/framework docs and docs retrieval.
 - Exa for official domains, papers, product/company pages, date/domain-filtered low-noise discovery, and adjacent-source discovery.
 - Zhipu REST for Chinese, domestic, current, policy, and announcement searches.
-- Zhipu MCP as a separate Coding Plan quota route through `webSearchPrime` and `webReader`; do not mix it into `/paas/v4/web_search`.
+- Zhipu MCP as a separate Coding Plan quota route through `web_search_prime` and `webReader`; do not mix it into `/paas/v4/web_search`.
 - Tavily for broad source discovery and site maps.
 - Jina for known public URL, PDF, and arXiv clean extraction; ReaderLM-v2 requires `JINA_API_KEY`.
 - Firecrawl for robust fetch fallback, JS-heavy/dynamic/browser-like extraction, OCR/PDF/structured extraction.
@@ -359,7 +359,7 @@ Agent timeout handling contract:
 - Jina satisfies fetch capability only when `JINA_API_KEY` is configured. Anonymous Jina Reader does not satisfy `standard`.
 - Same-capability fallback is allowed; cross-capability fallback is not. Context7 is not used for unrelated broad web queries, and page extraction providers are not used as docs search providers.
 - `main_search`: xAI Responses first for Grok/xAI, then OpenAI-compatible answer fallback when that peer provider is separately configured and `--fallback auto` is active.
-- `web_search`: Zhipu Web Search API first when routed in, then Zhipu Coding Plan MCP `webSearchPrime`, then Tavily / Firecrawl source search when configured.
+- `web_search`: Zhipu Web Search API first when routed in, then Zhipu Coding Plan MCP `web_search_prime`, then Tavily / Firecrawl source search when configured.
 - `docs_search`: Context7 first for library/API/docs intent, then Exa for official-domain, paper, product-page, trusted-site, or low-noise supplemental discovery.
 - Fetch capability: Tavily first, then Jina Reader with `JINA_API_KEY`, then Zhipu Coding Plan MCP `webReader`, then Firecrawl.
 - `search` calls Tavily and/or Firecrawl only when `--extra-sources` is greater than 0.

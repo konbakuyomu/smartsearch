@@ -263,7 +263,7 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
     },
     "zhipu-mcp": {
         "capability": "web_search",
-        "strengths": ["Coding Plan quota", "remote MCP webSearchPrime"],
+        "strengths": ["Coding Plan quota", "remote MCP web_search_prime"],
         "exclusions": ["Zhipu REST Web Search API"],
         "fallback_group": "web_search",
         "minimum_profile_role": "",

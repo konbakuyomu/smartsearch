@@ -1073,7 +1073,7 @@ def test_provider_markdown_outputs_result_lists(monkeypatch, capsys):
         return {"ok": True, "query": "news", "provider": "zhipu", "results": [{"title": "News", "url": "https://news.example.com", "description": "desc"}]}
 
     async def fake_zhipu_mcp_search(*args, **kwargs):
-        return {"ok": True, "query": "news", "provider": "zhipu-mcp", "tool": "webSearchPrime", "results": [{"title": "MCP News", "url": "https://mcp.example.com"}]}
+        return {"ok": True, "query": "news", "provider": "zhipu-mcp", "tool": "web_search_prime", "results": [{"title": "MCP News", "url": "https://mcp.example.com"}]}
 
     async def fake_zhipu_mcp_reader(*args, **kwargs):
         return {"ok": True, "url": "https://source.example.com", "provider": "zhipu-mcp-reader", "tool": "webReader", "content": "# MCP Page"}
@@ -1153,7 +1153,7 @@ def test_all_formatted_commands_have_non_json_markdown(monkeypatch):
         return {"ok": True, "results": [{"title": "News", "url": "https://news.example.com"}]}
 
     async def fake_zhipu_mcp(*args, **kwargs):
-        return {"ok": True, "provider": "zhipu-mcp", "tool": "webSearchPrime", "results": [{"title": "MCP", "url": "https://mcp.example.com"}]}
+        return {"ok": True, "provider": "zhipu-mcp", "tool": "web_search_prime", "results": [{"title": "MCP", "url": "https://mcp.example.com"}]}
 
     async def fake_zhipu_mcp_reader(*args, **kwargs):
         return {"ok": True, "provider": "zhipu-mcp-reader", "tool": "webReader", "content": "MCP Page"}
@@ -1255,7 +1255,7 @@ def test_all_formatted_commands_have_non_json_markdown(monkeypatch):
             "exa-search": {"ok": True, "results": [{"title": "Example", "url": "https://example.com"}]},
             "exa-similar": {"ok": True, "results": [{"title": "Example", "url": "https://example.com"}]},
             "zhipu-search": {"ok": True, "results": [{"title": "News", "url": "https://news.example.com"}]},
-            "zhipu-mcp-search": {"ok": True, "provider": "zhipu-mcp", "tool": "webSearchPrime", "results": [{"title": "MCP", "url": "https://mcp.example.com"}]},
+            "zhipu-mcp-search": {"ok": True, "provider": "zhipu-mcp", "tool": "web_search_prime", "results": [{"title": "MCP", "url": "https://mcp.example.com"}]},
             "zhipu-mcp-reader": {"ok": True, "provider": "zhipu-mcp-reader", "tool": "webReader", "content": "MCP Page"},
             "zhipu-mcp-search-doc": {"ok": True, "provider": "zhipu-mcp-zread", "tool": "search_doc", "results": [{"title": "Doc", "url": "https://docs.example.com"}]},
             "zhipu-mcp-repo-structure": {"ok": True, "provider": "zhipu-mcp-zread", "tool": "get_repo_structure", "content": "tree"},
@@ -2052,7 +2052,7 @@ def test_zhipu_mcp_commands_use_service_wrappers(monkeypatch, capsys):
 
     async def fake_search(query, count=5):
         calls.append(("search", query, count))
-        return {"ok": True, "provider": "zhipu-mcp", "tool": "webSearchPrime", "results": []}
+        return {"ok": True, "provider": "zhipu-mcp", "tool": "web_search_prime", "results": []}
 
     async def fake_reader(url):
         calls.append(("reader", url))
@@ -2077,7 +2077,7 @@ def test_zhipu_mcp_commands_use_service_wrappers(monkeypatch, capsys):
     monkeypatch.setattr(cli.service, "zhipu_mcp_read_file", fake_read_file)
 
     assert cli.main(["zhipu-mcp-search", "news", "--count", "2"]) == cli.EXIT_OK
-    assert json.loads(capsys.readouterr().out)["tool"] == "webSearchPrime"
+    assert json.loads(capsys.readouterr().out)["tool"] == "web_search_prime"
     assert cli.main(["zmcp-reader", "https://example.com"]) == cli.EXIT_OK
     assert json.loads(capsys.readouterr().out)["tool"] == "webReader"
     assert cli.main(["zmcp-doc", "owner/repo", "install", "--max-results", "3"]) == cli.EXIT_OK

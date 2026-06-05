@@ -330,7 +330,7 @@ def test_jina_and_zhipu_mcp_contract_public_and_packaged_assets_match():
         "ZHIPU_MCP_SEARCH_API_URL",
         "ZHIPU_MCP_READER_API_URL",
         "ZHIPU_MCP_ZREAD_API_URL",
-        "webSearchPrime",
+        "web_search_prime",
         "webReader",
         "search_doc",
         "get_repo_structure",

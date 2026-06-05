@@ -90,6 +90,27 @@ def _parse_markdown_results(text: str, provider: str) -> list[dict[str, str]]:
     return [{"title": url, "url": url, "description": "", "provider": provider} for url in dict.fromkeys(urls)]
 
 
+def _content_error(text: str) -> tuple[str, str] | None:
+    stripped = (text or "").strip()
+    if not stripped:
+        return None
+    if stripped.lower().startswith("mcp error"):
+        lowered = stripped.lower()
+        error_type = "auth_error" if "-401" in stripped or "api key" in lowered else "provider_error"
+        return error_type, stripped
+    decoded: Any = stripped
+    for _ in range(2):
+        if not isinstance(decoded, str):
+            break
+        try:
+            decoded = json.loads(decoded)
+        except json.JSONDecodeError:
+            break
+    if isinstance(decoded, dict) and decoded.get("error"):
+        return "provider_error", str(decoded.get("error"))
+    return None
+
+
 class ZhipuMCPProvider:
     def __init__(self, api_url: str, api_key: str, timeout: float = 30.0, provider_id: str = "zhipu-mcp"):
         self.api_url = api_url.rstrip("/")
@@ -159,7 +180,8 @@ class ZhipuMCPProvider:
 
         result = data.get("result") or {}
         text = _extract_text(result)
-        is_error = bool(result.get("isError"))
+        content_error = _content_error(text)
+        is_error = bool(result.get("isError")) or bool(content_error)
         output: dict[str, Any] = {
             "ok": not is_error,
             "provider": self.provider_id,
@@ -178,27 +200,28 @@ class ZhipuMCPProvider:
             output["results"] = results
             output["total"] = len(results)
         if is_error:
-            output["error_type"] = "provider_error"
-            output["error"] = text or "Zhipu MCP tool returned isError=true"
+            output["error_type"] = content_error[0] if content_error else "provider_error"
+            output["error"] = content_error[1] if content_error else (text or "Zhipu MCP tool returned isError=true")
         return output
 
     async def web_search(self, query: str, count: int = 5) -> str:
-        return await self.call_tool("webSearchPrime", {"query": query, "count": count})
+        del count
+        return await self.call_tool("web_search_prime", {"search_query": query})
 
     async def web_reader(self, url: str) -> str:
         return await self.call_tool("webReader", {"url": url})
 
     async def search_doc(self, repo: str, query: str, max_results: int = 5) -> str:
-        return await self.call_tool("search_doc", {"repo": repo, "query": query, "max_results": max_results})
+        del max_results
+        return await self.call_tool("search_doc", {"repo_name": repo, "query": query})
 
     async def get_repo_structure(self, repo: str, ref: str = "") -> str:
-        arguments = {"repo": repo}
+        arguments = {"repo_name": repo}
         if ref:
-            arguments["ref"] = ref
+            arguments["dir_path"] = ref
         return await self.call_tool("get_repo_structure", arguments)
 
     async def read_file(self, repo: str, path: str, ref: str = "") -> str:
-        arguments = {"repo": repo, "path": path}
-        if ref:
-            arguments["ref"] = ref
+        del ref
+        arguments = {"repo_name": repo, "file_path": path}
         return await self.call_tool("read_file", arguments)

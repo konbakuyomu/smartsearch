@@ -2331,7 +2331,7 @@ def build_parser() -> argparse.ArgumentParser:
     zhipu_mcp_search_parser = sub.add_parser(
         "zhipu-mcp-search",
         aliases=COMMAND_ALIASES["zhipu-mcp-search"],
-        help="Run Zhipu Coding Plan Remote MCP webSearchPrime.",
+        help="Run Zhipu Coding Plan Remote MCP web_search_prime.",
     )
     zhipu_mcp_search_parser.set_defaults(command="zhipu-mcp-search")
     zhipu_mcp_search_parser.add_argument("query")

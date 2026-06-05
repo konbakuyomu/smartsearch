@@ -234,7 +234,7 @@ Provider configuration:
   providers. It is not part of the `/paas/v4/web_search` REST provider.
 - `ZHIPU_MCP_SEARCH_API_URL` defaults to
   `https://open.bigmodel.cn/api/mcp/web_search_prime/mcp` and calls
-  `webSearchPrime` for `web_search`.
+  `web_search_prime` for `web_search`.
 - `ZHIPU_MCP_READER_API_URL` defaults to
   `https://open.bigmodel.cn/api/mcp/web_reader/mcp` and calls `webReader` for
   `web_fetch`.
@@ -761,7 +761,7 @@ When this contract changes, add or update tests that assert:
 - Jina empty/error/challenge output falls through to the next same-capability
   fetch provider;
 - `fetch URL` and known-URL `search "https://..."` use the same fetch chain;
-- Zhipu Coding Plan Remote MCP mock calls cover `webSearchPrime`,
+- Zhipu Coding Plan Remote MCP mock calls cover `web_search_prime`,
   `webReader`, `search_doc`, `get_repo_structure`, and `read_file`;
 - Zhipu MCP auth header is sent, masked, and provider errors are recorded in
   `provider_attempts` without cross-capability fallback;
