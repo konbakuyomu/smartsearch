@@ -31,6 +31,8 @@ class Config:
         "SMART_SEARCH_VALIDATION_LEVEL",
         "SMART_SEARCH_FALLBACK_MODE",
         "SMART_SEARCH_MINIMUM_PROFILE",
+        "SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS",
+        "SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS",
         "EXA_API_KEY",
         "EXA_BASE_URL",
         "EXA_TIMEOUT_SECONDS",
@@ -381,6 +383,25 @@ class Config:
             self._ALLOWED_MINIMUM_PROFILES,
         )
 
+    def _csv_values(self, key: str) -> list[str]:
+        raw = self._get_config_value(key, "") or ""
+        values: list[str] = []
+        seen: set[str] = set()
+        for item in raw.split(","):
+            value = item.strip().lower()
+            if value and value not in seen:
+                seen.add(value)
+                values.append(value)
+        return values
+
+    @property
+    def research_preferred_providers(self) -> list[str]:
+        return self._csv_values("SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS")
+
+    @property
+    def research_disabled_providers(self) -> list[str]:
+        return self._csv_values("SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS")
+
     @property
     def tavily_enabled(self) -> bool:
         return (self._get_config_value("TAVILY_ENABLED", "true") or "true").lower() in ("true", "1", "yes")
@@ -594,6 +615,8 @@ class Config:
             "SMART_SEARCH_VALIDATION_LEVEL": validation_level,
             "SMART_SEARCH_FALLBACK_MODE": fallback_mode,
             "SMART_SEARCH_MINIMUM_PROFILE": minimum_profile,
+            "SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS": ",".join(self.research_preferred_providers),
+            "SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS": ",".join(self.research_disabled_providers),
             "SMART_SEARCH_DEBUG": self.debug_enabled,
             "SMART_SEARCH_LOG_LEVEL": self.log_level,
             "SMART_SEARCH_LOG_DIR": self.log_dir_config_value,

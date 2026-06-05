@@ -557,6 +557,77 @@ def test_deep_alias_and_markdown_output(monkeypatch, capsys):
     assert "smart-search fetch" in out
 
 
+def test_research_command_uses_service_and_outputs_json(monkeypatch, capsys, tmp_path):
+    captured = {}
+
+    async def fake_research(query, budget="deep", evidence_dir="", fallback="auto"):
+        captured.update({"query": query, "budget": budget, "evidence_dir": evidence_dir, "fallback": fallback})
+        return {
+            "ok": True,
+            "mode": "deep_research_execution",
+            "query_mode": "research",
+            "question": query,
+            "final_answer": "Evidence answer",
+            "content": "Evidence answer",
+            "citations": [{"url": "https://example.com", "title": "Example", "provider": "jina"}],
+            "evidence_items": [{"url": "https://example.com", "provider": "jina", "content": "Evidence"}],
+            "gap_check": {"status": "closed", "gaps": []},
+            "provider_attempts": [],
+            "fallback_used": False,
+            "degraded": False,
+            "route_policy_version": "research-router-v1",
+            "evidence_dir": evidence_dir,
+        }
+
+    monkeypatch.setattr(cli.service, "research", fake_research)
+
+    code = cli.main([
+        "research",
+        "React docs",
+        "--budget",
+        "standard",
+        "--evidence-dir",
+        str(tmp_path),
+        "--fallback",
+        "off",
+        "--format",
+        "json",
+    ])
+
+    assert code == cli.EXIT_OK
+    data = json.loads(capsys.readouterr().out)
+    assert captured == {"query": "React docs", "budget": "standard", "evidence_dir": str(tmp_path), "fallback": "off"}
+    assert data["query_mode"] == "research"
+    assert data["final_answer"] == "Evidence answer"
+
+
+def test_research_markdown_and_content_output(monkeypatch, capsys):
+    async def fake_research(query, budget="deep", evidence_dir="", fallback="auto"):
+        return {
+            "ok": True,
+            "question": query,
+            "final_answer": "Evidence answer",
+            "content": "Evidence answer",
+            "citations": [{"url": "https://example.com", "title": "Example", "provider": "jina"}],
+            "gap_check": {"gaps": []},
+            "fallback_used": True,
+            "degraded": False,
+            "route_policy_version": "research-router-v1",
+            "evidence_dir": "C:/tmp/evidence",
+        }
+
+    monkeypatch.setattr(cli.service, "research", fake_research)
+
+    assert cli.main(["rs", "React docs", "--format", "markdown"]) == cli.EXIT_OK
+    markdown = capsys.readouterr().out
+    assert "# Research Report" in markdown
+    assert "Evidence answer" in markdown
+    assert "https://example.com" in markdown
+
+    assert cli.main(["research", "React docs", "--format", "content"]) == cli.EXIT_OK
+    assert capsys.readouterr().out == "Evidence answer\n"
+
+
 def test_exa_search_passes_powershell_split_domains(monkeypatch, capsys):
     captured = {}
 
@@ -1099,6 +1170,9 @@ def test_all_formatted_commands_have_non_json_markdown(monkeypatch):
     async def fake_smoke(mode="mock"):
         return {"ok": True, "mode": mode, "failed_cases": [], "cases": [{"name": "case", "ok": True}]}
 
+    async def fake_research(query, budget="deep", evidence_dir="", fallback="auto"):
+        return {"ok": True, "question": query, "content": "Research", "final_answer": "Research", "citations": [], "gap_check": {"gaps": []}}
+
     def fake_plan(*args, **kwargs):
         return {"ok": True, "mode": "deep_research", "question": "q", "difficulty": "standard", "evidence_policy": "fetch_before_claim"}
 
@@ -1135,6 +1209,7 @@ def test_all_formatted_commands_have_non_json_markdown(monkeypatch):
     monkeypatch.setattr(cli.service, "context7_docs", fake_c7_docs)
     monkeypatch.setattr(cli.service, "doctor", fake_doctor)
     monkeypatch.setattr(cli.service, "smoke", fake_smoke)
+    monkeypatch.setattr(cli.service, "research", fake_research)
     monkeypatch.setattr(cli.service, "build_deep_research_plan", fake_plan)
     monkeypatch.setattr(cli.service, "config_path", fake_config_path)
     monkeypatch.setattr(cli.service, "config_list", fake_config_list)
@@ -1158,6 +1233,7 @@ def test_all_formatted_commands_have_non_json_markdown(monkeypatch):
         ("context7-library", ["context7-library", "react", "--format", "markdown"]),
         ("context7-docs", ["context7-docs", "/lib", "hooks", "--format", "markdown"]),
         ("deep", ["deep", "query", "--format", "markdown"]),
+        ("research", ["research", "query", "--format", "markdown"]),
         ("smoke", ["smoke", "--format", "markdown"]),
         ("doctor", ["doctor", "--format", "markdown"]),
         ("diagnose", ["diagnose", "openai-compatible", "--format", "markdown"]),
@@ -1187,6 +1263,7 @@ def test_all_formatted_commands_have_non_json_markdown(monkeypatch):
             "context7-library": {"ok": True, "results": [{"id": "/lib", "title": "Library"}]},
             "context7-docs": {"ok": True, "library_id": "/lib", "query": "hooks", "content": "Docs"},
             "deep": {"ok": True, "mode": "deep_research", "question": "q", "difficulty": "standard", "evidence_policy": "fetch_before_claim"},
+            "research": {"ok": True, "question": "q", "content": "Research", "final_answer": "Research", "citations": [], "gap_check": {"gaps": []}},
             "smoke": {"ok": True, "mode": "mock", "failed_cases": [], "cases": [{"name": "case", "ok": True}]},
             "doctor": {"ok": True, "config_status": "ok", "minimum_profile_ok": True},
             "diagnose": {"ok": True, "provider": "openai-compatible", "summary": "ok", "recommendation": "none"},
@@ -1918,6 +1995,9 @@ def test_smoke_command_uses_service(monkeypatch, capsys):
     async def fake_smoke(mode="mock"):
         return {"ok": True, "mode": mode, "failed_cases": [], "cases": []}
 
+    async def fake_research(*args, **kwargs):
+        return {"ok": True, "query_mode": "research", "content": "Research"}
+
     monkeypatch.setattr(cli.service, "smoke", fake_smoke)
 
     code = cli.main(["smoke", "--mode", "mock"])
@@ -2044,6 +2124,9 @@ def test_provider_and_smoke_aliases_use_canonical_commands(monkeypatch, capsys):
     async def fake_smoke(mode="mock"):
         return {"ok": True, "mode": mode, "failed_cases": [], "cases": []}
 
+    async def fake_research(*args, **kwargs):
+        return {"ok": True, "query_mode": "research", "content": "Research"}
+
     monkeypatch.setattr(cli.service, "exa_search", fake_exa_search)
     monkeypatch.setattr(cli.service, "zhipu_search", fake_zhipu_search)
     monkeypatch.setattr(cli.service, "context7_library", fake_context7_library)
@@ -2053,6 +2136,7 @@ def test_provider_and_smoke_aliases_use_canonical_commands(monkeypatch, capsys):
     monkeypatch.setattr(cli.service, "anysearch_extract", fake_anysearch_extract)
     monkeypatch.setattr(cli.service, "anysearch_batch", fake_anysearch_batch)
     monkeypatch.setattr(cli.service, "smoke", fake_smoke)
+    monkeypatch.setattr(cli.service, "research", fake_research)
 
     assert cli.main(["exa", "query"]) == cli.EXIT_OK
     assert json.loads(capsys.readouterr().out)["provider"] == "exa"
@@ -2070,6 +2154,8 @@ def test_provider_and_smoke_aliases_use_canonical_commands(monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out)["provider"] == "context7-library"
     assert cli.main(["c7docs", "/facebook/react", "hooks"]) == cli.EXIT_OK
     assert json.loads(capsys.readouterr().out)["provider"] == "context7-docs"
+    assert cli.main(["rs", "query"]) == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["query_mode"] == "research"
     assert cli.main(["sm"]) == cli.EXIT_OK
     assert json.loads(capsys.readouterr().out)["mode"] == "mock"
 

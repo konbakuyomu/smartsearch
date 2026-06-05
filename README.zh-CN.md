@@ -2,7 +2,7 @@
 
 简体中文 | [English](README.md)
 
-`smart-search` 是一个给 AI 助手和命令行用户使用的 CLI-first 网页研究工具。它把普通联网搜索、来源发现、网页正文抓取、站点 map、配置检查和 Deep Research 规划统一成一个可复现的命令层。
+`smart-search` 是一个给 AI 助手和命令行用户使用的 CLI-first 网页研究工具。它把普通联网搜索、来源发现、网页正文抓取、站点 map、配置检查、Deep Research 离线规划和 live Deep Research 执行统一成一个可复现的命令层。
 
 <p>
   <a href="https://www.npmjs.com/package/@konbakuyomu/smart-search">
@@ -20,6 +20,7 @@
 smart-search search "今天 OpenAI Responses API 有什么新变化" --format json
 smart-search fetch "https://example.com/article" --format markdown
 smart-search deep "OpenAI Responses API web_search 和 Chat Completions 联网搜索怎么选" --format json
+smart-search research "OpenAI Responses API web_search 和 Chat Completions 联网搜索怎么选" --format markdown
 ```
 
 当前架构分两层：
@@ -29,7 +30,7 @@ smart-search deep "OpenAI Responses API web_search 和 Chat Completions 联网�
 | CLI 执行层 | 稳定执行命令、provider 路由、同能力兜底、JSON/Markdown 输出、本机配置、smoke/regression |
 | Skill / AI 编排层 | 判断用户意图，决定普通搜索还是 Deep Research，按计划执行 CLI 积木，最后写出有来源支撑的回答 |
 
-`smart-search search` 保持快速、直接联网。`smart-search deep` 是显式 Deep Research 离线规划入口：默认不联网、不跑 provider、不抓网页，只输出 `research_plan`。真正联网发生在 AI 或用户继续执行 `steps[].command` 的时候。
+`smart-search search` 保持快速、直接联网。`smart-search deep` 是显式 Deep Research 离线规划入口：默认不联网、不跑 provider、不抓网页，只输出 `research_plan`。真正联网可以由 AI 或用户继续执行 `steps[].command`，也可以交给新的 `smart-search research` live 执行器完成。`research` 会按 plan -> discover -> fetch/read -> gap check -> evidence-only synthesis 执行。
 
 ## 安装
 
@@ -82,7 +83,13 @@ smart-search fetch "https://example.com/source" --format markdown --output evide
 smart-search deep "深度搜索一下最近的比特币行情" --budget standard --format json
 ```
 
-5. 把 skill 安装给 AI 工具：
+5. 让 CLI 直接执行 live Deep Research：
+
+```powershell
+smart-search research "深度搜索一下最近的比特币行情" --budget deep --format markdown
+```
+
+6. 把 skill 安装给 AI 工具：
 
 ```powershell
 smart-search setup --non-interactive --install-skills codex,claude,cursor,hermes
@@ -92,7 +99,7 @@ Skill 安装会把内置 `smart-search-cli` 写入用户级工具目录，例如
 `~/.claude/skills`、`~/.cursor/skills`、`~/.hermes/skills`。它不会初始化 Trellis、hooks、
 agents 或 commands。`--skills-root PATH` 只适合便携安装或测试时高级覆盖根目录。
 
-6. 升级 CLI 后，同步已经安装到全局 AI 工具里的 skill：
+7. 升级 CLI 后，同步已经安装到全局 AI 工具里的 skill：
 
 ```powershell
 smart-search skills status --targets codex --format json
@@ -114,6 +121,7 @@ Trellis、hooks、agents 或 commands。
 | `vertical_search` | `anysearch-domains`、`anysearch-search`、`anysearch-extract`、`anysearch-batch` | AnySearch（实验） | 验收 CVE、金融、法律、学术、代码/文档等结构化垂直域 |
 | `site_map` | `map` | Tavily | 文档站、产品站、目录型站点结构 |
 | `deep_planner` | `deep` / `dr` | 本地 planner | 离线生成 Deep Research 计划，不默认联网 |
+| `research_executor` | `research` / `rs` | 按 capability 注册的 provider | live 深度研究执行：规划、发现、抓取/读取、gap check、仅基于证据综合 |
 
 同能力兜底关系：
 
@@ -144,7 +152,7 @@ Jina Reader 只属于 `web_fetch`，不是通用搜索 provider。只有配置 `
 
 `extra_sources` 只是候选来源，不等于自动事实校验。新闻、政策、财经、医疗、严肃评测、工具选型等高风险问题，建议先发现来源，再 `fetch` 关键网页正文，最后只基于抓到的正文写结论。
 
-搜索引擎选择速记：先用 `search` 做宽泛探索和综合；中文、国内、政策、公告、当前新闻优先补 `zhipu-search`；只有明确要用 Coding Plan 额度时才走 `zhipu-mcp-*`；库/API/框架文档优先用 Context7；官方域名、论文、产品页、可信站点和低噪声发现再用 Exa；Tavily/Firecrawl 通过 `search --extra-sources` 做横向候选，通过 `fetch` 做正文证据；Jina 用于已知 URL 正文抓取；AnySearch 只在明确要实验性垂直搜索时使用。
+搜索引擎选择速记：先用 `search` 做宽泛探索和综合；想让 CLI 执行完整证据流时用 `research`；中文、国内、政策、公告、当前新闻优先补 `zhipu-search`；只有明确要用 Coding Plan 额度时才走 `zhipu-mcp-*`；库/API/框架文档优先用 Context7；官方域名、论文、产品页、可信站点和低噪声发现再用 Exa；Tavily/Firecrawl 通过 `search --extra-sources` 做横向候选，通过 `fetch` 做正文证据；Jina 用于已知 URL 正文抓取；AnySearch 只在明确要实验性垂直搜索时使用。
 
 ## Deep Research 深度搜索
 
@@ -154,7 +162,7 @@ Jina Reader 只属于 `web_fetch`，不是通用搜索 provider。只有配置 `
 smart-search search "React useEffect cleanup 文档" --format json
 ```
 
-需要深度搜索、拆解、核验、选型、严肃评测、多来源交叉验证时用：
+需要先拆解、规划、再由你或 AI 分步执行时用：
 
 ```powershell
 smart-search deep "OpenAI Responses API web_search 和 Chat Completions 联网搜索怎么选" --budget deep --format json
@@ -183,6 +191,28 @@ search, exa-search, exa-similar, zhipu-search, context7-library, context7-docs, 
 `doctor` 是 preflight 配置预检，不是 research step。`smart-search deep` 这一步本身是离线 planner；后续执行计划里的 `steps[].command` 时才会联网。
 
 换句话说，`doctor` 只是配置预检；它帮助 AI 判断当前 provider 是否可用，但不算 Deep Research 的取证步骤。
+
+如果你希望 CLI 直接执行完整 live Deep Research，用：
+
+```powershell
+smart-search research "OpenAI Responses API web_search 和 Chat Completions 联网搜索怎么选" --budget deep --fallback auto --format json
+smart-search rs "https://example.com/source" --fallback off --format markdown
+```
+
+`research` 会执行 plan -> discover -> fetch/read -> gap check -> evidence-only synthesis。默认 `--fallback auto`，会在同一 capability 内兜底；`--fallback off` 只尝试每个 capability 选中的第一个 provider，适合手动调试某个 provider。
+
+`research` JSON 会包含 `final_answer`、`citations`、`evidence_items`、`gap_check`、`provider_attempts`、`fallback_used`、`degraded`、`route_policy_version` 和 `evidence_dir`。发现阶段的 snippet 只是候选，不会直接变成 citation；只有 fetch/read 到正文的来源才会被引用。兜底仍然补不齐证据时，`research` 会降级输出 gap，不会编造结论。
+
+`research` 的路由是 capability-first 加 provider 优势：
+
+- Context7 优先处理库/API/框架文档，Exa 用于官方域名、论文、产品页、可信站点和低噪声发现。
+- 智谱 Web Search API 优先处理中文、国内、时效、政策、公告搜索。
+- 智谱 Coding Plan MCP 仍是单独额度路线，通过 `webSearchPrime` 和 `webReader` 加入对应 capability。
+- Jina 优先用于已知公开 URL、PDF、arXiv 正文抽取；ReaderLM-v2 仍要求 `JINA_API_KEY`。
+- Firecrawl 优先用于 JS-heavy、动态页面、浏览器式抽取、OCR/PDF 或强兜底抓取。
+- AnySearch 只在垂直意图清楚时加入，例如 CVE、金融、法律、学术、代码库/仓库搜索。
+
+高级路由覆盖项是 `SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS` 和 `SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS`。它们只能在 provider 已支持的 capability 内调整顺序或禁用，不能把 provider 移到另一个 capability。
 
 可以用这些标准问题测试是否进入深搜模式：
 
@@ -315,6 +345,8 @@ smart-search anysearch-batch "AAPL" "RAG papers" --max-results 2 --format json
 | `FIRECRAWL_API_KEY` | Firecrawl key |
 | `SMART_SEARCH_VALIDATION_LEVEL` | `fast`、`balanced`、`strict` |
 | `SMART_SEARCH_FALLBACK_MODE` | `auto` 或 `off` |
+| `SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS` | `research` 路由优先 provider CSV，只能在同 capability 内调整顺序 |
+| `SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS` | `research` 禁用 provider CSV，不能改变 provider capability 边界 |
 | `SMART_SEARCH_CONFIG_DIR` | 指定本机配置和日志根目录 |
 
 ## 常用命令
@@ -323,6 +355,7 @@ smart-search anysearch-batch "AAPL" "RAG papers" --max-results 2 --format json
 | --- | --- | --- |
 | `search` | `s` | 快速联网搜索和综合回答 |
 | `deep` | `dr` | Deep Research 离线计划 |
+| `research` | `rs` | live Deep Research 执行 |
 | `fetch` | `f` | 抓一个 URL 正文 |
 | `map` | `m` | 读取站点结构 |
 | `exa-search` | `exa`、`x` | Exa 来源发现 |
@@ -350,6 +383,7 @@ smart-search anysearch-batch "AAPL" "RAG papers" --max-results 2 --format json
 
 ```powershell
 smart-search search "query" --validation balanced --extra-sources 3 --timeout 90 --format json --output result.json
+smart-search research "query" --budget deep --fallback auto --format json --output research.json
 smart-search search "query" --stream --format json
 smart-search search "query" --no-stream --format json
 smart-search search "nba战报" --format content

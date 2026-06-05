@@ -1,4 +1,5 @@
 import json
+import time
 
 import httpx
 import pytest
@@ -280,6 +281,220 @@ def test_deep_research_quick_budget_keeps_fetch_and_valid_subquestion_links():
     assert all(step["subquestion_id"] in subquestion_ids for step in result["steps"])
     for step in result["steps"]:
         assert step["output_path"] in step["command"]
+
+
+def _configure_research_minimum(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://api.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "sk-test-secret")
+    monkeypatch.setenv("CONTEXT7_API_KEY", "ctx-secret")
+    monkeypatch.setenv("EXA_API_KEY", "exa-secret")
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-secret")
+    monkeypatch.setenv("JINA_API_KEY", "jina-secret")
+
+
+def _research_plan(query: str) -> dict:
+    return service.build_deep_research_plan(query, budget="deep", evidence_dir="C:/tmp/smart-search-evidence/test")
+
+
+def test_research_provider_profiles_are_registered_with_capability_boundaries():
+    profiles = service.provider_profiles()
+
+    assert profiles["jina"]["capability"] == "web_fetch"
+    assert "web_fetch" in profiles["tavily"]["capabilities"]
+    assert "web_search" in profiles["firecrawl"]["capabilities"]
+    assert profiles["jina"]["fallback_group"] == "web_fetch"
+    assert profiles["jina"]["minimum_profile_role"] == "web_fetch_with_key"
+    assert "challenge page rejection" in profiles["jina"]["quality_filters"]
+    assert "known URL extraction" in profiles["jina"]["route_reasons"]
+    assert profiles["anysearch"]["experimental"] is True
+
+
+def test_research_router_prefers_context7_for_docs_and_keeps_anysearch_out(monkeypatch):
+    _configure_research_minimum(monkeypatch)
+
+    routes = service._research_capability_routes("React useEffect API docs", _research_plan("React useEffect API docs"), "auto")
+
+    assert routes["signals"]["docs_api_intent"] is True
+    assert routes["capabilities"]["docs_search"]["providers"][:2] == ["context7", "exa"]
+    assert routes["capabilities"]["vertical_search"]["providers"] == []
+
+
+def test_research_router_uses_zhipu_for_chinese_current_policy(monkeypatch):
+    _configure_research_minimum(monkeypatch)
+    monkeypatch.setenv("ZHIPU_API_KEY", "zhipu-secret")
+
+    routes = service._research_capability_routes("今天国内 AI 政策最新公告", _research_plan("今天国内 AI 政策最新公告"), "auto")
+
+    assert routes["signals"]["current_or_locale_intent"] is True
+    assert routes["capabilities"]["web_search"]["providers"][0] == "zhipu"
+
+
+def test_research_router_favors_jina_for_known_url_pdf_and_firecrawl_for_dynamic(monkeypatch):
+    _configure_research_minimum(monkeypatch)
+    monkeypatch.setenv("FIRECRAWL_API_KEY", "firecrawl-secret")
+
+    assert service._research_fetch_order("summarize https://arxiv.org/pdf/2401.00001.pdf")[0] == "jina"
+    assert service._research_fetch_order("抓取这个 dynamic javascript cloudflare 页面", "https://example.com/app")[0] == "firecrawl"
+
+
+def test_research_router_uses_anysearch_only_for_vertical_intent(monkeypatch):
+    _configure_research_minimum(monkeypatch)
+    monkeypatch.setenv("ANYSEARCH_API_KEY", "any-secret")
+
+    generic = service._research_capability_routes("React useEffect API docs", _research_plan("React useEffect API docs"), "auto")
+    vertical = service._research_capability_routes("CVE-2026 OpenSSL 漏洞影响范围", _research_plan("CVE-2026 OpenSSL 漏洞影响范围"), "auto")
+
+    assert generic["capabilities"]["vertical_search"]["providers"] == []
+    assert vertical["capabilities"]["vertical_search"]["providers"] == ["anysearch"]
+
+
+def test_research_overrides_cannot_move_provider_across_capability(monkeypatch):
+    _configure_research_minimum(monkeypatch)
+    monkeypatch.setenv("SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS", "jina,zhipu,unknown-provider")
+    monkeypatch.setenv("SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS", "tavily")
+
+    routes = service._research_capability_routes("今天国内 AI 新闻", _research_plan("今天国内 AI 新闻"), "auto")
+
+    assert "unknown-provider" in routes["invalid_provider_overrides"]
+    assert "jina" not in routes["capabilities"]["web_search"]["providers"]
+    assert "tavily" not in routes["capabilities"]["web_fetch"]["providers"]
+    assert routes["capabilities"]["web_fetch"]["providers"][0] == "jina"
+
+
+def test_research_fallback_detection_is_same_capability_only():
+    cross_capability_attempts = [
+        service._attempt("docs_search", "context7", "empty", time.time()),
+        service._attempt("web_fetch", "jina", "ok", time.time(), result_count=1),
+    ]
+    same_capability_attempts = [
+        service._attempt("web_fetch", "jina", "empty", time.time()),
+        service._attempt("web_fetch", "firecrawl", "ok", time.time(), result_count=1),
+    ]
+
+    assert service._fallback_used(cross_capability_attempts) is False
+    assert service._fallback_used(same_capability_attempts) is True
+
+
+@pytest.mark.asyncio
+async def test_research_executes_staged_evidence_only_workflow(monkeypatch, tmp_path):
+    _configure_research_minimum(monkeypatch)
+    monkeypatch.setenv("ZHIPU_API_KEY", "zhipu-secret")
+
+    async def fake_web_search(query, count=5, providers="auto", fallback="auto"):
+        return (
+            [{"url": "https://evidence.example.com/source", "title": "Source", "provider": "zhipu"}],
+            [service._attempt("web_search", "zhipu", "ok", time.time(), result_count=1)],
+        )
+
+    async def fake_fetch(url, fallback="auto", preferred_order=None):
+        return (
+            {"ok": True, "url": url, "provider": "jina", "content": "# Evidence\nFetched body only."},
+            [service._attempt("web_fetch", "jina", "ok", time.time(), result_count=1)],
+        )
+
+    monkeypatch.setattr(service, "_run_web_search_fallback", fake_web_search)
+    monkeypatch.setattr(service, "_run_web_fetch_fallback", fake_fetch)
+
+    result = await service.research("今天国内 AI 新闻", evidence_dir=str(tmp_path), fallback="auto")
+
+    assert result["ok"] is True
+    assert result["query_mode"] == "research"
+    assert result["route_policy_version"] == service.RESEARCH_ROUTE_POLICY_VERSION
+    assert result["evidence_items"][0]["url"] == "https://evidence.example.com/source"
+    assert result["citations"] == [{"url": "https://evidence.example.com/source", "title": "Source", "provider": "jina"}]
+    assert "Fetched body only" in result["final_answer"]
+    assert "zhipu" in [attempt["provider"] for attempt in result["provider_attempts"]]
+    assert (tmp_path / "summary.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_research_reports_degraded_gaps_without_citing_discovery_candidates(monkeypatch, tmp_path):
+    _configure_research_minimum(monkeypatch)
+    monkeypatch.setenv("ZHIPU_API_KEY", "zhipu-secret")
+
+    async def fake_web_search(query, count=5, providers="auto", fallback="auto"):
+        return (
+            [{"url": "https://candidate.example.com", "title": "Candidate", "provider": "zhipu"}],
+            [service._attempt("web_search", "zhipu", "ok", time.time(), result_count=1)],
+        )
+
+    async def fake_fetch(url, fallback="auto", preferred_order=None):
+        return (
+            None,
+            [
+                service._attempt("web_fetch", "jina", "empty", time.time()),
+                service._attempt("web_fetch", "tavily", "empty", time.time()),
+            ],
+        )
+
+    monkeypatch.setattr(service, "_run_web_search_fallback", fake_web_search)
+    monkeypatch.setattr(service, "_run_web_fetch_fallback", fake_fetch)
+
+    result = await service.research("今天国内 AI 新闻", evidence_dir=str(tmp_path), fallback="auto")
+
+    assert result["ok"] is False
+    assert result["degraded"] is True
+    assert result["citations"] == []
+    assert result["evidence_items"] == []
+    assert result["gap_check"]["status"] == "failed"
+    assert result["fallback_used"] is True
+    assert "no fetched/read evidence" in result["gap_check"]["gaps"][-1]["reason"]
+
+
+@pytest.mark.asyncio
+async def test_research_fallback_off_limits_same_capability_fetch(monkeypatch, tmp_path):
+    _configure_research_minimum(monkeypatch)
+
+    async def fake_fetch(url, fallback="auto", preferred_order=None):
+        attempts = [service._attempt("web_fetch", preferred_order[0], "empty", time.time())]
+        return None, attempts
+
+    async def should_not_discover(*args, **kwargs):
+        raise AssertionError("known URL with fallback off should not need discovery after fetch failure")
+
+    monkeypatch.setattr(service, "_run_web_fetch_fallback", fake_fetch)
+    monkeypatch.setattr(service, "_run_web_search_fallback", should_not_discover)
+
+    result = await service.research("https://example.com/source", evidence_dir=str(tmp_path), fallback="off")
+
+    fetch_attempts = [attempt for attempt in result["provider_attempts"] if attempt["capability"] == "web_fetch"]
+    assert [attempt["provider"] for attempt in fetch_attempts] == ["jina"]
+    assert result["fallback_used"] is False
+    assert result["gap_check"]["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_research_fallback_off_does_not_run_supplemental_exa(monkeypatch, tmp_path):
+    _configure_research_minimum(monkeypatch)
+    monkeypatch.setenv("ZHIPU_API_KEY", "zhipu-secret")
+
+    async def fake_context7_library(*args, **kwargs):
+        return {"ok": False, "error_type": "", "error": "", "results": []}
+
+    async def fail_exa(*args, **kwargs):
+        raise AssertionError("research --fallback off must not run supplemental Exa outside the selected route")
+
+    async def fake_web_search(query, count=5, providers="auto", fallback="auto"):
+        return (
+            [{"url": "https://official.example.com/source", "title": "Official", "provider": "zhipu"}],
+            [service._attempt("web_search", "zhipu", "ok", time.time(), result_count=1)],
+        )
+
+    async def fake_fetch(url, fallback="auto", preferred_order=None):
+        return (
+            {"ok": True, "url": url, "provider": preferred_order[0], "content": "# Evidence\nOfficial body."},
+            [service._attempt("web_fetch", preferred_order[0], "ok", time.time(), result_count=1)],
+        )
+
+    monkeypatch.setattr(service, "context7_library", fake_context7_library)
+    monkeypatch.setattr(service, "exa_search", fail_exa)
+    monkeypatch.setattr(service, "_run_web_search_fallback", fake_web_search)
+    monkeypatch.setattr(service, "_run_web_fetch_fallback", fake_fetch)
+
+    result = await service.research("React official API docs", evidence_dir=str(tmp_path), fallback="off")
+
+    assert result["ok"] is True
+    assert all(attempt["provider"] != "exa" for attempt in result["provider_attempts"])
 
 
 def test_legacy_main_search_config_keys_are_rejected(monkeypatch, tmp_path):

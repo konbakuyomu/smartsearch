@@ -82,9 +82,12 @@ def test_deep_research_skill_contract_public_and_packaged_assets_match():
         "C:\\tmp\\smart-search-evidence",
         "mock-full plus live-limited",
         "public planner entrypoint",
+        "public live executor entrypoint",
         "not an executor",
         "does not change default `smart-search search`",
         "does not depend on an MCP session",
+        "SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS",
+        "provider advantage routing",
     ]
     for marker in required_markers:
         assert marker in public_text
@@ -97,6 +100,7 @@ def test_deep_research_cli_contract_documents_plan_and_smoke_matrix():
     required_markers = [
         "Deep Research Skill Contract",
         "`smart-search deep` is the public offline planner command",
+        "`smart-search research` is the public live executor command",
         "must not change default `smart-search search` behavior",
         "`mode`: always `deep_research`",
         "`query_mode`: always `deep`",
@@ -117,6 +121,8 @@ def test_deep_research_cli_contract_documents_plan_and_smoke_matrix():
         "must not require fixed topic recipe ids",
         "fixed topic recipe ids are not required schema",
         "Mock-full coverage should cover trigger phrases",
+        "research provider advantage routing",
+        "`research --fallback auto` permits same-capability fallback",
         "Live-limited coverage should run `doctor`, one broad `search`, one `exa-search`, and one `fetch`",
         "`smart-search skills status --targets codex,claude,cursor,hermes --format json`",
         "`smart-search skills update --targets codex,claude,cursor,hermes --format json`",
@@ -176,6 +182,9 @@ def test_deep_research_readme_documents_capability_orchestration():
     readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
     english_markers = [
         "Deep Research is not a fixed topic recipe system",
+        "smart-search research",
+        "`route_policy_version`",
+        "provider-advantage",
         "`intent_signals`",
         "`decomposition`",
         "`capability_plan`",
@@ -191,6 +200,9 @@ def test_deep_research_readme_documents_capability_orchestration():
     ]
     chinese_markers = [
         "Deep Research 不是固定题材配方",
+        "smart-search research",
+        "`route_policy_version`",
+        "provider 优势",
         "`intent_signals`",
         "`decomposition`",
         "`capability_plan`",

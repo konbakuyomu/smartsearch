@@ -29,6 +29,12 @@ smart-search search QUERY
   [--providers auto|CSV]
   [--stream | --no-stream]
   [--format json|markdown|content]
+smart-search research QUERY
+  [--budget quick|standard|deep]
+  [--evidence-dir PATH]
+  [--fallback auto|off]
+  [--format json|markdown|content]
+  [--output PATH]
 
 smart-search doctor --format json|markdown|content
 smart-search diagnose openai-compatible
@@ -81,6 +87,7 @@ get_capability_status() -> dict[str, Any]
 validate_minimum_profile() -> dict[str, Any]
 search(query, platform="", model="", extra_sources=0,
        validation="", fallback="", providers="auto") -> dict[str, Any]
+research(query, budget="deep", evidence_dir="", fallback="auto") -> dict[str, Any]
 doctor() -> dict[str, Any]
 diagnose_openai_compatible(timeout_seconds=30.0) -> dict[str, Any]
 smoke(mode="mock") -> dict[str, Any]
@@ -113,7 +120,15 @@ Deep Research planner orchestration:
 - `smart-search deep` is a planner, not an executor. It must not call live
   providers, run `doctor`, fetch pages, or change configuration by default.
   Live research happens only when the AI agent or user executes the planned
-  `steps[].command` values.
+  `steps[].command` values, or when the user calls `smart-search research`.
+- `smart-search research QUERY [--budget quick|standard|deep] [--evidence-dir
+  PATH] [--fallback auto|off]` is the live Deep Research executor. It performs
+  plan -> source discovery -> fetch/read -> gap check -> evidence-only
+  synthesis.
+- `research --fallback auto` is the default and permits same-capability
+  fallback inside selected routes. `research --fallback off` tries only the
+  first selected provider for each capability and is intended for debugging and
+  deterministic provider checks.
 - `smart-search search` remains the fast live-search entrypoint and must not be
   silently upgraded into Deep Research.
 - Deep Research planning is capability-based. Do not require fixed topic recipe
@@ -148,6 +163,28 @@ Deep Research planner orchestration:
   questions, `fetch` plus `exa-similar` for known URLs, and `exa-search` only
   for official domains, papers, product pages, trusted sites, or explicit
   low-noise discovery needs.
+- Research provider selection is capability-first and provider-advantage
+  second. Future providers must register a profile before joining `research`.
+  Profiles declare supported capability, strengths, exclusions, fallback group,
+  minimum-profile role, quality filters, route reasons, and experimental status.
+- Safe research overrides are
+  `SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS` and
+  `SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS`. They may reorder or disable
+  providers only inside capabilities the provider already supports. Unknown
+  providers are reported in routing metadata and ignored; overrides must never
+  move a provider across capability boundaries.
+- Baseline `research` provider advantages:
+  Context7 for library/API/framework docs; Exa for official domains, papers,
+  product/company pages, date/domain-filtered low-noise discovery, and adjacent
+  sources; Zhipu REST for Chinese/domestic/current/policy/announcement
+  searches; Zhipu MCP only as the separate Coding Plan quota route; Tavily for
+  broad discovery and site maps; Jina for known public URL/PDF/arXiv clean
+  extraction; Firecrawl for JS-heavy/dynamic/browser-like/OCR/PDF/structured
+  extraction fallback; AnySearch only when vertical intent is clear.
+- Research final synthesis receives only fetched/read evidence and structured
+  source metadata. It must not call web providers again and must not cite
+  unfetched discovery candidates as proof. If evidence cannot close, return a
+  degraded result with explicit gaps instead of unsupported claims.
 
 Minimum profile:
 
@@ -343,12 +380,15 @@ Output contracts:
   metadata, and full long error/message detail instead of falling back to raw
   JSON.
 - `--format content` prints only the `content` field for content-bearing
-  commands (`search`, `fetch`, `context7-docs`). Commands without a `content`
-  field, including `doctor`, `smoke`, `config`, and `model`, must print a
-  compact non-empty text summary rather than empty stdout.
+  commands (`search`, `fetch`, `context7-docs`, `research`). Commands without a
+  `content` field, including `doctor`, `smoke`, `config`, and `model`, must
+  print a compact non-empty text summary rather than empty stdout.
 - Include observability fields: `routing_decision`, `providers_used`,
   `provider_attempts`, `fallback_used`, `validation_level`,
   `minimum_profile_ok`, and `capability_status`.
+- `research` JSON must include `final_answer`, `content`, `citations`,
+  `evidence_items`, `gap_check`, `provider_attempts`, `fallback_used`,
+  `degraded`, `route_policy_version`, and `evidence_dir`.
 - `search` must expose the effective OpenAI-compatible stream decision in
   `routing_decision.openai_compatible_stream` when that provider is attempted.
 - AnySearch command output must include `provider="anysearch"`, `tool`,
@@ -547,6 +587,7 @@ smart-search doctor --format json
 | Provider HTTP/network/timeout/schema error | Record `provider_attempts[].status="error"` and try next same-capability provider when fallback is `auto` |
 | Provider returns empty normalized result | Record `status="empty"` and try next same-capability provider when fallback is `auto` |
 | `--fallback off` | Try only the first matching provider in the capability chain |
+| `research --fallback off` | Try only the first selected provider inside each capability route and report gaps rather than continuing through same-capability fallback |
 | Docs intent is false | Do not invoke Context7 or Exa as generic web-search fallback |
 | Fetch intent or known URL flow | Use the shared `web_fetch` chain only: Tavily, Jina with key, Zhipu MCP Reader, then Firecrawl |
 | Jina Reader has no `JINA_API_KEY` | Do not register it as configured `web_fetch`; standard minimum profile remains missing unless another fetch provider is configured |
@@ -575,6 +616,9 @@ smart-search doctor --format json
 | Packaged npm/mise install runs `smart-search regression` without `tests/` | Run built-in mock smoke fallback and report that repository tests are absent |
 | Skill contract changes | Keep `skills/smart-search-cli/**` and `src/smart_search/assets/skills/smart-search-cli/**` synchronized |
 | Deep Research skill contract changes | Assert `intent_signals`, `capability_plan`, `gap_check`, expanded tool allowlist, non-recipe schema, and README coverage |
+| Research executor has discovery snippets but no fetched evidence | Return degraded or failed gap report and do not cite discovery candidates |
+| Research provider advantage route changes | Add mock routing tests for docs/API, Chinese/current/policy, known URL/PDF/arXiv, JS-heavy/dynamic fetch, and vertical AnySearch intent |
+| Research fallback route changes | Assert fallback never crosses capability, provider failures and quality errors are recorded, and `--fallback off` disables same-capability fallback |
 | Already published npm version needs changed packaged assets | Do not assume retagging updates npm; cut a new patch version for installable artifacts |
 | Need a test npm publish without moving `latest` | Push a commit to `main` and verify the Actions run publishes `<base>-beta.N` with dist-tag `next` |
 
@@ -669,6 +713,13 @@ When this contract changes, add or update tests that assert:
 - capability fallback order is fixed and same-capability only;
 - provider error and empty result both trigger fallback;
 - `--fallback off` stops after the first provider;
+- provider profiles route `research` by capability first and provider advantage
+  second;
+- `research` executes staged plan, discovery, fetch/read, gap check, and
+  evidence-only synthesis with mocked providers;
+- `research` does not cite unfetched discovery candidates and returns degraded
+  gaps when evidence cannot close;
+- `research --fallback off` disables same-capability fallback;
 - provider filters apply to main-search ids and aliases;
 - xAI Responses and OpenAI-compatible use separate explicit config families;
 - `XAI_API_KEY` alone does not fabricate an OpenAI-compatible fallback;

@@ -26,11 +26,12 @@ Use the local `smart-search` command as the default execution layer for web rese
 15. Use `smart-search map` when a documentation site or domain structure matters.
 16. Use `smart-search model current` only to inspect explicit provider models. To change models, use `smart-search config set XAI_MODEL ...` or `smart-search config set OPENAI_COMPATIBLE_MODEL ...`.
 17. For current-news, policy, finance, health, or other high-risk facts, do not answer from broad `search.content` alone. Select the second source by intent: Zhipu for Chinese/current/domestic, Context7 for docs/API, Exa for official/trusted domains or papers, then `fetch` key pages and summarize only what fetched text supports.
-18. Preserve command lines and source URLs in your answer. Prefer citing fetched pages or `primary_sources`; treat `extra_sources` as follow-up candidates, not verified evidence for generated claims.
+18. Use `smart-search research "question" --format json` when the user wants the CLI to run live Deep Research end to end instead of only planning. It executes plan -> discover -> fetch/read -> gap check -> evidence-only synthesis.
+19. Preserve command lines and source URLs in your answer. Prefer citing fetched pages or `primary_sources`; treat `extra_sources` as follow-up candidates, not verified evidence for generated claims.
 
 ## Deep Research Mode
 
-Use Deep Research Mode when the user asks for `深度搜索`, `深度调研`, `深入搜索`, `deep search`, `deep research`, multi-source verification, cross-checking, serious review, or selection/comparison research. This is a capability-based orchestration workflow: the AI agent calls `smart-search deep "question" --format json` to get an offline plan, then composes existing `smart-search` CLI building blocks, the CLI executes those later commands, and JSON/Markdown files provide reproducible evidence. `smart-search deep` is a public planner entrypoint, not an executor; it does not call providers, run `doctor`, or fetch pages by default. It does not change default `smart-search search`, and it does not depend on an MCP session.
+Use Deep Research Mode when the user asks for `深度搜索`, `深度调研`, `深入搜索`, `deep search`, `deep research`, multi-source verification, cross-checking, serious review, or selection/comparison research. This is a capability-based orchestration workflow. The offline route calls `smart-search deep "question" --format json` to get a plan, then composes existing `smart-search` CLI building blocks. The live executor route calls `smart-search research "question" --format json` and lets the CLI execute plan -> discover -> fetch/read -> gap check -> evidence-only synthesis. `smart-search deep` is a public planner entrypoint, not an executor; it does not call providers, run `doctor`, or fetch pages by default. `smart-search research` is the public live executor entrypoint. This does not change default `smart-search search`, and it does not depend on an MCP session.
 
 Do not select a fixed topic recipe. Market, product, technical docs, news, policy, claim-checking, and URL-first prompts are examples of user language, not schema modes. Decide from intent dimensions and capability needs.
 
@@ -122,6 +123,27 @@ Default Deep Research orchestration:
 7. Run `gap_check`: if an important claim lacks fetched evidence, fetch another source or mark the claim/source as unverified.
 
 Default evidence policy is `fetch_before_claim`: key claims in the final answer must be supported by fetched page text. Treat `primary_sources` and `extra_sources` as discovery candidates until the relevant URL has been fetched. The final answer should include fetched evidence, unverified candidate sources, and key commands used.
+
+Live Deep Research executor:
+
+- `smart-search research QUERY [--budget quick|standard|deep] [--evidence-dir PATH] [--fallback auto|off] [--format json|markdown|content] [--output PATH]` runs the staged workflow directly.
+- Default `--fallback auto` permits same-capability fallback inside selected routes. Use `--fallback off` only for debugging or deterministic provider checks.
+- Research output includes `final_answer`, `citations`, `evidence_items`, `gap_check`, `provider_attempts`, `fallback_used`, `degraded`, `route_policy_version`, and `evidence_dir`.
+- The synthesis is evidence-only. It may cite fetched/read evidence, but it must not cite unfetched discovery candidates as proof.
+- If providers are exhausted or evidence cannot close, return the degraded gaps rather than inventing missing claims.
+
+Research provider advantage routing:
+
+- Context7: library/API/framework docs resolution and docs retrieval.
+- Exa: official domains, papers, product/company pages, date/domain-filtered low-noise discovery, and adjacent-source discovery.
+- Zhipu REST: Chinese, domestic, current, policy, and announcement searches.
+- Zhipu MCP: separate Coding Plan quota route through `webSearchPrime` and `webReader`.
+- Tavily: broad source discovery and site map.
+- Jina: known public URL, PDF, and arXiv clean extraction; ReaderLM-v2 requires `JINA_API_KEY`.
+- Firecrawl: robust fetch fallback, JS-heavy/dynamic pages, browser-like extraction, OCR/PDF/structured extraction.
+- AnySearch: explicit vertical intent only, such as CVE, finance, legal, academic, and repository/codebase search.
+
+Safe research overrides are `SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS` and `SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS`. They may reorder or disable providers only within capabilities the provider already supports; they must not move a provider across capability boundaries.
 
 Deep Research smoke matrix for workflow maintenance is mock-full plus live-limited. Mock-full coverage should include trigger phrases, normal search requests that should not trigger Deep Research, required `research_plan` fields, allowed tool whitelist, `fetch_before_claim`, evidence output paths, capability boundaries, `intent_signals`, `capability_plan`, `gap_check`, simple current prompts such as `深度搜索一下最近的比特币行情`, docs/API prompts, claim-verification prompts, user-provided URL fetch-first flows, missing-provider failure guidance, and the rule that fixed topic recipe ids are not required schema. Live-limited coverage should run `doctor`, one broad `search`, one `exa-search`, and one `fetch` only when real keys are available and the user expects live checks.
 
@@ -234,6 +256,8 @@ smart-search anysearch-extract "https://example.com/source" --format json
 smart-search anysearch-batch "AAPL" "RAG papers" --max-results 2 --format json
 smart-search fetch "https://example.com" --format markdown --output page.md
 smart-search map "https://docs.example.com" --instructions "Find API reference pages" --max-depth 1 --max-breadth 20 --limit 50 --format json
+smart-search research "OpenAI Responses API web_search vs Chat Completions search" --budget deep --fallback auto --format json
+smart-search rs "https://example.com/source" --fallback off --format markdown
 smart-search setup
 smart-search setup --lang en
 smart-search setup --advanced
@@ -282,6 +306,7 @@ Short aliases are supported for interactive use:
 smart-search --v
 smart-search s "query" --format json
 smart-search s "nba战报" --format content
+smart-search rs "query" --format json
 smart-search f "https://example.com" --format markdown
 smart-search exa "OpenAI Responses API documentation" --format json
 smart-search z "today China AI news" --format json

@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import re
 import time
@@ -162,6 +163,171 @@ DEEP_EXA_DISCOVERY_KEYWORDS = {
     "standard",
     "standards",
 }
+RESEARCH_ROUTE_POLICY_VERSION = "research-router-v1"
+RESEARCH_VERTICAL_KEYWORDS = {
+    "cve",
+    "vulnerability",
+    "vulnerabilities",
+    "安全漏洞",
+    "漏洞",
+    "finance",
+    "financial",
+    "股票",
+    "基金",
+    "财报",
+    "法律",
+    "法规",
+    "legal",
+    "law",
+    "academic",
+    "论文",
+    "paper",
+    "repo",
+    "repository",
+    "github",
+    "gitlab",
+    "codebase",
+    "code search",
+    "code docs",
+    "代码",
+    "代码库",
+    "开源仓库",
+}
+RESEARCH_JS_HEAVY_KEYWORDS = {
+    "js-heavy",
+    "javascript",
+    "dynamic",
+    "动态页面",
+    "浏览器渲染",
+    "登录页",
+    "cloudflare",
+    "screenshot",
+    "ocr",
+    "扫描",
+}
+RESEARCH_PDF_KEYWORDS = {"pdf", "arxiv", "论文", "paper", ".pdf"}
+RESEARCH_PROFILE_ORDER = {
+    "main_search": ["xai-responses", "openai-compatible"],
+    "web_search": ["zhipu", "zhipu-mcp", "tavily", "firecrawl"],
+    "docs_search": ["context7", "exa"],
+    "web_fetch": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl"],
+    "vertical_search": ["anysearch"],
+    "site_map": ["tavily"],
+    "synthesis": ["main-search"],
+}
+PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
+    "xai-responses": {
+        "capability": "main_search",
+        "strengths": ["broad synthesis", "web_search", "x_search"],
+        "exclusions": ["evidence proof without fetch"],
+        "fallback_group": "main_search",
+        "minimum_profile_role": "main_search",
+        "quality_filters": ["source extraction required for high-risk claims"],
+        "route_reasons": ["broad live answer", "primary synthesis"],
+    },
+    "openai-compatible": {
+        "capability": "main_search",
+        "strengths": ["broad synthesis", "relay compatibility"],
+        "exclusions": ["xAI server tools"],
+        "fallback_group": "main_search",
+        "minimum_profile_role": "main_search",
+        "quality_filters": ["source extraction required for high-risk claims"],
+        "route_reasons": ["relay-compatible primary synthesis"],
+    },
+    "context7": {
+        "capability": "docs_search",
+        "strengths": ["library docs", "API docs", "framework docs", "versioned snippets"],
+        "exclusions": ["general news", "generic web facts"],
+        "fallback_group": "docs_search",
+        "minimum_profile_role": "docs_search",
+        "quality_filters": ["library id required", "content required before citation"],
+        "route_reasons": ["docs/API evidence", "framework reference"],
+    },
+    "exa": {
+        "capability": "docs_search",
+        "strengths": ["official domains", "papers", "product pages", "trusted low-noise discovery", "similar pages"],
+        "exclusions": ["default second hop for every high-risk claim"],
+        "fallback_group": "docs_search",
+        "minimum_profile_role": "docs_search",
+        "quality_filters": ["URL required", "fetch before proof citation"],
+        "route_reasons": ["official low-noise discovery", "paper/product discovery"],
+    },
+    "zhipu": {
+        "capability": "web_search",
+        "strengths": ["Chinese", "domestic China", "current", "policy", "announcements", "recency filters"],
+        "exclusions": ["web_fetch", "chat model selection"],
+        "fallback_group": "web_search",
+        "minimum_profile_role": "",
+        "quality_filters": ["URL required", "fetch before proof citation"],
+        "route_reasons": ["Chinese/current/policy discovery"],
+    },
+    "zhipu-mcp": {
+        "capability": "web_search",
+        "strengths": ["Coding Plan quota", "remote MCP webSearchPrime"],
+        "exclusions": ["Zhipu REST Web Search API"],
+        "fallback_group": "web_search",
+        "minimum_profile_role": "",
+        "quality_filters": ["URL required", "fetch before proof citation"],
+        "route_reasons": ["Coding Plan quota web discovery"],
+    },
+    "tavily": {
+        "capability": "web_search",
+        "capabilities": ["web_search", "web_fetch", "site_map"],
+        "strengths": ["broad source discovery", "site map", "URL extract"],
+        "exclusions": ["docs semantic replacement"],
+        "fallback_group": "web_search/web_fetch/site_map",
+        "minimum_profile_role": "web_fetch",
+        "quality_filters": ["non-empty normalized result", "non-empty extracted content"],
+        "route_reasons": ["broad source discovery", "site map", "URL fetch"],
+    },
+    "jina": {
+        "capability": "web_fetch",
+        "strengths": ["known public URL", "PDF", "arXiv", "clean markdown", "ReaderLM-v2 with key"],
+        "exclusions": ["general search provider", "anonymous standard minimum profile"],
+        "fallback_group": "web_fetch",
+        "minimum_profile_role": "web_fetch_with_key",
+        "quality_filters": ["non-empty markdown", "challenge page rejection", "ReaderLM-v2 requires key"],
+        "route_reasons": ["known URL extraction", "PDF/arXiv extraction"],
+    },
+    "zhipu-mcp-reader": {
+        "capability": "web_fetch",
+        "strengths": ["Coding Plan quota", "remote MCP webReader"],
+        "exclusions": ["Zhipu REST Web Search API"],
+        "fallback_group": "web_fetch",
+        "minimum_profile_role": "",
+        "quality_filters": ["non-empty reader content"],
+        "route_reasons": ["Coding Plan quota page read"],
+    },
+    "firecrawl": {
+        "capability": "web_fetch",
+        "capabilities": ["web_search", "web_fetch"],
+        "strengths": ["robust scrape fallback", "JS-heavy pages", "dynamic pages", "OCR/PDF/structured extraction"],
+        "exclusions": ["docs semantic replacement"],
+        "fallback_group": "web_search/web_fetch",
+        "minimum_profile_role": "web_fetch",
+        "quality_filters": ["non-empty normalized result", "non-empty extracted content"],
+        "route_reasons": ["JS-heavy fetch", "dynamic/browser-like extraction", "robust fetch fallback"],
+    },
+    "anysearch": {
+        "capability": "vertical_search",
+        "strengths": ["CVE", "finance", "legal", "academic", "code/docs", "structured vertical domains"],
+        "exclusions": ["generic default fallback", "standard minimum profile"],
+        "fallback_group": "vertical_search",
+        "minimum_profile_role": "",
+        "quality_filters": ["vertical intent required", "URL required before evidence citation"],
+        "route_reasons": ["vertical domain discovery"],
+        "experimental": True,
+    },
+    "main-search": {
+        "capability": "synthesis",
+        "strengths": ["evidence-only final synthesis"],
+        "exclusions": ["live source discovery during research synthesis"],
+        "fallback_group": "synthesis",
+        "minimum_profile_role": "",
+        "quality_filters": ["fetched evidence only", "no provider calls during synthesis"],
+        "route_reasons": ["evidence-only synthesis"],
+    },
+}
 MAIN_SEARCH_FALLBACK_CHAIN = ["xai-responses", "openai-compatible"]
 MAIN_SEARCH_PROVIDER_ALIASES = {
     "xai-responses": {"xai-responses", "xai", "grok", "grok-web-tools"},
@@ -273,12 +439,276 @@ def _provider_names_from_attempts(attempts: list[dict]) -> list[str]:
 
 
 def _fallback_used(attempts: list[dict]) -> bool:
-    by_capability: dict[str, int] = {}
+    by_capability: dict[str, list[dict]] = {}
     for attempt in attempts:
         capability = attempt.get("capability", "")
         if attempt.get("status") in {"ok", "empty", "error"}:
-            by_capability[capability] = by_capability.get(capability, 0) + 1
-    return any(count > 1 for count in by_capability.values())
+            by_capability.setdefault(capability, []).append(attempt)
+    for capability_attempts in by_capability.values():
+        previous_failed = False
+        previous_provider = ""
+        for attempt in capability_attempts:
+            provider = attempt.get("provider", "")
+            status = attempt.get("status")
+            if previous_failed:
+                return True
+            if previous_provider and provider and provider != previous_provider:
+                return True
+            previous_failed = status in {"empty", "error"}
+            previous_provider = provider or previous_provider
+    return False
+
+
+def provider_profiles() -> dict[str, dict[str, Any]]:
+    return {provider: dict(profile) for provider, profile in PROVIDER_PROFILES.items()}
+
+
+def _provider_supports_capability(provider: str, capability: str) -> bool:
+    profile = PROVIDER_PROFILES.get(provider, {})
+    capabilities = set(profile.get("capabilities") or [profile.get("capability", "")])
+    return capability in capabilities
+
+
+def _provider_configured(provider: str) -> bool:
+    if provider == "xai-responses":
+        return bool(config.xai_api_key)
+    if provider == "openai-compatible":
+        return bool(config.openai_compatible_api_url and config.openai_compatible_api_key)
+    if provider == "context7":
+        return bool(config.context7_api_key)
+    if provider == "exa":
+        return bool(config.exa_api_key)
+    if provider == "zhipu":
+        return bool(config.zhipu_api_key)
+    if provider == "zhipu-mcp":
+        return bool(config.zhipu_mcp_api_key)
+    if provider == "tavily":
+        return bool(config.tavily_api_key)
+    if provider == "jina":
+        return bool(config.jina_api_key)
+    if provider == "zhipu-mcp-reader":
+        return bool(config.zhipu_mcp_api_key)
+    if provider == "firecrawl":
+        return bool(config.firecrawl_api_key)
+    if provider == "anysearch":
+        return bool(config.anysearch_api_key)
+    if provider == "main-search":
+        return bool(config.xai_api_key or (config.openai_compatible_api_url and config.openai_compatible_api_key))
+    return False
+
+
+def _configured_for_capability(capability: str, capability_status: dict[str, Any] | None = None) -> list[str]:
+    if capability_status is not None:
+        configured = set(capability_status.get(capability, {}).get("configured") or [])
+        return [
+            provider
+            for provider in RESEARCH_PROFILE_ORDER.get(capability, [])
+            if provider in configured and _provider_supports_capability(provider, capability)
+        ]
+    return [provider for provider in RESEARCH_PROFILE_ORDER.get(capability, []) if _provider_configured(provider)]
+
+
+def _safe_provider_overrides() -> tuple[list[str], list[str], list[str]]:
+    known = set(PROVIDER_PROFILES)
+    preferred = [provider for provider in config.research_preferred_providers if provider in known]
+    disabled = [provider for provider in config.research_disabled_providers if provider in known]
+    invalid = [
+        provider
+        for provider in config.research_preferred_providers + config.research_disabled_providers
+        if provider not in known
+    ]
+    return preferred, disabled, invalid
+
+
+def _apply_research_overrides(capability: str, providers: list[str]) -> list[str]:
+    preferred, disabled, _ = _safe_provider_overrides()
+    allowed = [
+        provider
+        for provider in providers
+        if provider not in disabled and _provider_supports_capability(provider, capability)
+    ]
+    ordered = [
+        provider
+        for provider in preferred
+        if provider in allowed and _provider_supports_capability(provider, capability)
+    ]
+    ordered.extend(provider for provider in allowed if provider not in ordered)
+    return ordered
+
+
+def _research_fetch_order(query: str, url: str = "", capability_status: dict[str, Any] | None = None) -> list[str]:
+    providers = _configured_for_capability("web_fetch", capability_status)
+    target = f"{query} {url}".lower()
+    if _contains_any(target, RESEARCH_JS_HEAVY_KEYWORDS):
+        preferred = ["firecrawl", "tavily", "jina", "zhipu-mcp-reader"]
+    elif _contains_any(target, RESEARCH_PDF_KEYWORDS) or url.lower().endswith(".pdf"):
+        preferred = ["jina", "tavily", "zhipu-mcp-reader", "firecrawl"]
+    elif url or _extract_urls(query):
+        preferred = ["jina", "tavily", "zhipu-mcp-reader", "firecrawl"]
+    else:
+        preferred = providers
+    ordered = [provider for provider in preferred if provider in providers]
+    ordered.extend(provider for provider in providers if provider not in ordered)
+    return _apply_research_overrides("web_fetch", ordered)
+
+
+def _research_route_signals(question: str, plan: dict[str, Any]) -> dict[str, Any]:
+    intent = plan.get("intent_signals") or {}
+    text = question.lower()
+    return {
+        "docs_api_intent": bool(intent.get("docs_api_intent")) or _is_docs_intent(question),
+        "official_low_noise_intent": _contains_any(question, DEEP_EXA_DISCOVERY_KEYWORDS),
+        "current_or_locale_intent": intent.get("recency_requirement") in {"recent", "current"}
+        or intent.get("locale_domain_scope") == "china"
+        or _is_zh_current_intent(question),
+        "known_url": bool(intent.get("known_url")) or bool(_extract_urls(question)),
+        "pdf_or_arxiv_intent": _contains_any(question, RESEARCH_PDF_KEYWORDS),
+        "js_heavy_intent": _contains_any(question, RESEARCH_JS_HEAVY_KEYWORDS),
+        "vertical_intent": _contains_any(question, RESEARCH_VERTICAL_KEYWORDS),
+        "claim_risk": intent.get("claim_risk", "medium"),
+        "cross_validation_need": intent.get("cross_validation_need", "normal"),
+        "raw_query": text,
+    }
+
+
+def _research_capability_routes(
+    question: str,
+    plan: dict[str, Any],
+    fallback: str,
+    capability_status: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    signals = _research_route_signals(question, plan)
+    _, _, invalid_overrides = _safe_provider_overrides()
+    routes: dict[str, Any] = {
+        "signals": signals,
+        "fallback_mode": fallback,
+        "route_policy_version": RESEARCH_ROUTE_POLICY_VERSION,
+        "invalid_provider_overrides": invalid_overrides,
+        "capabilities": {},
+    }
+
+    web_search = _configured_for_capability("web_search", capability_status)
+    if signals["current_or_locale_intent"]:
+        ordered = [provider for provider in ["zhipu", "zhipu-mcp", "tavily", "firecrawl"] if provider in web_search]
+    else:
+        ordered = [provider for provider in ["tavily", "firecrawl", "zhipu", "zhipu-mcp"] if provider in web_search]
+    routes["capabilities"]["web_search"] = {
+        "providers": _apply_research_overrides("web_search", ordered),
+        "reason": "current/locale evidence" if signals["current_or_locale_intent"] else "broad source discovery",
+    }
+
+    docs = _configured_for_capability("docs_search", capability_status)
+    docs_order = [provider for provider in ["context7", "exa"] if provider in docs]
+    if signals["official_low_noise_intent"] and not signals["docs_api_intent"]:
+        docs_order = [provider for provider in ["exa", "context7"] if provider in docs]
+    routes["capabilities"]["docs_search"] = {
+        "providers": _apply_research_overrides("docs_search", docs_order),
+        "reason": "docs/API evidence" if signals["docs_api_intent"] else "official low-noise discovery",
+    }
+
+    fetch_order = _research_fetch_order(question, capability_status=capability_status)
+    routes["capabilities"]["web_fetch"] = {
+        "providers": fetch_order,
+        "reason": "JS-heavy fetch" if signals["js_heavy_intent"] else ("known URL/PDF extraction" if signals["known_url"] or signals["pdf_or_arxiv_intent"] else "evidence extraction"),
+    }
+
+    vertical = _configured_for_capability("vertical_search", capability_status)
+    routes["capabilities"]["vertical_search"] = {
+        "providers": _apply_research_overrides("vertical_search", vertical) if signals["vertical_intent"] else [],
+        "reason": "vertical intent matched" if signals["vertical_intent"] else "vertical intent absent",
+        "experimental": True,
+    }
+
+    return routes
+
+
+def _research_evidence_item(
+    *,
+    url: str,
+    provider: str,
+    title: str = "",
+    content: str = "",
+    source_type: str = "fetched_page",
+    subquestion_id: str = "",
+) -> dict[str, Any]:
+    digest = hashlib.sha1(f"{url}\n{provider}\n{title}".encode("utf-8")).hexdigest()[:12]
+    return {
+        "id": f"e{digest}",
+        "url": url,
+        "title": title or url,
+        "provider": provider,
+        "source_type": source_type,
+        "subquestion_id": subquestion_id,
+        "content": content,
+        "content_len": len(content or ""),
+        "verified": bool(content and content.strip()),
+    }
+
+
+def _citation_items(evidence_items: list[dict[str, Any]]) -> list[dict[str, str]]:
+    citations: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in evidence_items:
+        url = item.get("url", "")
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        citations.append({
+            "url": url,
+            "title": item.get("title") or url,
+            "provider": item.get("provider") or "",
+        })
+    return citations
+
+
+def _evidence_only_synthesis(question: str, evidence_items: list[dict[str, Any]], gaps: list[dict[str, Any]]) -> str:
+    if not evidence_items:
+        return (
+            f"未能为 `{question}` 获取可引用的页面正文证据。"
+            "本次 research 已停止在降级状态，未对缺证据的结论做断言。"
+        )
+    lines = [f"Research result for: {question}", ""]
+    lines.append("Evidence-backed findings:")
+    for index, item in enumerate(evidence_items, 1):
+        content = re.sub(r"\s+", " ", (item.get("content") or "").strip())
+        excerpt = content[:360]
+        lines.append(f"{index}. {item.get('title') or item.get('url')} ({item.get('provider')})")
+        if excerpt:
+            lines.append(f"   Evidence excerpt: {excerpt}")
+        lines.append(f"   Source: {item.get('url')}")
+    if gaps:
+        lines.extend(["", "Unverified gaps:"])
+        for gap in gaps:
+            lines.append(f"- {gap.get('subquestion_id', '')}: {gap.get('reason', '')}")
+    return "\n".join(lines).strip()
+
+
+def _select_candidate_urls(sources: list[dict[str, Any]], limit: int = 5) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for source in sources:
+        url = (source.get("url") or "").strip()
+        if not url or url.startswith("context7:") or url in seen:
+            continue
+        seen.add(url)
+        selected.append(source)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def _artifact_path(evidence_root: str, name: str) -> Path:
+    return Path(evidence_root) / name
+
+
+def _write_research_artifact(evidence_root: str, name: str, data: Any) -> None:
+    root = Path(evidence_root)
+    root.mkdir(parents=True, exist_ok=True)
+    path = _artifact_path(evidence_root, name)
+    if isinstance(data, str):
+        path.write_text(data, encoding="utf-8")
+    else:
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _is_docs_intent(query: str) -> bool:
@@ -639,6 +1069,249 @@ def build_deep_research_plan(query: str, budget: str = "standard", evidence_dir:
     }
 
 
+async def research(
+    query: str,
+    budget: str = "deep",
+    evidence_dir: str = "",
+    fallback: str = "auto",
+) -> dict[str, Any]:
+    start = time.time()
+    question = query.strip()
+    fallback_mode = (fallback or "auto").strip().lower()
+    if fallback_mode not in {"auto", "off"}:
+        return {
+            "ok": False,
+            "error_type": "parameter_error",
+            "error": f"Invalid fallback mode: {fallback_mode}",
+            "question": question,
+            "mode": "deep_research_execution",
+            "route_policy_version": RESEARCH_ROUTE_POLICY_VERSION,
+            "elapsed_ms": _elapsed_ms(start),
+        }
+
+    minimum = validate_minimum_profile()
+    if not minimum.get("ok"):
+        return {
+            "ok": False,
+            "error_type": minimum.get("error_type", "config_error"),
+            "error": minimum.get("error", MINIMUM_PROFILE_ERROR),
+            "question": question,
+            "mode": "deep_research_execution",
+            "minimum_profile_ok": False,
+            "capability_status": minimum.get("capability_status", {}),
+            "final_answer": "",
+            "citations": [],
+            "evidence_items": [],
+            "gap_check": {
+                "status": "failed",
+                "gaps": [{"subquestion_id": "", "reason": "minimum profile is missing required capabilities"}],
+            },
+            "provider_attempts": [],
+            "fallback_used": False,
+            "degraded": True,
+            "route_policy_version": RESEARCH_ROUTE_POLICY_VERSION,
+            "evidence_dir": evidence_dir,
+            "elapsed_ms": _elapsed_ms(start),
+        }
+
+    plan = build_deep_research_plan(question, budget=_deep_budget(budget or "deep"), evidence_dir=evidence_dir)
+    evidence_root = plan.get("evidence_dir") or _default_evidence_dir(question)
+    routes = _research_capability_routes(question, plan, fallback_mode)
+    provider_attempts: list[dict[str, Any]] = []
+    discovery_sources: list[dict[str, Any]] = []
+    evidence_items: list[dict[str, Any]] = []
+    stage_results: list[dict[str, Any]] = []
+    gaps: list[dict[str, Any]] = []
+
+    _write_research_artifact(evidence_root, "00-plan.json", plan)
+
+    urls = _extract_urls(question)
+    fetch_order = routes["capabilities"]["web_fetch"]["providers"]
+    if urls:
+        for index, url in enumerate(urls, 1):
+            fetch_result, attempts = await _run_web_fetch_fallback(url, fallback=fallback_mode, preferred_order=fetch_order)
+            provider_attempts.extend(attempts)
+            stage_results.append({"stage": "known_url_fetch", "url": url, "ok": bool(fetch_result), "provider_attempts": attempts})
+            if fetch_result:
+                item = _research_evidence_item(
+                    url=fetch_result["url"],
+                    provider=fetch_result["provider"],
+                    title=fetch_result["url"],
+                    content=fetch_result["content"],
+                    subquestion_id="sq1",
+                )
+                evidence_items.append(item)
+                _write_research_artifact(evidence_root, f"{index:02d}-fetch-{fetch_result['provider']}.md", fetch_result["content"])
+            else:
+                gaps.append({"subquestion_id": "sq1", "reason": f"failed to fetch known URL: {url}", "url": url})
+
+    signals = routes["signals"]
+    if signals["docs_api_intent"]:
+        docs_providers = routes["capabilities"]["docs_search"]["providers"]
+        selected_docs_providers = docs_providers[:1] if fallback_mode == "off" else docs_providers
+        if not selected_docs_providers:
+            gaps.append({"subquestion_id": "sq2", "reason": "no configured docs_search provider for docs/API evidence"})
+        for provider in selected_docs_providers:
+            step_start = time.time()
+            if provider == "context7":
+                data = await context7_library(question, question)
+                if data.get("ok") and data.get("results"):
+                    provider_attempts.append(_attempt("docs_search", "context7", "ok", step_start, result_count=len(data.get("results") or [])))
+                    stage_results.append({"stage": "docs_discovery", "provider": "context7", "ok": True, "result_count": len(data.get("results") or [])})
+                    library_id = (data.get("results") or [{}])[0].get("id", "")
+                    if library_id:
+                        docs_start = time.time()
+                        docs_data = await context7_docs(library_id, question)
+                        if docs_data.get("ok") and docs_data.get("content"):
+                            provider_attempts.append(_attempt("docs_search", "context7", "ok", docs_start, result_count=1))
+                            item = _research_evidence_item(
+                                url=f"context7:{library_id}",
+                                provider="context7",
+                                title=library_id,
+                                content=docs_data.get("content", ""),
+                                source_type="docs",
+                                subquestion_id="sq2",
+                            )
+                            evidence_items.append(item)
+                            _write_research_artifact(evidence_root, "docs-context7.md", docs_data.get("content", ""))
+                            break
+                        docs_status = "error" if docs_data.get("error_type") else "empty"
+                        provider_attempts.append(_attempt("docs_search", "context7", docs_status, docs_start, error_type=docs_data.get("error_type", ""), error=docs_data.get("error", "")))
+                    if fallback_mode == "off":
+                        break
+                    continue
+                status = "error" if data.get("error_type") in {"auth_error", "timeout", "network_error", "runtime_error"} else "empty"
+                provider_attempts.append(_attempt("docs_search", "context7", status, step_start, error_type=data.get("error_type", ""), error=data.get("error", "")))
+            elif provider == "exa":
+                data = await exa_search(question, num_results=5, include_highlights=True)
+                if data.get("ok"):
+                    sources = _normalize_source_results(data.get("results"), "exa")
+                    if sources:
+                        provider_attempts.append(_attempt("docs_search", "exa", "ok", step_start, result_count=len(sources)))
+                        discovery_sources.extend(sources)
+                        stage_results.append({"stage": "docs_discovery", "provider": "exa", "ok": True, "result_count": len(sources)})
+                        break
+                provider_attempts.append(_attempt("docs_search", "exa", "error" if data.get("error_type") else "empty", step_start, error_type=data.get("error_type", ""), error=data.get("error", "")))
+
+    should_run_web_discovery = (
+        signals["current_or_locale_intent"]
+        or signals["cross_validation_need"] == "high"
+        or (not evidence_items and not discovery_sources)
+    ) and not (urls and fallback_mode == "off")
+    if should_run_web_discovery:
+        web_provider_order = routes["capabilities"]["web_search"]["providers"]
+        if web_provider_order:
+            web_sources, attempts = await _run_web_search_fallback(
+                question,
+                count=5,
+                providers=",".join(web_provider_order),
+                fallback=fallback_mode,
+            )
+            provider_attempts.extend(attempts)
+            discovery_sources.extend(web_sources)
+            stage_results.append({"stage": "web_discovery", "ok": bool(web_sources), "result_count": len(web_sources), "provider_attempts": attempts})
+        else:
+            gaps.append({"subquestion_id": "", "reason": "no configured web_search provider for discovery"})
+
+    exa_in_selected_docs_route = "exa" in routes["capabilities"]["docs_search"]["providers"]
+    if (
+        fallback_mode != "off"
+        and signals["official_low_noise_intent"]
+        and exa_in_selected_docs_route
+        and not any(source.get("provider") == "exa" for source in discovery_sources)
+    ):
+        exa_start = time.time()
+        data = await exa_search(question, num_results=5, include_highlights=True)
+        if data.get("ok"):
+            sources = _normalize_source_results(data.get("results"), "exa")
+            if sources:
+                provider_attempts.append(_attempt("docs_search", "exa", "ok", exa_start, result_count=len(sources)))
+                discovery_sources.extend(sources)
+        else:
+            provider_attempts.append(_attempt("docs_search", "exa", "error", exa_start, error_type=data.get("error_type", ""), error=data.get("error", "")))
+
+    if signals["vertical_intent"] and routes["capabilities"]["vertical_search"]["providers"]:
+        vertical_start = time.time()
+        data = await anysearch_search(question, max_results=5)
+        if data.get("ok"):
+            sources = _normalize_source_results(data.get("results"), "anysearch")
+            provider_attempts.append(_attempt("vertical_search", "anysearch", "ok" if sources else "empty", vertical_start, result_count=len(sources)))
+            discovery_sources.extend(sources)
+            stage_results.append({"stage": "vertical_discovery", "provider": "anysearch", "ok": bool(sources), "result_count": len(sources)})
+        else:
+            provider_attempts.append(_attempt("vertical_search", "anysearch", "error", vertical_start, error_type=data.get("error_type", ""), error=data.get("error", "")))
+
+    candidates = _select_candidate_urls(discovery_sources, limit=6)
+    fetched_urls = {item.get("url") for item in evidence_items}
+    no_new_evidence = True
+    for index, candidate in enumerate(candidates, 1):
+        url = candidate.get("url", "")
+        if not url or url in fetched_urls:
+            continue
+        order = _research_fetch_order(question, url)
+        fetch_result, attempts = await _run_web_fetch_fallback(url, fallback=fallback_mode, preferred_order=order)
+        provider_attempts.extend(attempts)
+        stage_results.append({"stage": "candidate_fetch", "url": url, "ok": bool(fetch_result), "provider_attempts": attempts})
+        if fetch_result:
+            no_new_evidence = False
+            fetched_urls.add(url)
+            content = fetch_result.get("content", "")
+            item = _research_evidence_item(
+                url=fetch_result["url"],
+                provider=fetch_result["provider"],
+                title=candidate.get("title") or fetch_result["url"],
+                content=content,
+                subquestion_id=candidate.get("subquestion_id", ""),
+            )
+            evidence_items.append(item)
+            _write_research_artifact(evidence_root, f"fetch-{index:02d}-{fetch_result['provider']}.md", content)
+        elif fallback_mode == "off":
+            gaps.append({"subquestion_id": "", "reason": f"fetch failed with fallback off: {url}", "url": url})
+
+    if not evidence_items:
+        gaps.append({"subquestion_id": "", "reason": "no fetched/read evidence items were produced"})
+    elif no_new_evidence and not urls and candidates:
+        gaps.append({"subquestion_id": "", "reason": "discovery produced candidates but no new fetch evidence converged"})
+
+    covered = bool(evidence_items)
+    gap_status = "closed" if covered and not gaps else ("degraded" if evidence_items else "failed")
+    citations = _citation_items(evidence_items)
+    final_answer = _evidence_only_synthesis(question, evidence_items, gaps)
+    result = {
+        "ok": bool(evidence_items),
+        "error_type": "" if evidence_items else "evidence_error",
+        "error": "" if evidence_items else "research could not obtain fetched evidence",
+        "mode": "deep_research_execution",
+        "query_mode": "research",
+        "question": question,
+        "budget": _deep_budget(budget or "deep"),
+        "research_plan": plan,
+        "routing_decision": routes,
+        "stage_results": stage_results,
+        "discovery_sources": discovery_sources,
+        "final_answer": final_answer,
+        "content": final_answer,
+        "citations": citations,
+        "evidence_items": evidence_items,
+        "gap_check": {
+            "status": gap_status,
+            "gaps": gaps,
+            "stop_reason": "evidence_converged" if gap_status == "closed" else ("degraded_with_gaps" if evidence_items else "provider_exhausted"),
+        },
+        "provider_attempts": provider_attempts,
+        "providers_used": _provider_names_from_attempts(provider_attempts),
+        "fallback_used": _fallback_used(provider_attempts),
+        "degraded": bool(gaps),
+        "route_policy_version": RESEARCH_ROUTE_POLICY_VERSION,
+        "evidence_dir": evidence_root,
+        "minimum_profile_ok": minimum.get("ok", False),
+        "capability_status": minimum.get("capability_status", {}),
+        "elapsed_ms": _elapsed_ms(start),
+    }
+    _write_research_artifact(evidence_root, "summary.json", result)
+    return result
+
+
 def get_capability_status() -> dict[str, Any]:
     main_configured = _configured_main_search_provider_ids()
     status = {
@@ -876,7 +1549,11 @@ def extra_results_to_sources(
     return sources
 
 
-async def _run_web_fetch_fallback(url: str, fallback: str = "auto") -> tuple[dict[str, Any] | None, list[dict]]:
+async def _run_web_fetch_fallback(
+    url: str,
+    fallback: str = "auto",
+    preferred_order: list[str] | None = None,
+) -> tuple[dict[str, Any] | None, list[dict]]:
     attempts: list[dict] = []
     providers = []
     if config.tavily_api_key:
@@ -887,6 +1564,11 @@ async def _run_web_fetch_fallback(url: str, fallback: str = "auto") -> tuple[dic
         providers.append("zhipu-mcp-reader")
     if config.firecrawl_api_key:
         providers.append("firecrawl")
+    if preferred_order:
+        allowed = {provider for provider in providers}
+        ordered = [provider for provider in preferred_order if provider in allowed]
+        ordered.extend(provider for provider in providers if provider not in ordered)
+        providers = ordered
     if fallback == "off":
         providers = providers[:1]
 
@@ -2623,6 +3305,76 @@ async def _smoke_mock(start: float) -> dict[str, Any]:
             "deep_research fixed topic recipes are examples not schema",
             schema_modes.isdisjoint(fixed_recipe_ids) and "deep_research" in schema_modes,
             {"schema_modes": sorted(schema_modes), "not_schema_modes": sorted(fixed_recipe_ids)},
+        )
+    )
+
+    mock_research_status = {
+        **minimum_status,
+        "web_search": {
+            "configured": ["zhipu", "zhipu-mcp", "tavily", "firecrawl"],
+            "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl"],
+            "ok": True,
+        },
+        "docs_search": {"configured": ["context7", "exa"], "fallback_chain": ["context7", "exa"], "ok": True},
+        "web_fetch": {
+            "configured": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl"],
+            "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl"],
+            "ok": True,
+        },
+        "vertical_search": {"configured": ["anysearch"], "fallback_chain": ["anysearch"], "ok": True, "experimental": True},
+    }
+    docs_routes = _research_capability_routes("React useEffect API docs", docs_plan, "auto", capability_status=mock_research_status)
+    zh_routes = _research_capability_routes("今天国内 AI 政策最新公告", market_plan, "auto", capability_status=mock_research_status)
+    pdf_fetch_order = _research_fetch_order("summarize https://arxiv.org/pdf/2401.00001.pdf", capability_status=mock_research_status)
+    dynamic_fetch_order = _research_fetch_order("dynamic javascript cloudflare page", "https://example.com/app", capability_status=mock_research_status)
+    vertical_routes = _research_capability_routes("CVE OpenSSL 漏洞影响范围", claim_plan, "auto", capability_status=mock_research_status)
+
+    cases.append(
+        _case(
+            "research router docs api prefers context7 then exa",
+            docs_routes["capabilities"]["docs_search"]["providers"][:2] == ["context7", "exa"]
+            and docs_routes["capabilities"]["vertical_search"]["providers"] == [],
+            {"routing_decision": docs_routes},
+        )
+    )
+    cases.append(
+        _case(
+            "research router chinese current prefers zhipu web_search",
+            zh_routes["capabilities"]["web_search"]["providers"][0] == "zhipu",
+            {"routing_decision": zh_routes},
+        )
+    )
+    cases.append(
+        _case(
+            "research router known url pdf favors jina fetch",
+            pdf_fetch_order[0] == "jina",
+            {"fetch_order": pdf_fetch_order},
+        )
+    )
+    cases.append(
+        _case(
+            "research router js heavy favors firecrawl fetch",
+            dynamic_fetch_order[0] == "firecrawl",
+            {"fetch_order": dynamic_fetch_order},
+        )
+    )
+    cases.append(
+        _case(
+            "research router vertical intent uses anysearch only when matched",
+            vertical_routes["capabilities"]["vertical_search"]["providers"] == ["anysearch"],
+            {"routing_decision": vertical_routes},
+        )
+    )
+
+    research_fallback_attempts = [
+        _attempt("web_fetch", "jina", "empty", time.time()),
+        _attempt("web_fetch", "firecrawl", "ok", time.time(), result_count=1),
+    ]
+    cases.append(
+        _case(
+            "research fallback remains same capability",
+            _fallback_used(research_fallback_attempts),
+            {"provider_attempts": research_fallback_attempts},
         )
     )
 

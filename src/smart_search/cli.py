@@ -46,6 +46,7 @@ COMMAND_ALIASES = {
     "context7-library": ["c7", "ctx7"],
     "context7-docs": ["c7d", "c7docs", "ctx7-docs"],
     "deep": ["dr"],
+    "research": ["rs"],
     "smoke": ["sm"],
     "doctor": ["d"],
     "diagnose": ["diag"],
@@ -767,6 +768,36 @@ def _format_markdown(command: str, data: dict[str, Any]) -> str:
         if gap_check:
             lines.extend(["", "## Gap Check", gap_check.get("rule", "")])
         return "\n".join(lines).strip() + "\n"
+    if command == "research":
+        lines = [
+            "# Research Report",
+            "",
+            f"**Question:** {data.get('question', '')}",
+            f"**Status:** {_status_label(data.get('ok'))}",
+            f"**Route policy:** {data.get('route_policy_version', '')}",
+            f"**Evidence dir:** `{data.get('evidence_dir', '')}`",
+            f"**Fallback used:** {bool(data.get('fallback_used'))}",
+            f"**Degraded:** {bool(data.get('degraded'))}",
+            "",
+            "## Answer",
+            data.get("final_answer") or data.get("content") or "",
+        ]
+        citations = data.get("citations") or []
+        if citations:
+            lines.extend(["", "## Citations"])
+            for item in citations:
+                url = item.get("url", "")
+                title = item.get("title") or url
+                provider = item.get("provider") or ""
+                lines.append(f"- [{title}]({url})" + (f" ({provider})" if provider else ""))
+        gaps = (data.get("gap_check") or {}).get("gaps") or []
+        if gaps:
+            lines.extend(["", "## Gaps"])
+            for gap in gaps:
+                reason = gap.get("reason", "")
+                url = gap.get("url", "")
+                lines.append(f"- {reason}" + (f" - {url}" if url else ""))
+        return "\n".join(lines).strip() + "\n"
     if command == "doctor":
         return _format_doctor_markdown(data)
     if command == "diagnose":
@@ -821,7 +852,7 @@ def _plain_result_lines(data: dict[str, Any]) -> list[str]:
 
 
 def _format_content(command: str, data: dict[str, Any]) -> str:
-    if command in {"search", "fetch", "context7-docs"}:
+    if command in {"search", "fetch", "context7-docs", "research"}:
         content = data.get("content")
         if content:
             return str(content) + "\n"
@@ -2010,6 +2041,14 @@ async def _run_async(args: argparse.Namespace) -> int:
             evidence_dir=args.evidence_dir,
         )
         return _print_result("deep", data, args.format, args.output)
+    if args.command == "research":
+        data = await service.research(
+            args.query,
+            budget=args.budget,
+            evidence_dir=args.evidence_dir,
+            fallback=args.fallback,
+        )
+        return _print_result("research", data, args.format, args.output)
     if args.command == "smoke":
         data = await service.smoke(args.mode)
         return _print_result("smoke", data, args.format, args.output)
@@ -2411,6 +2450,18 @@ def build_parser() -> argparse.ArgumentParser:
     deep_parser.add_argument("--budget", choices=["quick", "standard", "deep"], default="standard")
     deep_parser.add_argument("--evidence-dir", default="")
     _add_format_args(deep_parser)
+
+    research_parser = sub.add_parser(
+        "research",
+        aliases=COMMAND_ALIASES["research"],
+        help="Run live Deep Research with provider-advantage routing and evidence-only synthesis.",
+    )
+    research_parser.set_defaults(command="research")
+    research_parser.add_argument("query")
+    research_parser.add_argument("--budget", choices=["quick", "standard", "deep"], default="deep")
+    research_parser.add_argument("--evidence-dir", default="")
+    research_parser.add_argument("--fallback", choices=["auto", "off"], default="auto")
+    _add_format_args(research_parser)
 
     smoke_parser = sub.add_parser(
         "smoke", aliases=COMMAND_ALIASES["smoke"], help="Run provider routing and fallback smoke checks."

@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md) | English
 
-CLI-first, skill-driven web research for AI agents and terminal users. `smart-search` gives AI tools one reproducible command layer for live search, source discovery, page fetching, site mapping, provider diagnostics, and offline Deep Research planning.
+CLI-first, skill-driven web research for AI agents and terminal users. `smart-search` gives AI tools one reproducible command layer for live search, source discovery, page fetching, site mapping, provider diagnostics, offline Deep Research planning, and live Deep Research execution.
 
 <p>
   <a href="https://www.npmjs.com/package/@konbakuyomu/smart-search">
@@ -20,6 +20,7 @@ CLI-first, skill-driven web research for AI agents and terminal users. `smart-se
 smart-search search "latest OpenAI Responses API changes" --format json
 smart-search fetch "https://example.com/article" --format markdown
 smart-search deep "Compare Responses API web_search with Chat Completions search" --format json
+smart-search research "Compare Responses API web_search with Chat Completions search" --format markdown
 ```
 
 The current architecture has two layers:
@@ -29,7 +30,7 @@ The current architecture has two layers:
 | CLI executor | Runs deterministic commands, provider routing, fallback, JSON/Markdown output, local config, smoke/regression checks |
 | Skill / AI orchestration | Infers user intent, chooses normal search vs Deep Research, executes planned CLI steps, writes final source-backed answers |
 
-Default `smart-search search` stays fast and live. `smart-search deep` is the explicit offline Deep Research planner. It does not call providers, run `doctor`, or fetch pages by default; it emits a `research_plan` that an AI agent or user can execute step by step.
+Default `smart-search search` stays fast and live. `smart-search deep` is the explicit offline Deep Research planner. It does not call providers, run `doctor`, or fetch pages by default; it emits a `research_plan` that an AI agent or user can execute step by step. `smart-search research` is the live Deep Research executor: it uses the same planner shape, then runs discovery, fetch/read, gap check, and evidence-only synthesis.
 
 ## Install
 
@@ -89,7 +90,13 @@ smart-search fetch "https://example.com/source" --format markdown --output evide
 smart-search deep "Deep research recent Bitcoin market movement" --budget standard --format json
 ```
 
-6. Install the skill for AI tools when setup prompts you, or explicitly:
+6. Run live Deep Research when you want the CLI to execute the staged workflow:
+
+```powershell
+smart-search research "Deep research recent Bitcoin market movement" --budget deep --format markdown
+```
+
+7. Install the skill for AI tools when setup prompts you, or explicitly:
 
 ```powershell
 smart-search setup --non-interactive --install-skills codex,claude,cursor,hermes
@@ -99,7 +106,7 @@ Skill installation writes the bundled `smart-search-cli` skill into user-level t
 `~/.codex/skills`, `~/.claude/skills`, `~/.cursor/skills`, and `~/.hermes/skills`. It does not initialize
 Trellis, hooks, agents, or commands. `--skills-root PATH` is only an advanced override for portable or test installs.
 
-7. After upgrading the CLI, refresh the installed global skill:
+8. After upgrading the CLI, refresh the installed global skill:
 
 ```powershell
 smart-search skills status --targets codex --format json
@@ -121,6 +128,7 @@ provider keys or create Trellis/hooks/agents/commands.
 | `vertical_search` | `anysearch-domains`, `anysearch-search`, `anysearch-extract`, `anysearch-batch` | AnySearch (experimental) | Acceptance testing for structured vertical domains such as CVE, finance, legal, academic, and code/docs |
 | `site_map` | `map` | Tavily | Site/documentation structure discovery |
 | `deep_planner` | `deep` / `dr` | Local planner only | Offline plan generation; no provider call by default |
+| `research_executor` | `research` / `rs` | Registered providers by capability | Live staged research: plan, discover, fetch/read, gap check, evidence-only synthesis |
 
 Fallback is same-capability only:
 
@@ -139,7 +147,7 @@ The CLI exposes observability fields such as `routing_decision`, `provider_attem
 
 `extra_sources` are discovery candidates. For high-risk claims, news, policy, finance, health, selection decisions, and serious reviews, fetch key pages first and cite fetched text rather than treating a broad search answer as proof.
 
-Routing rule of thumb: start with `search` for broad discovery and synthesis; use Zhipu Web Search API for Chinese, domestic, policy, announcements, and current-news searches; use Zhipu Coding Plan MCP only when you explicitly want the Coding Plan quota route; use Context7 first for library/API/framework docs; use Exa for official domains, papers, product pages, trusted sites, and low-noise discovery; use Tavily/Firecrawl through `search --extra-sources` for horizontal candidates and through `fetch` for page evidence; use Jina for known-URL extraction; use AnySearch only when you explicitly need experimental vertical-domain search.
+Routing rule of thumb: start with `search` for broad discovery and synthesis; use `research` when you want the CLI to execute the deeper evidence workflow; use Zhipu Web Search API for Chinese, domestic, policy, announcements, and current-news searches; use Zhipu Coding Plan MCP only when you explicitly want the Coding Plan quota route; use Context7 first for library/API/framework docs; use Exa for official domains, papers, product pages, trusted sites, and low-noise discovery; use Tavily/Firecrawl through `search --extra-sources` for horizontal candidates and through `fetch` for page evidence; use Jina for known-URL extraction; use AnySearch only when you explicitly need experimental vertical-domain search.
 
 ## Deep Research
 
@@ -149,14 +157,14 @@ Use normal search when you want a fast answer:
 smart-search search "React useEffect cleanup docs" --format json
 ```
 
-Use Deep Research when you want planning, decomposition, cross-checking, or strict evidence:
+Use offline Deep Research planning when you want decomposition before execution:
 
 ```powershell
 smart-search deep "OpenAI Responses API web_search vs Chat Completions search: which should I use?" --budget deep --format json
 smart-search dr "https://example.com/source" --format json
 ```
 
-Deep Research output includes:
+Planner output includes:
 
 - `mode="deep_research"` and `query_mode="deep"`;
 - `intent_signals`, such as recency, docs/API intent, known URL, claim risk, source authority, and cross-validation need;
@@ -176,6 +184,28 @@ search, exa-search, exa-similar, zhipu-search, context7-library, context7-docs, 
 ```
 
 `doctor` is preflight, not a research step. `smart-search deep` itself is offline; live research starts when an agent or user executes `steps[].command`.
+
+Use live Deep Research execution when you want the CLI to run the staged workflow:
+
+```powershell
+smart-search research "OpenAI Responses API web_search vs Chat Completions search: which should I use?" --budget deep --fallback auto --format json
+smart-search rs "https://example.com/source" --fallback off --format markdown
+```
+
+`research` runs plan -> discover -> fetch/read -> gap check -> evidence-only synthesis. It defaults to `--fallback auto`, which permits same-capability fallback even when a normal `search` configuration is conservative. `--fallback off` tries only the first provider selected inside each capability, which is useful for debugging provider behavior.
+
+Research JSON includes `final_answer`, `citations`, `evidence_items`, `gap_check`, `provider_attempts`, `fallback_used`, `degraded`, `route_policy_version`, and `evidence_dir`. Discovery snippets are candidates only; citations are produced only from fetched/read evidence. If fallback cannot close a gap, `research` finishes degraded and lists unsupported gaps instead of inventing evidence.
+
+The research router is capability-first plus provider-advantage:
+
+- Context7 first for library/API/framework docs, with Exa as official-domain, paper, product, or trusted low-noise discovery.
+- Zhipu Web Search API first for Chinese, domestic, current, policy, and announcement searches.
+- Zhipu Coding Plan MCP remains a separate quota route through `webSearchPrime` and `webReader`.
+- Jina is favored for known public URLs, PDFs, and arXiv extraction; ReaderLM-v2 still requires `JINA_API_KEY`.
+- Firecrawl is favored for JS-heavy, dynamic, browser-like, OCR/PDF, or robust fallback extraction.
+- AnySearch participates only when vertical intent is clear, such as CVE, finance, legal, academic, or codebase/repository searches.
+
+Advanced routing overrides are available through `SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS` and `SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS`. They can reorder or disable registered providers inside their supported capability, but they cannot move a provider across capability boundaries.
 
 Good user-facing smoke prompts:
 
@@ -268,6 +298,7 @@ Local config path:
 - Windows default: `%LOCALAPPDATA%\smart-search\config.json`.
 - Linux/macOS default: `~/.config/smart-search/config.json`.
 - `SMART_SEARCH_CONFIG_DIR` is an advanced override for CI, containers, sandboxes, or portable installs.
+- `SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS` and `SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS` are advanced `research` routing overrides. They accept provider CSV values and can only reorder or disable providers inside existing capability boundaries.
 - Earlier Windows source builds defaulted to `~\.config\smart-search\config.json`, while some installs were already pinned to `%LOCALAPPDATA%\smart-search` through `SMART_SEARCH_CONFIG_DIR`. If the new Windows default file is missing but the old home config exists, Smart Search reads the old file as `legacy_windows_home` so upgrades do not lose configuration. `doctor` reports the active path, default path, old home path, `SMART_SEARCH_CONFIG_DIR`, and whether that override merely matches the current default.
 
 Provider timeouts:
@@ -282,6 +313,7 @@ Provider timeouts:
 | --- | --- | --- |
 | `search` | `s` | Fast live search and broad synthesis |
 | `deep` | `dr` | Offline Deep Research plan |
+| `research` | `rs` | Live Deep Research execution |
 | `fetch` | `f` | Fetch one URL as JSON, Markdown, or content |
 | `map` | `m` | Map a website structure |
 | `exa-search` | `exa`, `x` | Exa source discovery |
@@ -310,6 +342,7 @@ Useful examples:
 
 ```powershell
 smart-search search "query" --validation balanced --extra-sources 3 --timeout 90 --format json --output result.json
+smart-search research "query" --budget deep --fallback auto --format json --output research.json
 smart-search search "query" --stream --format json
 smart-search search "query" --no-stream --format json
 smart-search search "nba report" --format content

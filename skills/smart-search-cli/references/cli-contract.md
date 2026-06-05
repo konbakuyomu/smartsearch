@@ -33,6 +33,7 @@
 - `smart-search context7-library NAME [QUERY] [--format json|markdown|content] [--output PATH]`
 - `smart-search context7-docs LIBRARY_ID QUERY [--format json|markdown|content] [--output PATH]`
 - `smart-search deep QUERY [--budget quick|standard|deep] [--evidence-dir PATH] [--format json|markdown|content] [--output PATH]`
+- `smart-search research QUERY [--budget quick|standard|deep] [--evidence-dir PATH] [--fallback auto|off] [--format json|markdown|content] [--output PATH]`
 - `smart-search map URL [--instructions TEXT] [--max-depth N] [--max-breadth N] [--limit N] [--timeout SECONDS] [--format json|markdown|content] [--output PATH]`
 - `smart-search doctor [--format json|markdown|content] [--output PATH]`
 - `smart-search diagnose openai-compatible [--timeout SECONDS] [--format json|markdown] [--output PATH]`
@@ -72,6 +73,7 @@ Top-level aliases must normalize to the same service behavior as their full comm
 | `context7-library` | `c7`, `ctx7` |
 | `context7-docs` | `c7d`, `c7docs`, `ctx7-docs` |
 | `deep` | `dr` |
+| `research` | `rs` |
 | `doctor` | `d` |
 | `diagnose` | `diag` |
 | `setup` | `init` |
@@ -99,7 +101,7 @@ Successful search output includes `ok`, `query`, `primary_api_mode`, `content`, 
 
 `--format markdown` is the human-readable report format. `doctor --format markdown` must render a detailed diagnostic report with overall status, active/default/legacy config paths, log path resolution, file-logging status, masked config values with sources, minimum profile, capability status, main-search provider checks, provider connectivity checks, model metadata, and full long error/message detail instead of falling back to raw JSON. `diagnose openai-compatible --format markdown` must render a short copy-pasteable troubleshooting report with masked config, quick chat check, real search-shape `stream=false` and `stream=true` checks, a plain-language summary, and a next command. Provider list commands such as `exa-search`, `exa-similar`, `zhipu-search`, `anysearch-*`, `context7-library`, and `map` render result lists or a clear no-results message.
 
-`--format content` prints only the `content` field for content-bearing commands such as `search`, `fetch`, and `context7-docs`. Commands without a `content` field, including `doctor`, `smoke`, `config`, and `model`, must print a compact non-empty text summary rather than an empty stdout.
+`--format content` prints only the `content` field for content-bearing commands such as `search`, `fetch`, `context7-docs`, and `research`. Commands without a `content` field, including `doctor`, `smoke`, `config`, and `model`, must print a compact non-empty text summary rather than an empty stdout.
 
 Source provenance fields:
 
@@ -178,7 +180,9 @@ Context7 library output includes `ok`, `query`, `provider`, `results`, `total`, 
 
 Map output includes `ok`, `base_url`, `results`, `response_time`, `url`, and `elapsed_ms` when successful.
 
-Deep planner output includes `ok`, `mode`, `query_mode`, `question`, `trigger_source`, `difficulty`, `intent_signals`, `decomposition`, `capability_plan`, `evidence_policy`, `preflight`, `steps`, `gap_check`, `final_answer_policy`, `usage_boundary`, `allowed_tools`, `evidence_dir`, and `elapsed_ms`. `smart-search deep` is offline by default: `preflight.executed_by_deep_command=false`, no provider calls are made, and live research only happens when an AI agent or user executes `steps[].command`.
+Deep planner output includes `ok`, `mode`, `query_mode`, `question`, `trigger_source`, `difficulty`, `intent_signals`, `decomposition`, `capability_plan`, `evidence_policy`, `preflight`, `steps`, `gap_check`, `final_answer_policy`, `usage_boundary`, `allowed_tools`, `evidence_dir`, and `elapsed_ms`. `smart-search deep` is offline by default: `preflight.executed_by_deep_command=false`, no provider calls are made, and live research only happens when an AI agent or user executes `steps[].command` or calls `smart-search research`.
+
+Research executor output includes `ok`, `mode=deep_research_execution`, `query_mode=research`, `question`, `budget`, `research_plan`, `routing_decision`, `stage_results`, `discovery_sources`, `final_answer`, `content`, `citations`, `evidence_items`, `gap_check`, `provider_attempts`, `providers_used`, `fallback_used`, `degraded`, `route_policy_version`, `evidence_dir`, `minimum_profile_ok`, `capability_status`, and `elapsed_ms`. Citations must come only from fetched/read `evidence_items`; discovery sources are candidates until fetched. If evidence cannot close, `research` returns degraded gaps instead of unsupported claims.
 
 Diagnostic output masks keys, reports `config_file` / `config_dir` / `config_dir_source` / `default_config_file` / Windows legacy config metadata / `config_dir_override_value` / `config_dir_override_matches_default` / `log_dir_config_value` / `resolved_log_dir` / `file_logging_enabled` / `config_sources` / `primary_api_mode` / `primary_api_mode_source` / provider timeout values / `capability_status` / `minimum_profile_ok`, and includes `main_search_connection_tests` plus connection test objects for Exa, Tavily, Zhipu, Context7, and Firecrawl. `primary_connection_test` remains as a backward-compatible alias for the first configured main provider check. OpenAI-compatible provider health must be validated through `/chat/completions`; `/models` is supplementary metadata and must not be the health gate. Firecrawl currently reports whether `FIRECRAWL_API_KEY` is configured; it is not a live Firecrawl request.
 
@@ -188,7 +192,7 @@ Smoke output includes `ok`, `mode`, `failed_cases`, `cases`, `provider_attempts`
 
 ## Deep Research Skill Contract
 
-Deep Research is an optional capability orchestration workflow for prompts such as `深度搜索`, `深度调研`, `深入搜索`, `deep search`, `deep research`, multi-source verification, cross-checking, serious review, and selection/comparison research. `smart-search deep` is the public offline planner command for this workflow. It must not change default `smart-search search` behavior and must not execute live providers by default. The AI agent reads the generated plan, composes existing CLI commands, and lets the CLI perform execution and write JSON/Markdown evidence.
+Deep Research is an optional capability orchestration workflow for prompts such as `深度搜索`, `深度调研`, `深入搜索`, `deep search`, `deep research`, multi-source verification, cross-checking, serious review, and selection/comparison research. `smart-search deep` is the public offline planner command for this workflow. `smart-search research` is the public live executor command. It must not change default `smart-search search` behavior. `deep` must not execute live providers by default. `research` executes the staged workflow and writes JSON/Markdown evidence.
 
 Deep Research must not require fixed topic recipe ids such as `current_market_research`, `product_comparison_research`, `technical_docs_research`, `news_or_policy_research`, `claim_verification_research`, or `url_first_research`. Those phrases may appear as prompt examples, but they are not schema modes or routing enums.
 
@@ -234,13 +238,34 @@ Default Deep Research orchestration:
 
 `fetch_before_claim` means key claims must be backed by fetched page content. `primary_sources` and `extra_sources` are discovery candidates until fetched. Final answers should include fetched evidence, unverified candidate sources, and key commands used.
 
+When the user wants the CLI to execute the live workflow directly, call:
+
+```powershell
+smart-search research "question" --budget deep --fallback auto --format json --output C:\tmp\smart-search-evidence\research.json
+```
+
+`research --fallback auto` permits same-capability fallback inside selected routes. `research --fallback off` tries only the first selected provider in each capability route and is for debugging or provider comparison. Dynamic routing may reorder providers only inside the same capability. Every attempt must record capability, provider, status, error type, latency, and result count.
+
+Research provider advantage routing:
+
+- Context7 first for library/API/framework docs and docs retrieval.
+- Exa for official domains, papers, product/company pages, date/domain-filtered low-noise discovery, and adjacent-source discovery.
+- Zhipu REST for Chinese, domestic, current, policy, and announcement searches.
+- Zhipu MCP as a separate Coding Plan quota route through `webSearchPrime` and `webReader`; do not mix it into `/paas/v4/web_search`.
+- Tavily for broad source discovery and site maps.
+- Jina for known public URL, PDF, and arXiv clean extraction; ReaderLM-v2 requires `JINA_API_KEY`.
+- Firecrawl for robust fetch fallback, JS-heavy/dynamic/browser-like extraction, OCR/PDF/structured extraction.
+- AnySearch only when vertical intent is clear, such as CVE, finance, legal, academic, and repository/codebase search.
+
+Safe research overrides are `SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS` and `SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS`. They may reorder or disable providers only inside capabilities the provider already supports; they must not move a provider across capability boundaries.
+
 Planner closeout lessons:
 
 - Budget limits must not break evidence policy. Even `--budget quick` plans must retain at least one `fetch` step when claim-level conclusions are expected, and retained steps must keep valid `subquestion_id` links.
 - `steps[].command` and `steps[].output_path` are one contract. The `--output` path embedded in the executable command must match `output_path`; otherwise the AI agent cannot reliably find saved evidence.
 - Prefer PowerShell-safe quoted commands in generated plans because Windows users often copy planned steps directly from Markdown or JSON output.
 
-Deep Research smoke coverage is mock-full plus live-limited. Mock-full coverage should cover trigger phrases, normal search requests that should not trigger Deep Research, required `research_plan` fields, allowed tool whitelist, `fetch_before_claim`, evidence paths, capability boundaries, `intent_signals`, `capability_plan`, `gap_check`, simple current prompts such as `深度搜索一下最近的比特币行情`, docs/API prompts, claim-verification prompts, user-provided URL fetch-first flows, missing-provider failure guidance, and the rule that fixed topic recipe ids are not required schema. Live-limited coverage should run `doctor`, one broad `search`, one `exa-search`, and one `fetch` when real keys are available and live checks are expected. If a smoke issue is found, fix the affected docs/code/tests and rerun the affected smoke until it passes or is proven to be an external provider blocker.
+Deep Research smoke coverage is mock-full plus live-limited. Mock-full coverage should cover trigger phrases, normal search requests that should not trigger Deep Research, required `research_plan` fields, allowed tool whitelist, `fetch_before_claim`, evidence paths, capability boundaries, `intent_signals`, `capability_plan`, `gap_check`, simple current prompts such as `深度搜索一下最近的比特币行情`, docs/API prompts, claim-verification prompts, user-provided URL fetch-first flows, missing-provider failure guidance, research provider advantage routing, same-capability research fallback, and the rule that fixed topic recipe ids are not required schema. Live-limited coverage should run `doctor`, one broad `search`, one `exa-search`, and one `fetch` when real keys are available and live checks are expected; add one small `research` smoke when configured keys make it stable. If a smoke issue is found, fix the affected docs/code/tests and rerun the affected smoke until it passes or is proven to be an external provider blocker.
 
 Setup and config output should include `ok` and `config_file`. Saved API keys must be masked in command output.
 
@@ -342,6 +367,7 @@ Agent timeout handling contract:
 - `extra_sources` are retrieved in parallel and are not automatically used by the primary model to verify its answer.
 - `fetch` and known-URL `search "https://..."` use the same fetch fallback chain.
 - `fetch` tries Tavily first, then Jina Reader with `JINA_API_KEY`, then Zhipu Coding Plan MCP Reader, then Firecrawl.
+- `research` uses capability-first plus provider-advantage routing. Fallback remains same-capability only; low-quality fetches, challenge pages, empty content, auth/rate/timeout/provider errors, and runtime errors are failed attempts that may trigger same-capability fallback.
 - `map` uses Tavily only.
 - `exa-search` and `exa-similar` use Exa only.
 - `zhipu-search` uses Zhipu only.
