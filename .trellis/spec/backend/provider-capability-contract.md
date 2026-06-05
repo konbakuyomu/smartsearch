@@ -241,6 +241,12 @@ Provider configuration:
 - `ZHIPU_MCP_ZREAD_API_URL` defaults to
   `https://open.bigmodel.cn/api/mcp/zread/mcp` and exposes explicit repo/docs
   discovery commands for `search_doc`, `get_repo_structure`, and `read_file`.
+- A normal Zhipu Web Search API key is not sufficient evidence of Coding Plan
+  entitlement. Do not assume `ZHIPU_API_KEY` authorizes `web_search_prime`,
+  `webReader`, or zread. If `ZHIPU_MCP_API_KEY` is missing or returns
+  auth/provider errors, MCP providers must be skipped or fall through within
+  the same capability; zread remains explicit and does not affect the
+  `standard` minimum profile.
 - Zhipu Coding Plan MCP must be implemented first as a narrow tested
   MCP-over-HTTP provider layer. Avoid broad MCP abstractions until the
   first search, reader, and zread tools are stable.

@@ -337,6 +337,8 @@ def test_jina_and_zhipu_mcp_contract_public_and_packaged_assets_match():
         "read_file",
         "Remote MCP",
         "Do not route it through the existing `/paas/v4/web_search`",
+        "Coding Plan entitlement",
+        "does not affect the standard minimum profile",
     ]
     for marker in required_markers:
         assert marker in public_text
@@ -351,6 +353,7 @@ def test_jina_and_zhipu_mcp_contract_public_and_packaged_assets_match():
         "zhipu-mcp-reader",
         "not mixed into the existing `/paas/v4/web_search`",
         "Jina Reader is not a general search provider",
+        "A normal `ZHIPU_API_KEY` for Web Search API does not prove `zhipu-mcp-search` or zread access",
     ]
     for marker in readme_markers:
         assert marker in readme
@@ -362,6 +365,7 @@ def test_jina_and_zhipu_mcp_contract_public_and_packaged_assets_match():
         "zhipu-mcp-reader",
         "不会混进现有 `/paas/v4/web_search`",
         "Jina Reader 不是通用搜索 provider",
+        "普通 `ZHIPU_API_KEY` 能用 Web Search API，不代表能用 `zhipu-mcp-search` 或 zread",
     ]
     for marker in zh_markers:
         assert marker in readme_zh
