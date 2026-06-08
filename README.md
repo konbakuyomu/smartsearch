@@ -454,7 +454,7 @@ smart-search doctor --format content
 
 `content` is intentionally brief. Use `doctor --format markdown` for general human troubleshooting, `diagnose openai-compatible --format markdown` for OpenAI-compatible search hangs/timeouts, and JSON formats for complete machine-readable contracts.
 
-Save multi-source evidence under a stable folder:
+Save multi-source evidence under an explicit stable folder. The default uses the platform temp directory; the commands below use a Windows explicit path example:
 
 ```powershell
 smart-search exa-search "Reuters Iran Hormuz latest" --format json --output C:\tmp\smart-search-evidence\iran-hormuz\01-exa.json

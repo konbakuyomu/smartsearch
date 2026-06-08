@@ -377,6 +377,22 @@ def test_deep_research_plan_current_market_is_offline_and_fetch_before_claim(mon
     assert all(step["subquestion_id"] for step in result["steps"])
 
 
+def test_deep_research_default_evidence_dir_uses_platform_temp_dir(monkeypatch, tmp_path):
+    monkeypatch.setattr(service.tempfile, "gettempdir", lambda: str(tmp_path))
+    result = service.build_deep_research_plan("Deep research default evidence directory")
+
+    expected_root = tmp_path / "smart-search-evidence"
+    evidence_dir = result["evidence_dir"]
+    evidence_path = service.Path(evidence_dir)
+
+    assert evidence_path.is_absolute()
+    assert evidence_path.parent == expected_root
+    assert evidence_path.name.endswith("-deep-research-default-evidence-directory")
+    for step in result["steps"]:
+        assert service.Path(step["output_path"]).parent == evidence_path
+        assert step["output_path"] in step["command"]
+
+
 def test_deep_research_plan_complex_docs_query_has_decomposition():
     result = service.build_deep_research_plan(
         "OpenAI Responses API web_search 和 Chat Completions 联网搜索怎么选",

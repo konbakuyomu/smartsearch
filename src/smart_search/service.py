@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import re
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -716,7 +717,7 @@ def _slugify_query(query: str) -> str:
 
 def _default_evidence_dir(query: str) -> str:
     timestamp = time.strftime("%Y%m%d-%H%M")
-    return str(Path("C:/tmp/smart-search-evidence") / f"{timestamp}-{_slugify_query(query)}")
+    return str(Path(tempfile.gettempdir()) / "smart-search-evidence" / f"{timestamp}-{_slugify_query(query)}")
 
 
 def _quote_arg(value: str) -> str:

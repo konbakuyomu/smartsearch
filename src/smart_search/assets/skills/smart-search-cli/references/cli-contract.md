@@ -239,7 +239,7 @@ Before execution, the skill should call `smart-search deep "question" --format j
 - `final_answer_policy`: how to cite fetched evidence and list unverified candidates.
 - `usage_boundary`: user-facing distinction between fast live `search`, offline `deep` planning, and later step execution.
 
-Each `steps[]` item must include `id`, `subquestion_id`, `tool`, `purpose`, `command`, and `output_path`. Allowed `tool` values are `search`, `exa-search`, `exa-similar`, `zhipu-search`, `context7-library`, `context7-docs`, `fetch`, and `map`; these map to existing CLI commands only. `doctor` is a `preflight` action, not a `steps[]` item. Use `C:\tmp\smart-search-evidence\<timestamp>-<slug>\` or an equivalent absolute evidence directory for `output_path` values.
+Each `steps[]` item must include `id`, `subquestion_id`, `tool`, `purpose`, `command`, and `output_path`. Allowed `tool` values are `search`, `exa-search`, `exa-similar`, `zhipu-search`, `context7-library`, `context7-docs`, `fetch`, and `map`; these map to existing CLI commands only. `doctor` is a `preflight` action, not a `steps[]` item. Default `output_path` values live under the platform temp directory as `<platform-temp-dir>/smart-search-evidence/<timestamp>-<slug>/...`; explicit `--evidence-dir PATH` values must be preserved as supplied.
 
 Capability boundaries:
 
@@ -267,6 +267,7 @@ Default Deep Research orchestration:
 When the user wants the CLI to execute the live workflow directly, call:
 
 ```powershell
+# Windows explicit-output example
 smart-search research "question" --budget deep --fallback auto --format json --output C:\tmp\smart-search-evidence\research.json
 ```
 
