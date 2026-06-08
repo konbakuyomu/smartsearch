@@ -2,10 +2,17 @@ import json
 import subprocess
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent.parent
 RESOLVER = ROOT / "npm" / "scripts" / "resolve-prerelease-version.js"
 WORKFLOW = ROOT / ".github" / "workflows" / "publish-npm.yml"
+
+
+def read_reference_tree(skill_dir: Path) -> str:
+    return "\n".join(
+        p.read_text(encoding="utf-8")
+        for p in sorted((skill_dir / "references").rglob("*"))
+        if p.is_file() and p.suffix == ".md"
+    )
 
 
 def run_resolver(base_version: str, versions: list[str]) -> str:
@@ -84,12 +91,10 @@ def test_publish_workflow_uses_beta_lane_and_prerelease_guardrails():
 def test_release_docs_explain_beta_lane_and_npm_immutability():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
-    public_contract = (ROOT / "skills" / "smart-search-cli" / "references" / "cli-contract.md").read_text(
-        encoding="utf-8"
+    public_contract = read_reference_tree(ROOT / "skills" / "smart-search-cli")
+    packaged_contract = read_reference_tree(
+        ROOT / "src" / "smart_search" / "assets" / "skills" / "smart-search-cli"
     )
-    packaged_contract = (
-        ROOT / "src" / "smart_search" / "assets" / "skills" / "smart-search-cli" / "references" / "cli-contract.md"
-    ).read_text(encoding="utf-8")
 
     required_markers = [
         "Release lanes",

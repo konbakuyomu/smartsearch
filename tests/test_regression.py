@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent.parent
 PUBLIC_SKILL_DIR = ROOT / "skills" / "smart-search-cli"
 PACKAGED_SKILL_DIR = ROOT / "src" / "smart_search" / "assets" / "skills" / "smart-search-cli"
@@ -53,6 +52,22 @@ def _read_skill_tree(path: Path) -> str:
     )
 
 
+def _read_reference_tree(path: Path) -> str:
+    return "\n".join(
+        p.read_text(encoding="utf-8")
+        for p in sorted((path / "references").rglob("*"))
+        if p.is_file() and p.suffix == ".md"
+    )
+
+
+def _skill_text_files(path: Path) -> dict[str, str]:
+    return {
+        p.relative_to(path).as_posix(): p.read_text(encoding="utf-8")
+        for p in sorted(path.rglob("*"))
+        if p.is_file() and p.suffix in {".md", ".yaml", ".yml"}
+    }
+
+
 def test_deep_research_skill_contract_public_and_packaged_assets_match():
     public_text = _read_skill_tree(PUBLIC_SKILL_DIR)
     packaged_text = _read_skill_tree(PACKAGED_SKILL_DIR)
@@ -76,10 +91,10 @@ def test_deep_research_skill_contract_public_and_packaged_assets_match():
         "decomposition",
         "usage_boundary",
         "search`, `exa-search`, `exa-similar`, `zhipu-search`, `context7-library`, `context7-docs`, `fetch`, and `map`",
-        "doctor` is preflight",
+        "`doctor` is a `preflight` action",
         "fixed topic recipe",
         "深度搜索一下最近的比特币行情",
-        "C:\\tmp\\smart-search-evidence",
+        "platform temporary directory",
         "mock-full plus live-limited",
         "public planner entrypoint",
         "public live executor entrypoint",
@@ -102,8 +117,8 @@ def test_deep_research_skill_contract_public_and_packaged_assets_match():
 
 
 def test_deep_research_cli_contract_documents_plan_and_smoke_matrix():
-    public_contract = (PUBLIC_SKILL_DIR / "references" / "cli-contract.md").read_text(encoding="utf-8")
-    packaged_contract = (PACKAGED_SKILL_DIR / "references" / "cli-contract.md").read_text(encoding="utf-8")
+    public_contract = _read_reference_tree(PUBLIC_SKILL_DIR)
+    packaged_contract = _read_reference_tree(PACKAGED_SKILL_DIR)
     required_markers = [
         "Deep Research Skill Contract",
         "`smart-search deep` is the public offline planner command",
@@ -159,8 +174,8 @@ def test_deep_research_cli_contract_documents_plan_and_smoke_matrix():
 def test_search_timeout_retry_policy_is_distributable():
     public_text = _read_skill_tree(PUBLIC_SKILL_DIR)
     packaged_text = _read_skill_tree(PACKAGED_SKILL_DIR)
-    public_contract = (PUBLIC_SKILL_DIR / "references" / "cli-contract.md").read_text(encoding="utf-8")
-    packaged_contract = (PACKAGED_SKILL_DIR / "references" / "cli-contract.md").read_text(encoding="utf-8")
+    public_contract = _read_reference_tree(PUBLIC_SKILL_DIR)
+    packaged_contract = _read_reference_tree(PACKAGED_SKILL_DIR)
 
     skill_markers = [
         "Timeout Retry Policy",
@@ -278,14 +293,7 @@ def test_readme_language_split_and_provider_links_are_documented():
 
 
 def test_deep_research_shared_skill_files_are_synchronized():
-    shared_files = [
-        "SKILL.md",
-        "references/cli-contract.md",
-    ]
-    for relative in shared_files:
-        assert (PUBLIC_SKILL_DIR / relative).read_text(encoding="utf-8") == (
-            PACKAGED_SKILL_DIR / relative
-        ).read_text(encoding="utf-8")
+    assert _skill_text_files(PUBLIC_SKILL_DIR) == _skill_text_files(PACKAGED_SKILL_DIR)
 
 
 def test_zhipu_setup_contract_public_and_packaged_assets_match():
@@ -293,8 +301,8 @@ def test_zhipu_setup_contract_public_and_packaged_assets_match():
     readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
     public_text = _read_skill_tree(PUBLIC_SKILL_DIR)
     packaged_text = _read_skill_tree(PACKAGED_SKILL_DIR)
-    public_contract = (PUBLIC_SKILL_DIR / "references" / "cli-contract.md").read_text(encoding="utf-8")
-    packaged_contract = (PACKAGED_SKILL_DIR / "references" / "cli-contract.md").read_text(encoding="utf-8")
+    public_contract = _read_reference_tree(PUBLIC_SKILL_DIR)
+    packaged_contract = _read_reference_tree(PACKAGED_SKILL_DIR)
     required_markers = [
         "--zhipu-api-url",
         "--zhipu-search-engine",
@@ -341,8 +349,8 @@ def test_jina_and_zhipu_mcp_contract_public_and_packaged_assets_match():
     readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
     public_text = _read_skill_tree(PUBLIC_SKILL_DIR)
     packaged_text = _read_skill_tree(PACKAGED_SKILL_DIR)
-    public_contract = (PUBLIC_SKILL_DIR / "references" / "cli-contract.md").read_text(encoding="utf-8")
-    packaged_contract = (PACKAGED_SKILL_DIR / "references" / "cli-contract.md").read_text(encoding="utf-8")
+    public_contract = _read_reference_tree(PUBLIC_SKILL_DIR)
+    packaged_contract = _read_reference_tree(PACKAGED_SKILL_DIR)
 
     required_markers = [
         "JINA_API_KEY",
@@ -400,8 +408,8 @@ def test_streaming_and_anysearch_contract_public_and_packaged_assets_match():
     readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
     public_text = _read_skill_tree(PUBLIC_SKILL_DIR)
     packaged_text = _read_skill_tree(PACKAGED_SKILL_DIR)
-    public_contract = (PUBLIC_SKILL_DIR / "references" / "cli-contract.md").read_text(encoding="utf-8")
-    packaged_contract = (PACKAGED_SKILL_DIR / "references" / "cli-contract.md").read_text(encoding="utf-8")
+    public_contract = _read_reference_tree(PUBLIC_SKILL_DIR)
+    packaged_contract = _read_reference_tree(PACKAGED_SKILL_DIR)
 
     required_markers = [
         "OPENAI_COMPATIBLE_STREAM",
