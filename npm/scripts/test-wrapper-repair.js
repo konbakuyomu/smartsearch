@@ -11,6 +11,7 @@ function runWrapper({ runtimeExists, repairStatus = 0, repairCreatesRuntime = tr
   const spawnSyncCalls = [];
   const spawnCalls = [];
   const exits = [];
+  const stderr = [];
 
   const fakeFs = {
     existsSync(filePath) {
@@ -40,6 +41,9 @@ function runWrapper({ runtimeExists, repairStatus = 0, repairCreatesRuntime = tr
   const fakeChildProcess = {
     spawnSync(command, args, options) {
       spawnSyncCalls.push({ command, args, options });
+      if (repairStatus instanceof Error) {
+        return { error: repairStatus };
+      }
       if (repairCreatesRuntime) {
         repairedRuntimeExists = true;
       }
@@ -57,7 +61,7 @@ function runWrapper({ runtimeExists, repairStatus = 0, repairCreatesRuntime = tr
 
   const context = {
     __dirname: path.dirname(wrapperPath),
-    console: { error() {}, log() {} },
+    console: { error(message = "") { stderr.push(String(message)); }, log() {} },
     process: fakeProcess,
     require(moduleName) {
       if (moduleName === "node:child_process") {
@@ -81,7 +85,7 @@ function runWrapper({ runtimeExists, repairStatus = 0, repairCreatesRuntime = tr
     }
   }
 
-  return { spawnSyncCalls, spawnCalls, exits };
+  return { spawnSyncCalls, spawnCalls, exits, stderr };
 }
 
 const healthy = runWrapper({ runtimeExists: true });
@@ -97,3 +101,37 @@ assert(
 assert.strictEqual(repaired.spawnCalls.length, 1);
 assert.deepStrictEqual(Array.from(repaired.spawnCalls[0].args.slice(0, 2)), ["-m", "smart_search.cli"]);
 assert.strictEqual(repaired.exits.length, 0);
+
+const failedRepair = runWrapper({
+  runtimeExists: false,
+  repairStatus: 1,
+  repairCreatesRuntime: false
+});
+assert.strictEqual(failedRepair.spawnSyncCalls.length, 1);
+assert.strictEqual(failedRepair.spawnCalls.length, 0);
+assert.deepStrictEqual(failedRepair.exits, [1]);
+assert(
+  failedRepair.stderr.includes("  npm install -g @konbakuyomu/smart-search"),
+  "failed repair should recommend reinstalling the stable package"
+);
+assert(
+  !failedRepair.stderr.some((message) => message.includes("@next")),
+  "failed repair should not recommend the next release tag"
+);
+
+const repairSpawnError = runWrapper({
+  runtimeExists: false,
+  repairStatus: new Error("postinstall unavailable"),
+  repairCreatesRuntime: false
+});
+assert.strictEqual(repairSpawnError.spawnSyncCalls.length, 1);
+assert.strictEqual(repairSpawnError.spawnCalls.length, 0);
+assert.deepStrictEqual(repairSpawnError.exits, [5]);
+assert(
+  repairSpawnError.stderr.includes("  npm install -g @konbakuyomu/smart-search"),
+  "repair spawn errors should recommend reinstalling the stable package"
+);
+assert(
+  !repairSpawnError.stderr.some((message) => message.includes("@next")),
+  "repair spawn errors should not recommend the next release tag"
+);
