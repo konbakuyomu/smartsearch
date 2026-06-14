@@ -1490,6 +1490,52 @@ async def test_firecrawl_custom_base_is_used_for_search_and_scrape(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_crw_custom_base_is_used_for_search_and_scrape(monkeypatch):
+    # fastCRW: Firecrawl-compatible web scraper; single binary; self-host or cloud.
+    monkeypatch.setenv("CRW_API_KEY", "crw-test-secret")
+    monkeypatch.setenv("CRW_API_URL", "https://crw.example.com")
+    calls = []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, headers, json):
+            calls.append((url, json))
+            if url.endswith("/search"):
+                payload = {"data": [{"title": "Result", "url": "https://example.com", "description": "desc"}]}
+            elif url.endswith("/scrape"):
+                payload = {"data": {"markdown": "# Scraped"}}
+            else:
+                payload = {}
+            return httpx.Response(200, json=payload, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(service.httpx, "AsyncClient", FakeAsyncClient)
+
+    search_result = await service.call_crw_search("query", limit=1)
+    scrape_result = await service.call_crw_scrape("https://example.com")
+
+    assert [call[0] for call in calls] == [
+        "https://crw.example.com/v1/search",
+        "https://crw.example.com/v1/scrape",
+    ]
+    assert search_result[0]["url"] == "https://example.com"
+    assert scrape_result == "# Scraped"
+
+
+@pytest.mark.asyncio
+async def test_crw_default_base_is_cloud(monkeypatch):
+    monkeypatch.delenv("CRW_API_URL", raising=False)
+    assert service.config.crw_api_url == "https://fastcrw.com/api"
+
+
+@pytest.mark.asyncio
 async def test_exa_search_passes_parameters(monkeypatch):
     monkeypatch.setenv("EXA_API_KEY", "exa-secret")
     captured = {}

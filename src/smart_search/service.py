@@ -158,9 +158,9 @@ RESEARCH_JS_HEAVY_KEYWORDS = {
 RESEARCH_PDF_KEYWORDS = {"pdf", "arxiv", "论文", "paper", ".pdf"}
 RESEARCH_PROFILE_ORDER = {
     "main_search": ["xai-responses", "openai-compatible"],
-    "web_search": ["zhipu", "zhipu-mcp", "tavily", "firecrawl"],
+    "web_search": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "crw"],
     "docs_search": ["context7", "exa"],
-    "web_fetch": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl"],
+    "web_fetch": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "crw"],
     "vertical_search": ["anysearch"],
     "site_map": ["tavily"],
     "synthesis": ["main-search"],
@@ -249,6 +249,17 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
         "route_reasons": ["Coding Plan quota page read"],
     },
     "firecrawl": {
+        "capability": "web_fetch",
+        "capabilities": ["web_search", "web_fetch"],
+        "strengths": ["robust scrape fallback", "JS-heavy pages", "dynamic pages", "OCR/PDF/structured extraction"],
+        "exclusions": ["docs semantic replacement"],
+        "fallback_group": "web_search/web_fetch",
+        "minimum_profile_role": "web_fetch",
+        "quality_filters": ["non-empty normalized result", "non-empty extracted content"],
+        "route_reasons": ["JS-heavy fetch", "dynamic/browser-like extraction", "robust fetch fallback"],
+    },
+    "crw": {
+        # fastCRW: Firecrawl-compatible web scraper; single binary; self-host or cloud.
         "capability": "web_fetch",
         "capabilities": ["web_search", "web_fetch"],
         "strengths": ["robust scrape fallback", "JS-heavy pages", "dynamic pages", "OCR/PDF/structured extraction"],
@@ -444,6 +455,8 @@ def _provider_configured(provider: str) -> bool:
         return bool(config.zhipu_mcp_api_key)
     if provider == "firecrawl":
         return bool(config.firecrawl_api_key)
+    if provider == "crw":
+        return bool(config.crw_api_key)
     if provider == "anysearch":
         return bool(config.anysearch_api_key)
     if provider == "main-search":
@@ -494,11 +507,11 @@ def _research_fetch_order(query: str, url: str = "", capability_status: dict[str
     providers = _configured_for_capability("web_fetch", capability_status)
     target = f"{query} {url}".lower()
     if _contains_any(target, RESEARCH_JS_HEAVY_KEYWORDS):
-        preferred = ["firecrawl", "tavily", "jina", "zhipu-mcp-reader"]
+        preferred = ["firecrawl", "crw", "tavily", "jina", "zhipu-mcp-reader"]
     elif _contains_any(target, RESEARCH_PDF_KEYWORDS) or url.lower().endswith(".pdf"):
-        preferred = ["jina", "tavily", "zhipu-mcp-reader", "firecrawl"]
+        preferred = ["jina", "tavily", "zhipu-mcp-reader", "firecrawl", "crw"]
     elif url or _extract_urls(query):
-        preferred = ["jina", "tavily", "zhipu-mcp-reader", "firecrawl"]
+        preferred = ["jina", "tavily", "zhipu-mcp-reader", "firecrawl", "crw"]
     else:
         preferred = providers
     ordered = [provider for provider in preferred if provider in providers]
@@ -561,9 +574,9 @@ def _research_capability_routes(
 
     web_search = _configured_for_capability("web_search", capability_status)
     if signals["current_or_locale_intent"]:
-        ordered = [provider for provider in ["zhipu", "zhipu-mcp", "tavily", "firecrawl"] if provider in web_search]
+        ordered = [provider for provider in ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "crw"] if provider in web_search]
     else:
-        ordered = [provider for provider in ["tavily", "firecrawl", "zhipu", "zhipu-mcp"] if provider in web_search]
+        ordered = [provider for provider in ["tavily", "firecrawl", "crw", "zhipu", "zhipu-mcp"] if provider in web_search]
     routes["capabilities"]["web_search"] = {
         "providers": _apply_research_overrides("web_search", ordered),
         "reason": "current/locale evidence" if signals["current_or_locale_intent"] else "broad source discovery",
@@ -1313,10 +1326,11 @@ def get_capability_status() -> dict[str, Any]:
                     ("zhipu-mcp", bool(config.zhipu_mcp_api_key)),
                     ("tavily", bool(config.tavily_api_key)),
                     ("firecrawl", bool(config.firecrawl_api_key)),
+                    ("crw", bool(config.crw_api_key)),
                 ]
                 if enabled
             ],
-            "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl"],
+            "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "crw"],
         },
         "docs_search": {
             "configured": [
@@ -1337,10 +1351,11 @@ def get_capability_status() -> dict[str, Any]:
                     ("jina", bool(config.jina_api_key)),
                     ("zhipu-mcp-reader", bool(config.zhipu_mcp_api_key)),
                     ("firecrawl", bool(config.firecrawl_api_key)),
+                    ("crw", bool(config.crw_api_key)),
                 ]
                 if enabled
             ],
-            "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl"],
+            "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "crw"],
         },
         "vertical_search": {
             "configured": ["anysearch"] if config.anysearch_api_key else [],
@@ -1549,6 +1564,8 @@ async def _run_web_fetch_fallback(
         providers.append("zhipu-mcp-reader")
     if config.firecrawl_api_key:
         providers.append("firecrawl")
+    if config.crw_api_key:
+        providers.append("crw")
     if preferred_order:
         allowed = {provider for provider in providers}
         ordered = [provider for provider in preferred_order if provider in allowed]
@@ -1576,6 +1593,8 @@ async def _run_web_fetch_fallback(
                     status = "error" if data.get("error_type") in {"auth_error", "config_error", "provider_error", "rate_limited", "timeout", "network_error", "runtime_error"} else "empty"
                     attempts.append(_attempt("web_fetch", provider, status, start, error_type=data.get("error_type", ""), error=data.get("error", "")))
                     continue
+            elif provider == "crw":
+                content = await call_crw_scrape(url)
             else:
                 content = await call_firecrawl_scrape(url)
             if content and content.strip():
@@ -1609,6 +1628,8 @@ async def _run_web_search_fallback(
         configured.append("tavily")
     if config.firecrawl_api_key:
         configured.append("firecrawl")
+    if config.crw_api_key:
+        configured.append("crw")
     if provider_filter is not None:
         configured = [p for p in configured if p in provider_filter]
     if fallback == "off":
@@ -1645,6 +1666,13 @@ async def _run_web_search_fallback(
             elif provider == "firecrawl":
                 results = await call_firecrawl_search(query, count)
                 sources = _normalize_source_results(results, "firecrawl")
+                if sources:
+                    attempts.append(_attempt("web_search", provider, "ok", start, result_count=len(sources)))
+                    return sources, attempts
+                attempts.append(_attempt("web_search", provider, "empty", start))
+            elif provider == "crw":
+                results = await call_crw_search(query, count)
+                sources = _normalize_source_results(results, "crw")
                 if sources:
                     attempts.append(_attempt("web_search", provider, "ok", start, result_count=len(sources)))
                     return sources, attempts
@@ -1838,6 +1866,63 @@ async def call_firecrawl_scrape(url: str, ctx=None) -> str | None:
                 await log_info(ctx, f"Firecrawl: markdown为空, 重试 {attempt + 1}/{config.retry_max_attempts}", config.debug_enabled)
         except Exception as e:
             await log_info(ctx, f"Firecrawl error: {e}", config.debug_enabled)
+            return None
+    return None
+
+
+async def call_crw_search(query: str, limit: int = 14) -> list[dict] | None:
+    # fastCRW: Firecrawl-compatible web scraper; single binary; self-host or cloud.
+    api_key = config.crw_api_key
+    if not api_key:
+        return None
+    endpoint = f"{config.crw_api_url.rstrip('/')}/v1/search"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    body = {"query": query, "limit": limit}
+    try:
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            response = await client.post(endpoint, headers=headers, json=body)
+            response.raise_for_status()
+            data = response.json()
+            # CRW /v1/search envelope: {success, data: [{title,url,description}]}
+            # data is a flat list, not Firecrawl v2's {data: {web: [...]}} shape.
+            results = data.get("data", [])
+            return [
+                {
+                    "title": r.get("title", ""),
+                    "url": r.get("url", ""),
+                    "description": r.get("description", ""),
+                }
+                for r in results
+            ] if results else None
+    except Exception:
+        return None
+
+
+async def call_crw_scrape(url: str, ctx=None) -> str | None:
+    # fastCRW: Firecrawl-compatible web scraper; single binary; self-host or cloud.
+    api_key = config.crw_api_key
+    if not api_key:
+        return None
+    endpoint = f"{config.crw_api_url.rstrip('/')}/v1/scrape"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    for attempt in range(config.retry_max_attempts):
+        body = {
+            "url": url,
+            "formats": ["markdown"],
+            "timeout": 60000,
+            "waitFor": (attempt + 1) * 1500,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=90.0) as client:
+                response = await client.post(endpoint, headers=headers, json=body)
+                response.raise_for_status()
+                data = response.json()
+                markdown = data.get("data", {}).get("markdown", "")
+                if markdown and markdown.strip():
+                    return markdown
+                await log_info(ctx, f"CRW: markdown为空, 重试 {attempt + 1}/{config.retry_max_attempts}", config.debug_enabled)
+        except Exception as e:
+            await log_info(ctx, f"CRW error: {e}", config.debug_enabled)
             return None
     return None
 
@@ -2708,8 +2793,8 @@ async def fetch(url: str) -> dict[str, Any]:
             "elapsed_ms": _elapsed_ms(start),
         }
 
-    if not (config.tavily_api_key or config.jina_api_key or config.zhipu_mcp_api_key or config.firecrawl_api_key):
-        error = "TAVILY_API_KEY、JINA_API_KEY、ZHIPU_MCP_API_KEY 和 FIRECRAWL_API_KEY 均未配置"
+    if not (config.tavily_api_key or config.jina_api_key or config.zhipu_mcp_api_key or config.firecrawl_api_key or config.crw_api_key):
+        error = "TAVILY_API_KEY、JINA_API_KEY、ZHIPU_MCP_API_KEY、FIRECRAWL_API_KEY 和 CRW_API_KEY 均未配置"
         error_type = "config_error"
     else:
         error = "所有提取服务均未能获取内容"
@@ -3481,6 +3566,11 @@ async def doctor() -> dict[str, Any]:
     else:
         info["firecrawl_connection_test"] = {"status": "not_configured", "message": "FIRECRAWL_API_KEY 未设置，Firecrawl 功能不可用"}
 
+    if config.crw_api_key:
+        info["crw_connection_test"] = {"status": "configured", "message": "CRW_API_KEY 已设置"}
+    else:
+        info["crw_connection_test"] = {"status": "not_configured", "message": "CRW_API_KEY 未设置，fastCRW 功能不可用"}
+
     try:
         info["zhipu_connection_test"] = await _test_zhipu_connection()
     except httpx.TimeoutException:
@@ -3970,7 +4060,7 @@ async def _smoke_live(start: float) -> dict[str, Any]:
     else:
         cases.append(_case("context7 library", True, {"skipped": "CONTEXT7_API_KEY not configured"}))
 
-    if config.tavily_api_key or config.firecrawl_api_key:
+    if config.tavily_api_key or config.firecrawl_api_key or config.crw_api_key:
         fetch_result = await fetch("https://example.com")
         cases.append(_case("web fetch fallback chain", bool(fetch_result.get("ok")), {"provider": fetch_result.get("provider", ""), "provider_attempts": fetch_result.get("provider_attempts", [])}))
     else:
