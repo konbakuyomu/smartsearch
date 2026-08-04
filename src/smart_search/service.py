@@ -3023,13 +3023,20 @@ async def anysearch_domains(domain: str = "") -> dict[str, Any]:
     return await _decode_provider_json(await _anysearch_provider().list_domains(domain))
 
 
-async def anysearch_search(query: str, domain: str = "", sub_domain: str = "", max_results: int = 5) -> dict[str, Any]:
+async def anysearch_search(
+    query: str,
+    domain: str = "",
+    sub_domain: str = "",
+    max_results: int = 5,
+    sub_domain_params: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     return await _decode_provider_json(
         await _anysearch_provider().vertical_search(
             query=query,
             domain=domain,
             sub_domain=sub_domain,
             max_results=max_results,
+            sub_domain_params=sub_domain_params,
         )
     )
 

@@ -2511,10 +2511,10 @@ def test_anysearch_commands_use_service_wrappers(monkeypatch, capsys):
 
     async def fake_domains(domain=""):
         calls.append(("domains", domain))
-        return {"ok": True, "provider": "anysearch", "tool": "list_domains", "results": []}
+        return {"ok": True, "provider": "anysearch", "tool": "get_sub_domains", "results": []}
 
-    async def fake_search(query, domain="", sub_domain="", max_results=5):
-        calls.append(("search", query, domain, sub_domain, max_results))
+    async def fake_search(query, domain="", sub_domain="", max_results=5, sub_domain_params=None):
+        calls.append(("search", query, domain, sub_domain, max_results, sub_domain_params))
         return {"ok": True, "provider": "anysearch", "tool": "search", "query": query, "results": []}
 
     async def fake_extract(url, max_length=20000):
@@ -2531,9 +2531,27 @@ def test_anysearch_commands_use_service_wrappers(monkeypatch, capsys):
     monkeypatch.setattr(cli.service, "anysearch_batch", fake_batch)
 
     assert cli.main(["anysearch-domains", "security"]) == cli.EXIT_OK
-    assert json.loads(capsys.readouterr().out)["tool"] == "list_domains"
-    assert cli.main(["as", "CVE-2024-3094", "--domain", "security.cve", "--sub-domain", "xz", "--max-results", "2"]) == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["tool"] == "get_sub_domains"
+    assert (
+        cli.main(
+            [
+                "as",
+                "CVE-2024-3094",
+                "--domain",
+                "security",
+                "--sub-domain",
+                "security.vuln",
+                "--sub-domain-params",
+                '{"type":"cve","value":"CVE-2024-3094"}',
+                "--max-results",
+                "2",
+            ]
+        )
+        == cli.EXIT_OK
+    )
     assert json.loads(capsys.readouterr().out)["query"] == "CVE-2024-3094"
+    assert cli.main(["as", "query", "--param", "type=cve", "--param", "value=CVE-1"]) == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["query"] == "query"
     assert cli.main(["as-extract", "https://example.com", "--max-length", "123"]) == cli.EXIT_OK
     assert json.loads(capsys.readouterr().out)["url"] == "https://example.com"
     assert cli.main(["as-batch", "a", "b", "--max-results", "1"]) == cli.EXIT_OK
@@ -2541,10 +2559,29 @@ def test_anysearch_commands_use_service_wrappers(monkeypatch, capsys):
 
     assert calls == [
         ("domains", "security"),
-        ("search", "CVE-2024-3094", "security.cve", "xz", 2),
+        (
+            "search",
+            "CVE-2024-3094",
+            "security",
+            "security.vuln",
+            2,
+            {"type": "cve", "value": "CVE-2024-3094"},
+        ),
+        ("search", "query", "", "", 5, {"type": "cve", "value": "CVE-1"}),
         ("extract", "https://example.com", 123),
         ("batch", ["a", "b"], 1),
     ]
+
+
+def test_anysearch_search_rejects_invalid_sub_domain_params(monkeypatch, capsys):
+    async def fake_search(*args, **kwargs):
+        raise AssertionError("service should not be called for invalid params")
+
+    monkeypatch.setattr(cli.service, "anysearch_search", fake_search)
+    assert cli.main(["as", "query", "--sub-domain-params", "{bad"]) == cli.EXIT_PARAMETER_ERROR
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["error_type"] == "parameter_error"
 
 
 def test_zhipu_mcp_commands_use_service_wrappers(monkeypatch, capsys):

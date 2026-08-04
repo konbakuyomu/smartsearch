@@ -3,7 +3,11 @@ import json
 import httpx
 import pytest
 
-from smart_search.providers.anysearch import AnySearchProvider
+from smart_search.providers.anysearch import (
+    ANYSEARCH_TOP_LEVEL_DOMAINS,
+    AnySearchProvider,
+    parse_sub_domain_params,
+)
 
 
 class FakeAnySearchClient:
@@ -81,16 +85,127 @@ async def test_anysearch_jsonrpc_success_parses_markdown_and_auth_header(monkeyp
 async def test_anysearch_anonymous_request_omits_authorization(monkeypatch):
     FakeAnySearchClient.response = httpx.Response(
         200,
-        json={"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": "No domains"}]}},
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "## security Domain Capabilities\n\n### security.vuln\nCVE lookup",
+                    }
+                ]
+            },
+        },
         request=httpx.Request("POST", "https://api.anysearch.com/mcp"),
     )
     monkeypatch.setattr("smart_search.providers.anysearch.httpx.AsyncClient", FakeAnySearchClient)
 
     provider = AnySearchProvider("https://api.anysearch.com/mcp", None)
+    data = json.loads(await provider.list_domains("security"))
+
+    assert data["ok"] is True
+    assert data["tool"] == "get_sub_domains"
+    assert FakeAnySearchClient.calls[0]["json"]["params"]["name"] == "get_sub_domains"
+    assert FakeAnySearchClient.calls[0]["json"]["params"]["arguments"] == {"domains": ["security"]}
+    assert "Authorization" not in FakeAnySearchClient.calls[0]["headers"]
+    assert data["results"][0]["title"] == "security.vuln"
+
+
+@pytest.mark.asyncio
+async def test_anysearch_list_domains_without_domain_returns_local_catalog(monkeypatch):
+    monkeypatch.setattr("smart_search.providers.anysearch.httpx.AsyncClient", FakeAnySearchClient)
+
+    provider = AnySearchProvider("https://api.anysearch.com/mcp", "as-test-secret")
     data = json.loads(await provider.list_domains())
 
     assert data["ok"] is True
-    assert "Authorization" not in FakeAnySearchClient.calls[0]["headers"]
+    assert data["tool"] == "get_sub_domains"
+    assert data["source"] == "local_catalog"
+    assert data["total"] == len(ANYSEARCH_TOP_LEVEL_DOMAINS)
+    assert FakeAnySearchClient.calls == []
+
+
+@pytest.mark.asyncio
+async def test_anysearch_list_domains_dotted_shorthand_uses_parent(monkeypatch):
+    FakeAnySearchClient.response = httpx.Response(
+        200,
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"content": [{"type": "text", "text": "### security.vuln\nCVE details"}]},
+        },
+        request=httpx.Request("POST", "https://api.anysearch.com/mcp"),
+    )
+    monkeypatch.setattr("smart_search.providers.anysearch.httpx.AsyncClient", FakeAnySearchClient)
+
+    provider = AnySearchProvider("https://api.anysearch.com/mcp", "as-test-secret")
+    data = json.loads(await provider.list_domains("security.cve"))
+
+    assert data["ok"] is True
+    assert FakeAnySearchClient.calls[0]["json"]["params"]["arguments"] == {"domains": ["security"]}
+
+
+@pytest.mark.asyncio
+async def test_anysearch_vertical_search_sends_sub_domain_params(monkeypatch):
+    FakeAnySearchClient.response = httpx.Response(
+        200,
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"content": [{"type": "text", "text": "CVE-2024-3094 severity: critical"}]},
+        },
+        request=httpx.Request("POST", "https://api.anysearch.com/mcp"),
+    )
+    monkeypatch.setattr("smart_search.providers.anysearch.httpx.AsyncClient", FakeAnySearchClient)
+
+    provider = AnySearchProvider("https://api.anysearch.com/mcp", "as-test-secret")
+    params = {"type": "cve", "value": "CVE-2024-3094"}
+    data = json.loads(
+        await provider.vertical_search(
+            "CVE-2024-3094",
+            domain="security",
+            sub_domain="security.vuln",
+            max_results=2,
+            sub_domain_params=params,
+        )
+    )
+
+    assert data["ok"] is True
+    assert data["sub_domain_params"] == params
+    assert FakeAnySearchClient.calls[0]["json"]["params"]["arguments"]["sub_domain_params"] == params
+
+
+@pytest.mark.asyncio
+async def test_anysearch_extract_omits_max_length_and_truncates_locally(monkeypatch):
+    FakeAnySearchClient.response = httpx.Response(
+        200,
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"content": [{"type": "text", "text": "ABCDEFGHIJKLMNOPQRSTUVWXYZ"}]},
+        },
+        request=httpx.Request("POST", "https://api.anysearch.com/mcp"),
+    )
+    monkeypatch.setattr("smart_search.providers.anysearch.httpx.AsyncClient", FakeAnySearchClient)
+
+    provider = AnySearchProvider("https://api.anysearch.com/mcp", "as-test-secret")
+    data = json.loads(await provider.extract("https://example.com", max_length=10))
+
+    assert data["ok"] is True
+    assert FakeAnySearchClient.calls[0]["json"]["params"]["arguments"] == {"url": "https://example.com"}
+    assert data["content"] == "ABCDEFGHIJ"
+    assert data["max_length"] == 10
+
+
+def test_parse_sub_domain_params_merges_json_and_key_values():
+    params = parse_sub_domain_params('{"type":"cve"}', ["value=CVE-2024-3094", "extra=1"])
+    assert params == {"type": "cve", "value": "CVE-2024-3094", "extra": "1"}
+
+
+def test_parse_sub_domain_params_rejects_invalid_json():
+    with pytest.raises(ValueError, match="invalid --sub-domain-params JSON"):
+        parse_sub_domain_params("{bad", [])
 
 
 @pytest.mark.asyncio

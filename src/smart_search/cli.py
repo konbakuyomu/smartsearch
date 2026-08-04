@@ -16,6 +16,7 @@ from .embedding_presets import (
     QWEN3_EMBEDDING_8B_PRESET,
     embedding_preset_for_model,
 )
+from .providers.anysearch import parse_sub_domain_params
 from .skill_installer import (
     DEFAULT_SKILL_TARGET_IDS,
     SKILL_TARGETS,
@@ -2455,11 +2456,26 @@ async def _run_async(args: argparse.Namespace) -> int:
         data = await service.anysearch_domains(args.domain)
         return _print_result("anysearch-domains", data, args.format, args.output)
     if args.command == "anysearch-search":
+        try:
+            sub_domain_params = parse_sub_domain_params(
+                getattr(args, "sub_domain_params", "") or "",
+                getattr(args, "param", None) or [],
+            )
+        except ValueError as exc:
+            data = {
+                "ok": False,
+                "provider": "anysearch",
+                "tool": "search",
+                "error_type": "parameter_error",
+                "error": str(exc),
+            }
+            return _print_result("anysearch-search", data, args.format, args.output)
         data = await service.anysearch_search(
             args.query,
             domain=args.domain,
             sub_domain=args.sub_domain,
             max_results=args.max_results,
+            sub_domain_params=sub_domain_params or None,
         )
         return _print_result("anysearch-search", data, args.format, args.output)
     if args.command == "anysearch-extract":
@@ -2886,6 +2902,17 @@ def build_parser() -> argparse.ArgumentParser:
     anysearch_search_parser.add_argument("query")
     anysearch_search_parser.add_argument("--domain", default="")
     anysearch_search_parser.add_argument("--sub-domain", default="")
+    anysearch_search_parser.add_argument(
+        "--sub-domain-params",
+        default="",
+        help='JSON object for structured vertical params, e.g. \'{"type":"cve","value":"CVE-2024-3094"}\'.',
+    )
+    anysearch_search_parser.add_argument(
+        "--param",
+        action="append",
+        default=[],
+        help="Repeatable key=value entries merged into sub_domain_params.",
+    )
     anysearch_search_parser.add_argument("--max-results", type=int, default=5)
     _add_format_args(anysearch_search_parser)
 

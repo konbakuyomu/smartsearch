@@ -344,12 +344,12 @@ Experimental AnySearch configuration is optional and does not satisfy or change 
 ```powershell
 smart-search setup --non-interactive --anysearch-api-url "https://api.anysearch.com/mcp" --anysearch-key "your-anysearch-key"
 smart-search anysearch-domains security --format json
-smart-search anysearch-search "CVE-2024-3094" --domain security.cve --max-results 3 --format json
+smart-search anysearch-search "CVE-2024-3094" --domain security --sub-domain security.vuln --param type=cve --param value=CVE-2024-3094 --max-results 3 --format json
 smart-search anysearch-extract "https://example.com/source" --format json
 smart-search anysearch-batch "AAPL" "RAG papers" --max-results 2 --format json
 ```
 
-For vertical domains, the dotted shorthand `security.cve` is accepted by the CLI and sent to AnySearch as `domain=security` plus `sub_domain=cve`. You can also pass the split form explicitly with `--domain security --sub-domain cve`.
+For vertical domains, the dotted shorthand `security.cve` is accepted by the CLI and sent to AnySearch as `domain=security` plus `sub_domain=cve`. You can also pass the split form explicitly with `--domain security --sub-domain cve`. Structured vertical params use `--sub-domain-params '{"type":"cve","value":"CVE-2024-3094"}'` or repeatable `--param key=value`. `anysearch-domains` maps to the live `get_sub_domains` tool.
 
 Local config path:
 
@@ -416,7 +416,7 @@ smart-search zhipu-search "today China AI news" --search-engine search_pro_sogou
 smart-search zhipu-mcp-search "today China AI news" --count 5 --format json
 smart-search zhipu-mcp-reader "https://example.com/source" --format json
 smart-search zhipu-mcp-search-doc "owner/repo" "install" --format json
-smart-search anysearch-search "CVE-2024-3094" --domain security.cve --max-results 3 --format json
+smart-search anysearch-search "CVE-2024-3094" --domain security --sub-domain security.vuln --param type=cve --param value=CVE-2024-3094 --max-results 3 --format json
 smart-search anysearch-extract "https://example.com/source" --format json
 smart-search exa-similar "https://example.com/source" --num-results 5 --format json
 smart-search fetch "https://example.com/source" --format markdown --output page.md

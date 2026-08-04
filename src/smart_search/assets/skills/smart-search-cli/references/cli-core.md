@@ -32,7 +32,7 @@
 - `smart-search zhipu-mcp-repo-structure REPO [--ref REF] [--format json|markdown|content] [--output PATH]`
 - `smart-search zhipu-mcp-read-file REPO PATH [--ref REF] [--format json|markdown|content] [--output PATH]`
 - `smart-search anysearch-domains [DOMAIN] [--format json|markdown|content] [--output PATH]`
-- `smart-search anysearch-search QUERY [--domain DOMAIN] [--sub-domain SUB_DOMAIN] [--max-results N] [--format json|markdown|content] [--output PATH]`
+- `smart-search anysearch-search QUERY [--domain DOMAIN] [--sub-domain SUB_DOMAIN] [--sub-domain-params JSON] [--param KEY=VALUE] [--max-results N] [--format json|markdown|content] [--output PATH]`
 - `smart-search anysearch-extract URL [--max-length N] [--format json|markdown|content] [--output PATH]`
 - `smart-search anysearch-batch QUERY... [--max-results N] [--format json|markdown|content] [--output PATH]`
 - `smart-search context7-library NAME [QUERY] [--format json|markdown|content] [--output PATH]`

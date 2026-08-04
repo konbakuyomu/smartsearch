@@ -102,10 +102,14 @@ AnySearch:
 - AnySearch uses JSON-RPC 2.0 `tools/call` at `ANYSEARCH_API_URL`, default `https://api.anysearch.com/mcp`.
 - `ANYSEARCH_API_KEY` is optional. If configured, requests include `Authorization: Bearer ...`; if missing, anonymous requests are allowed.
 - `ANYSEARCH_TIMEOUT_SECONDS` defaults to `30`.
+- Live MCP tools are `search`, `batch_search`, `extract`, and `get_sub_domains`. `anysearch-domains` maps to `get_sub_domains` (not the removed `list_domains` tool).
+- `anysearch-domains` without a domain returns a local top-level domain catalog. With a domain, it calls `get_sub_domains` using `domains=[parent]`.
 - HTTP 200 responses with `result.isError=true` must return `ok=false`, `error_type=provider_error`, and no successful source results.
 - Markdown URL/title/snippet candidates should be parsed into `results`, while raw text remains in `content` and `raw_content`.
 - Structured results without URLs must be preserved as raw/structured evidence, not dropped.
 - Dotted vertical domain shorthand such as `security.cve` must be normalized to `domain=security` plus `sub_domain=cve` before calling AnySearch.
+- Structured vertical queries may pass `sub_domain_params` via `--sub-domain-params JSON` and/or repeatable `--param KEY=VALUE`.
+- `anysearch-extract --max-length` truncates locally; the live `extract` tool only accepts `url`.
 - `anysearch-batch` accepts at most 5 CLI query strings and returns `error_type=parameter_error` without sending a request when the limit is exceeded.
 
 OpenAI-compatible streaming:

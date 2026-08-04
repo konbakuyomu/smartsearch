@@ -1727,10 +1727,10 @@ async def test_anysearch_service_wrappers_decode_provider_json(monkeypatch):
 
         async def list_domains(self, domain=""):
             calls.append(("domains", domain))
-            return json.dumps({"ok": True, "provider": "anysearch", "tool": "list_domains", "domain": domain})
+            return json.dumps({"ok": True, "provider": "anysearch", "tool": "get_sub_domains", "domain": domain})
 
-        async def vertical_search(self, query, domain="", sub_domain="", max_results=5):
-            calls.append(("search", query, domain, sub_domain, max_results))
+        async def vertical_search(self, query, domain="", sub_domain="", max_results=5, sub_domain_params=None):
+            calls.append(("search", query, domain, sub_domain, max_results, sub_domain_params))
             return json.dumps({"ok": True, "provider": "anysearch", "tool": "search", "query": query})
 
         async def extract(self, url, max_length=20000):
@@ -1747,11 +1747,17 @@ async def test_anysearch_service_wrappers_decode_provider_json(monkeypatch):
     monkeypatch.setattr(service, "AnySearchProvider", FakeAnySearchProvider)
 
     domains = await service.anysearch_domains("security")
-    search = await service.anysearch_search("CVE-2024-3094", domain="security.cve", sub_domain="xz", max_results=2)
+    search = await service.anysearch_search(
+        "CVE-2024-3094",
+        domain="security.cve",
+        sub_domain="xz",
+        max_results=2,
+        sub_domain_params={"type": "cve", "value": "CVE-2024-3094"},
+    )
     extract = await service.anysearch_extract("https://example.com", max_length=123)
     batch = await service.anysearch_batch(["a", "b"], max_results=1)
 
-    assert domains["tool"] == "list_domains"
+    assert domains["tool"] == "get_sub_domains"
     assert search["query"] == "CVE-2024-3094"
     assert extract["url"] == "https://example.com"
     assert batch["tool"] == "batch_search"
@@ -1759,7 +1765,7 @@ async def test_anysearch_service_wrappers_decode_provider_json(monkeypatch):
         ("init", "https://anysearch.example.com/mcp", "as-test-secret", 7.0),
         ("domains", "security"),
         ("init", "https://anysearch.example.com/mcp", "as-test-secret", 7.0),
-        ("search", "CVE-2024-3094", "security.cve", "xz", 2),
+        ("search", "CVE-2024-3094", "security.cve", "xz", 2, {"type": "cve", "value": "CVE-2024-3094"}),
         ("init", "https://anysearch.example.com/mcp", "as-test-secret", 7.0),
         ("extract", "https://example.com", 123),
         ("init", "https://anysearch.example.com/mcp", "as-test-secret", 7.0),

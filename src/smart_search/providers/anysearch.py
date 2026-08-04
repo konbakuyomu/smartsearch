@@ -66,6 +66,32 @@ def _parse_markdown_results(text: str) -> list[dict[str, str]]:
     return [{"title": url, "url": url, "description": ""} for url in dict.fromkeys(urls)]
 
 
+def _parse_subdomain_catalog(text: str) -> list[dict[str, str]]:
+    """Parse get_sub_domains markdown headings like `### security.vuln`."""
+    results: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    for line in text.splitlines():
+        heading = re.match(r"^###\s+([A-Za-z0-9][A-Za-z0-9_.-]*)\s*$", line)
+        if heading:
+            if current:
+                results.append(current)
+            current = {
+                "title": heading.group(1).strip(),
+                "url": "",
+                "description": "",
+                "evidence_type": "sub_domain",
+            }
+            continue
+        if current is None:
+            continue
+        if line.strip() and not line.startswith("#"):
+            description = current.get("description", "")
+            current["description"] = (description + " " + line.strip()).strip()
+    if current:
+        results.append(current)
+    return results
+
+
 def _split_domain(domain: str, sub_domain: str = "") -> tuple[str, str]:
     if sub_domain or "." not in domain:
         return domain, sub_domain
@@ -75,6 +101,56 @@ def _split_domain(domain: str, sub_domain: str = "") -> tuple[str, str]:
 
 def _batch_query_object(query: str, max_results: int) -> dict[str, Any]:
     return {"query": query, "max_results": max_results}
+
+
+def parse_sub_domain_params(
+    raw_json: str = "",
+    key_values: list[str] | None = None,
+) -> dict[str, Any]:
+    """Parse `--sub-domain-params JSON` and repeatable `--param key=value`."""
+    params: dict[str, Any] = {}
+    raw = (raw_json or "").strip()
+    if raw:
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid --sub-domain-params JSON: {exc}") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("--sub-domain-params must be a JSON object")
+        params.update(parsed)
+    for item in key_values or []:
+        token = (item or "").strip()
+        if not token or "=" not in token:
+            raise ValueError(f"invalid --param value (expected key=value): {item!r}")
+        key, value = token.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise ValueError(f"invalid --param value (empty key): {item!r}")
+        params[key] = value
+    return params
+
+
+# Current AnySearch MCP get_sub_domains enum. Empty CLI calls return this local catalog
+# because the live tool requires domain/domains.
+ANYSEARCH_TOP_LEVEL_DOMAINS = (
+    "general",
+    "resource",
+    "social_media",
+    "finance",
+    "academic",
+    "legal",
+    "health",
+    "business",
+    "security",
+    "ip",
+    "code",
+    "energy",
+    "environment",
+    "agriculture",
+    "travel",
+    "film",
+    "gaming",
+)
 
 
 class AnySearchProvider(BaseSearchProvider):
@@ -88,9 +164,46 @@ class AnySearchProvider(BaseSearchProvider):
     async def search(self, query: str, max_results: int = 5) -> str:
         return await self.call_tool("search", {"query": query, "max_results": max_results})
 
+    def _local_domain_catalog(self) -> str:
+        """Return top-level domains without a network call when no domain is given."""
+        results = [
+            {
+                "title": domain,
+                "url": "",
+                "description": f"AnySearch vertical domain: {domain}",
+            }
+            for domain in ANYSEARCH_TOP_LEVEL_DOMAINS
+        ]
+        lines = ["## AnySearch Domains", ""]
+        lines.extend(f"- `{domain}`" for domain in ANYSEARCH_TOP_LEVEL_DOMAINS)
+        lines.append("")
+        lines.append(
+            "Pass a domain to `anysearch-domains <domain>` for sub_domain details via get_sub_domains."
+        )
+        content = "\n".join(lines)
+        return json.dumps(
+            {
+                "ok": True,
+                "provider": "anysearch",
+                "tool": "get_sub_domains",
+                "content": content,
+                "raw_content": content,
+                "results": results,
+                "total": len(results),
+                "elapsed_ms": 0,
+                "source": "local_catalog",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
     async def list_domains(self, domain: str = "") -> str:
-        arguments = {"domain": domain} if domain else {}
-        return await self.call_tool("list_domains", arguments)
+        # Live AnySearch MCP renamed list_domains -> get_sub_domains.
+        domain = (domain or "").strip()
+        if not domain:
+            return self._local_domain_catalog()
+        parent, _child = _split_domain(domain, "")
+        return await self.call_tool("get_sub_domains", {"domains": [parent]})
 
     async def vertical_search(
         self,
@@ -98,6 +211,7 @@ class AnySearchProvider(BaseSearchProvider):
         domain: str = "",
         sub_domain: str = "",
         max_results: int = 5,
+        sub_domain_params: dict[str, Any] | None = None,
     ) -> str:
         arguments: dict[str, Any] = {"query": query, "max_results": max_results}
         domain, sub_domain = _split_domain(domain, sub_domain)
@@ -105,10 +219,34 @@ class AnySearchProvider(BaseSearchProvider):
             arguments["domain"] = domain
         if sub_domain:
             arguments["sub_domain"] = sub_domain
+        if sub_domain_params:
+            arguments["sub_domain_params"] = sub_domain_params
         return await self.call_tool("search", arguments)
 
     async def extract(self, url: str, max_length: int = 20000) -> str:
-        return await self.call_tool("extract", {"url": url, "max_length": max_length})
+        # Live extract schema only accepts `url`; truncate locally when requested.
+        raw = await self.call_tool("extract", {"url": url})
+        if max_length is None or max_length <= 0:
+            return raw
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            return raw
+        if not data.get("ok"):
+            return raw
+        for key in ("content", "raw_content"):
+            value = data.get(key)
+            if isinstance(value, str) and len(value) > max_length:
+                data[key] = value[:max_length]
+        for item in data.get("results") or []:
+            if not isinstance(item, dict):
+                continue
+            for key in ("description", "raw_content"):
+                value = item.get(key)
+                if isinstance(value, str) and len(value) > max_length:
+                    item[key] = value[:max_length]
+        data["max_length"] = max_length
+        return json.dumps(data, ensure_ascii=False, indent=2)
 
     async def batch_search(self, queries: list[str], max_results: int = 3) -> str:
         if len(queries) > 5:
@@ -177,6 +315,10 @@ class AnySearchProvider(BaseSearchProvider):
         text = _extract_text(result)
         is_error = bool(result.get("isError"))
         parsed_results = [] if is_error else _parse_markdown_results(text)
+        if name == "get_sub_domains" and not is_error:
+            catalog = _parse_subdomain_catalog(text)
+            if catalog:
+                parsed_results = catalog
         if text and not is_error and not parsed_results:
             parsed_results = [
                 {
@@ -200,6 +342,10 @@ class AnySearchProvider(BaseSearchProvider):
         for key in ("query", "domain", "sub_domain", "url"):
             if arguments.get(key):
                 output[key] = arguments[key]
+        if arguments.get("domains"):
+            output["domains"] = arguments["domains"]
+        if arguments.get("sub_domain_params"):
+            output["sub_domain_params"] = arguments["sub_domain_params"]
         if is_error:
             output["error_type"] = "provider_error"
             output["error"] = text or "AnySearch tool returned isError=true"
