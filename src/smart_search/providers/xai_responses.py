@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -110,8 +111,27 @@ class XAIResponsesSearchProvider(BaseSearchProvider):
                     sources.append(source)
 
         answer = "\n\n".join(part.strip() for part in text_parts if part.strip()).strip()
+        if not sources and answer:
+            sources = self._extract_inline_urls(answer)
         if sources:
             answer = f"{answer}\n\nsources({json.dumps(sources, ensure_ascii=False)})".strip()
 
         await log_info(ctx, f"content: {answer}", config.debug_enabled)
         return answer
+
+    @staticmethod
+    def _extract_inline_urls(text: str) -> list[dict[str, str]]:
+        """Extract source URLs inlined in answer text when the provider returns no url_citation annotations.
+
+        Some Responses-compatible providers (e.g. OpenCode Go) return citations as markdown
+        links inside output_text instead of structured annotations.
+        """
+        sources: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for match in re.finditer(r"(https?://[^\s)\]>]+)", text):
+            url = match.group(1).rstrip(".,;:，。；：")
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            sources.append({"url": url})
+        return sources
