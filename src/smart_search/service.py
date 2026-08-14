@@ -3342,11 +3342,11 @@ async def sciverse_search(
 async def sciverse_semantic(
     query: str,
     top_k: int = 10,
-    mode: str = "balanced",
+    retrieval: str = "",
     source_types: list[str] | str | None = None,
 ) -> dict[str, Any]:
     return await _decode_provider_json(
-        await _sciverse_provider().semantic_search(query=query, top_k=top_k, mode=mode, source_types=source_types),
+        await _sciverse_provider().semantic_search(query=query, top_k=top_k, retrieval=retrieval, source_types=source_types),
         provider="sciverse",
     )
 

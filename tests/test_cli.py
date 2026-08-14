@@ -2719,8 +2719,8 @@ def test_sciverse_commands_use_service_wrappers(monkeypatch, capsys):
         calls.append(("search", kwargs))
         return {"ok": True, "provider": "sciverse", "tool": "search_papers", "query": kwargs.get("query"), "results": []}
 
-    async def fake_semantic(query, top_k=10, mode="balanced", source_types=""):
-        calls.append(("semantic", query, top_k, mode, source_types))
+    async def fake_semantic(query, top_k=10, retrieval="", source_types=""):
+        calls.append(("semantic", query, top_k, retrieval, source_types))
         return {"ok": True, "provider": "sciverse", "tool": "semantic_search", "query": query, "hits": []}
 
     async def fake_read(doc_id, offset=0, limit=4096):
@@ -2757,7 +2757,7 @@ def test_sciverse_commands_use_service_wrappers(monkeypatch, capsys):
         == cli.EXIT_OK
     )
     assert json.loads(capsys.readouterr().out)["query"] == "transformer retrieval"
-    assert cli.main(["sv-semantic", "attention mechanism", "--top-k", "3", "--mode", "balanced", "--source-types", "paper,abstract"]) == cli.EXIT_OK
+    assert cli.main(["sv-semantic", "attention mechanism", "--top-k", "3", "--retrieval", "hybrid", "--source-types", "paper,abstract"]) == cli.EXIT_OK
     assert json.loads(capsys.readouterr().out)["tool"] == "semantic_search"
     assert cli.main(["sv-read", "doc-1", "--offset", "10", "--limit", "100"]) == cli.EXIT_OK
     assert json.loads(capsys.readouterr().out)["doc_id"] == "doc-1"
@@ -2786,7 +2786,7 @@ def test_sciverse_commands_use_service_wrappers(monkeypatch, capsys):
                 "page_size": 5,
             },
         ),
-        ("semantic", "attention mechanism", 3, "balanced", "paper,abstract"),
+        ("semantic", "attention mechanism", 3, "hybrid", "paper,abstract"),
         ("read", "doc-1", 10, 100),
         ("relations", "paper-1", "REFERENCES", 2, 25),
     ]

@@ -65,6 +65,61 @@ def _split_csv(values: list[str] | str | None) -> list[str]:
     return [str(item).strip() for item in values if str(item).strip()]
 
 
+_SORT_ORDER_MAP = {
+    "SORT_ORDER_DESC": "SORT_ORDER_DESC",
+    "SORT_ORDER_ASC": "SORT_ORDER_ASC",
+    "desc": "SORT_ORDER_DESC",
+    "asc": "SORT_ORDER_ASC",
+}
+
+
+def _normalize_sort_item(item: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(item, dict) or not item.get("field"):
+        return None
+    raw_order = str(item.get("order") or "SORT_ORDER_DESC")
+    normalized = dict(item)
+    normalized["order"] = _SORT_ORDER_MAP.get(raw_order.lower(), _SORT_ORDER_MAP.get(raw_order, "SORT_ORDER_DESC"))
+    return normalized
+
+
+def _build_meta_search_sort(sort_by_year: str, extra_sort: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    sort_items: list[dict[str, Any]] = []
+    direction = (sort_by_year or "none").lower()
+    if direction in ("desc", "asc"):
+        sort_items.append({"field": "publication_published_year", "order": _SORT_ORDER_MAP[direction]})
+    for item in extra_sort or []:
+        normalized = _normalize_sort_item(item)
+        if normalized:
+            sort_items.append(normalized)
+    return sort_items
+
+
+def _build_meta_search_filters(
+    *,
+    authors: list[str] | str | None = None,
+    journals: list[str] | str | None = None,
+    subjects: list[str] | str | None = None,
+    year_from: int | None = None,
+    year_to: int | None = None,
+    extra_filters: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    filters: list[dict[str, Any]] = []
+    if _split_csv(authors):
+        filters.append({"field": "author", "operator": "FILTER_OP_IN", "value": _split_csv(authors)})
+    for journal in _split_csv(journals):
+        filters.append({"field": "publication_venue_name_unified", "operator": "FILTER_OP_MATCH", "value": journal})
+    if _split_csv(subjects):
+        filters.append({"field": "subjects", "operator": "FILTER_OP_IN", "value": _split_csv(subjects)})
+    if year_from is not None:
+        filters.append({"field": "publication_published_year", "operator": "FILTER_OP_GTE", "value": year_from})
+    if year_to is not None:
+        filters.append({"field": "publication_published_year", "operator": "FILTER_OP_LTE", "value": year_to})
+    for item in extra_filters or []:
+        if isinstance(item, dict) and item.get("field"):
+            filters.append(item)
+    return filters
+
+
 def _compact_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value not in (None, "", [], {})}
 
@@ -163,20 +218,22 @@ class SciverseProvider(BaseSearchProvider):
             return _parameter_error("search_papers", "page must be >= 1", query=query)
         if page_size < 1 or page_size > 50:
             return _parameter_error("search_papers", f"page_size must be between 1 and 50, got {page_size}", query=query)
+        filters = _build_meta_search_filters(
+            authors=authors,
+            journals=journals,
+            subjects=subjects,
+            year_from=year_from,
+            year_to=year_to,
+            extra_filters=filters_advanced,
+        )
+        sort = _build_meta_search_sort(sort_by_year=sort_by_year, extra_sort=sort_advanced)
+        effective_query = " ".join(part for part in (query, title_contains, abstract_contains) if part).strip()
         payload = _compact_payload(
             {
                 "collection": collection or "papers",
-                "query": query,
-                "title_contains": title_contains,
-                "abstract_contains": abstract_contains,
-                "authors": _split_csv(authors),
-                "journals": _split_csv(journals),
-                "subjects": _split_csv(subjects),
-                "year_from": year_from,
-                "year_to": year_to,
-                "filters_advanced": filters_advanced or [],
-                "sort_advanced": sort_advanced or [],
-                "sort_by_year": sort_by_year,
+                "query": effective_query,
+                "filters": filters,
+                "sort": sort,
                 "freshness_boost": freshness_boost,
                 "page": page,
                 "page_size": page_size,
@@ -188,7 +245,7 @@ class SciverseProvider(BaseSearchProvider):
         self,
         query: str,
         top_k: int = 10,
-        mode: str = "balanced",
+        retrieval: str = "",
         source_types: list[str] | str | None = None,
     ) -> str:
         if not self.api_key:
@@ -199,7 +256,7 @@ class SciverseProvider(BaseSearchProvider):
             {
                 "query": query,
                 "top_k": top_k,
-                "mode": mode or "balanced",
+                "retrieval": retrieval,
                 "source_types": _split_csv(source_types),
             }
         )

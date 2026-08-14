@@ -137,9 +137,14 @@ async def test_sciverse_search_payload_and_pagination(monkeypatch):
     assert data["total_count"] == 1
     payload = FakeSciverseClient.calls[0]["json"]
     assert payload["query"] == "transformer retrieval"
-    assert payload["year_from"] == 2020
-    assert payload["authors"] == ["Ada Lovelace", "Grace Hopper"]
-    assert payload["filters_advanced"] == [{"field": "subjects", "op": "contains", "value": "IR"}]
+    filters_by_field = {}
+    for item in payload["filters"]:
+        filters_by_field.setdefault(item["field"], []).append(item)
+    assert filters_by_field["author"] == [{"field": "author", "operator": "FILTER_OP_IN", "value": ["Ada Lovelace", "Grace Hopper"]}]
+    assert filters_by_field["publication_published_year"] == [
+        {"field": "publication_published_year", "operator": "FILTER_OP_GTE", "value": 2020}
+    ]
+    assert filters_by_field["subjects"] == [{"field": "subjects", "op": "contains", "value": "IR"}]
     assert payload["page_size"] == 5
 
 
@@ -153,7 +158,7 @@ async def test_sciverse_semantic_read_and_relations_normalize_outputs(monkeypatc
         json={"hits": [{"doc_id": "doc-1", "offset": 120, "score": 0.91, "title": "Attention"}]},
         request=httpx.Request("POST", "https://api.sciverse.space/agentic-search"),
     )
-    semantic = json.loads(await provider.semantic_search("attention mechanism", top_k=3, mode="balanced", source_types="paper,abstract"))
+    semantic = json.loads(await provider.semantic_search("attention mechanism", top_k=3, retrieval="hybrid", source_types="paper,abstract"))
 
     FakeSciverseClient.response = httpx.Response(
         200,

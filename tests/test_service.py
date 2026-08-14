@@ -2149,8 +2149,8 @@ async def test_sciverse_service_wrappers_decode_provider_json(monkeypatch):
             calls.append(("search", kwargs))
             return json.dumps({"ok": True, "provider": "sciverse", "tool": "search_papers", "query": kwargs.get("query")})
 
-        async def semantic_search(self, query, top_k=10, mode="balanced", source_types=None):
-            calls.append(("semantic", query, top_k, mode, source_types))
+        async def semantic_search(self, query, top_k=10, retrieval="", source_types=None):
+            calls.append(("semantic", query, top_k, retrieval, source_types))
             return json.dumps({"ok": True, "provider": "sciverse", "tool": "semantic_search", "query": query})
 
         async def read_content(self, doc_id, offset=0, limit=4096):
@@ -2173,7 +2173,7 @@ async def test_sciverse_service_wrappers_decode_provider_json(monkeypatch):
         filters_advanced=[{"field": "year", "op": ">=", "value": 2020}],
         page_size=5,
     )
-    semantic = await service.sciverse_semantic("attention mechanism", top_k=3, mode="balanced", source_types=["paper"])
+    semantic = await service.sciverse_semantic("attention mechanism", top_k=3, retrieval="hybrid", source_types=["paper"])
     read = await service.sciverse_read("doc-1", offset=10, limit=100)
     relations = await service.sciverse_relations("paper-1", relation="REFERENCES", page=2, page_size=25)
 
@@ -2207,7 +2207,7 @@ async def test_sciverse_service_wrappers_decode_provider_json(monkeypatch):
             },
         ),
         ("init", "https://sciverse.example.com", "sciverse-test-secret", 7.0),
-        ("semantic", "attention mechanism", 3, "balanced", ["paper"]),
+        ("semantic", "attention mechanism", 3, "hybrid", ["paper"]),
         ("init", "https://sciverse.example.com", "sciverse-test-secret", 7.0),
         ("read", "doc-1", 10, 100),
         ("init", "https://sciverse.example.com", "sciverse-test-secret", 7.0),

@@ -2580,7 +2580,7 @@ async def _run_async(args: argparse.Namespace) -> int:
         data = await service.sciverse_semantic(
             args.query,
             top_k=args.top_k,
-            mode=args.mode,
+            retrieval=args.retrieval,
             source_types=args.source_types,
         )
         return _print_result("sciverse-semantic", data, args.format, args.output)
@@ -3088,7 +3088,7 @@ def build_parser() -> argparse.ArgumentParser:
     sciverse_semantic_parser.set_defaults(command="sciverse-semantic")
     sciverse_semantic_parser.add_argument("query")
     sciverse_semantic_parser.add_argument("--top-k", type=int, default=10)
-    sciverse_semantic_parser.add_argument("--mode", choices=["fast", "balanced", "quality"], default="balanced")
+    sciverse_semantic_parser.add_argument("--retrieval", choices=["hybrid", "milvus", "es"], default="")
     sciverse_semantic_parser.add_argument("--source-types", default="", help="Comma-separated Sciverse source types.")
     _add_format_args(sciverse_semantic_parser)
 
