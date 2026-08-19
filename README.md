@@ -10,7 +10,7 @@ CLI-first, skill-driven web research for AI agents and terminal users. `smart-se
   </a>
 </p>
 
-![Star History Chart](https://api.star-history.com/svg?repos=konbakuyomu/smartsearch&type=Date)
+![Star History Chart](https://star-history.dera.page/svg?repos=konbakuyomu/smartsearch&type=Date)
 
 ## What It Is
 
