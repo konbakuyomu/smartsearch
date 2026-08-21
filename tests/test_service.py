@@ -20,6 +20,7 @@ def _reset_config(monkeypatch, tmp_path):
         "OPENAI_COMPATIBLE_API_KEY",
         "OPENAI_COMPATIBLE_MODEL",
         "OPENAI_COMPATIBLE_FALLBACK_MODELS",
+        "OPENAI_COMPATIBLE_API_MODE",
         "OPENAI_COMPATIBLE_STREAM",
         "SMART_SEARCH_INTENT_ROUTER",
         "INTENT_EMBEDDING_API_URL",
@@ -139,6 +140,25 @@ def test_openai_compatible_stream_config_defaults_and_boolean_styles(monkeypatch
 
     monkeypatch.setenv("OPENAI_COMPATIBLE_STREAM", "false")
     assert service.config.openai_compatible_stream is False
+
+
+def test_openai_compatible_api_mode_defaults_validates_and_reports(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+
+    assert service.config.openai_compatible_api_mode == "chat-completions"
+
+    service.config_set("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    service.config_set("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+    service.config_set("OPENAI_COMPATIBLE_API_MODE", "responses")
+
+    assert service.config.openai_compatible_api_mode == "responses"
+    info = service.config.get_config_info()
+    assert info["OPENAI_COMPATIBLE_API_MODE"] == "responses"
+    assert info["primary_api_mode"] == "responses"
+
+    service.config_set("OPENAI_COMPATIBLE_API_MODE", "legacy-completions")
+    with pytest.raises(ValueError, match="Invalid OPENAI_COMPATIBLE_API_MODE"):
+        _ = service.config.openai_compatible_api_mode
 
 
 def test_intent_router_config_defaults_and_saved_values(monkeypatch, tmp_path):
@@ -1174,6 +1194,27 @@ async def test_search_accepts_only_openai_compatible_as_main_provider(monkeypatc
     assert result["primary_api_mode"] == "chat-completions"
     assert result["routing_decision"]["main_search_chain"] == ["openai-compatible"]
     assert result["capability_status"]["main_search"]["configured"] == ["openai-compatible"]
+
+
+@pytest.mark.asyncio
+async def test_search_passes_openai_compatible_responses_mode(monkeypatch):
+    monkeypatch.setenv("SMART_SEARCH_MINIMUM_PROFILE", "off")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_MODE", "responses")
+    captured = {}
+
+    async def fake_search(self, query, platform="", ctx=None):
+        captured["api_mode"] = self.api_mode
+        return "Relay answer."
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
+
+    result = await service.search("what is example", providers="openai-compatible")
+
+    assert result["ok"] is True
+    assert captured["api_mode"] == "responses"
+    assert result["primary_api_mode"] == "responses"
 
 
 @pytest.mark.asyncio
@@ -2713,6 +2754,76 @@ async def test_doctor_uses_chat_completions_for_only_openai_compatible_config(mo
     assert calls[0][0] == "post"
     assert calls[0][1] == "https://relay.example.com/v1/chat/completions"
     assert calls[1] == ("get", "https://relay.example.com/v1/models")
+
+
+@pytest.mark.asyncio
+async def test_doctor_uses_responses_for_openai_compatible_responses_mode(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_MODE", "responses")
+    calls = []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, headers, json):
+            calls.append((url, json))
+            return httpx.Response(
+                200,
+                json={"output": [{"content": [{"type": "output_text", "text": "ok"}]}]},
+                request=httpx.Request("POST", url),
+            )
+
+    monkeypatch.setattr(service.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = await service.doctor()
+
+    assert result["primary_api_mode"] == "responses"
+    assert result["primary_connection_test"]["status"] == "ok"
+    assert calls[0][0] == "https://relay.example.com/v1/responses"
+    assert "tools" not in calls[0][1]
+
+
+@pytest.mark.asyncio
+async def test_diagnose_openai_compatible_uses_configured_responses_mode(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_MODE", "responses")
+    probed_modes = []
+
+    async def fake_quick(api_url, api_key, model):
+        return {"status": "ok", "message": "responses ok", "response_time_ms": 1.0, "has_content": True}
+
+    async def fake_probe(api_url, api_key, model, *, stream, timeout_seconds, api_mode="chat-completions"):
+        probed_modes.append(api_mode)
+        return {
+            "name": "probe",
+            "status": "ok",
+            "message": "ok",
+            "response_time_ms": 1.0,
+            "has_content": True,
+            "stream": stream,
+        }
+
+    monkeypatch.setattr(service, "_test_primary_responses", fake_quick)
+    monkeypatch.setattr(service, "_probe_openai_compatible_search_shape", fake_probe)
+    async def fake_models(*args):
+        return []
+
+    monkeypatch.setattr(service, "fetch_available_models", fake_models)
+
+    result = await service.diagnose_openai_compatible(timeout_seconds=3)
+
+    assert result["ok"] is True
+    assert result["configured_api_mode"] == "responses"
+    assert probed_modes == ["responses", "responses"]
 
 
 @pytest.mark.asyncio

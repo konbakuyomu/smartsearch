@@ -134,7 +134,7 @@ Trellis、hooks、agents 或 commands。
 
 | 能力 | 主要命令 | Provider | 负责什么 |
 | --- | --- | --- | --- |
-| `main_search` | `search` | xAI Responses、OpenAI-compatible Chat Completions | 综合回答、快速搜索、初步总结 |
+| `main_search` | `search` | xAI Responses、OpenAI-compatible Chat Completions 或 Responses | 综合回答、快速搜索、初步总结 |
 | `docs_search` | `context7-library`、`context7-docs`、`exa-search` | Context7、Exa | 官方文档、SDK、API、框架/库文档 |
 | `web_search` | `zhipu-search`、`zhipu-mcp-search`、`search` 内部意图补强 | 智谱 Web Search API、智谱 Coding Plan MCP、Tavily、Firecrawl | 中文、国内、时效、域名过滤、补充来源 |
 | `web_fetch` | `fetch`、`zhipu-mcp-reader` | Tavily、Jina Reader、智谱 Coding Plan MCP Reader、Firecrawl | 已知 URL 正文抓取、证据提取 |
@@ -256,7 +256,7 @@ smart-search deep "https://example.com/source" --format json
 | Provider / 路线 | 用途 | 主要配置项 | 官方文档 | Key / 控制台 |
 | --- | --- | --- | --- | --- |
 | xAI Responses API | 主搜索，走 `web_search,x_search` 工具 | `XAI_API_KEY`、`XAI_API_URL`、`XAI_MODEL`、`XAI_TOOLS` | [docs.x.ai](https://docs.x.ai/docs) | [xAI API keys](https://console.x.ai/team/default/api-keys) |
-| OpenAI-compatible Chat Completions | 主搜索，适合 OpenAI 官方或兼容中转；这里不会发送 xAI search tools | `OPENAI_COMPATIBLE_API_URL`、`OPENAI_COMPATIBLE_API_KEY`、`OPENAI_COMPATIBLE_MODEL`、`OPENAI_COMPATIBLE_STREAM` | [OpenAI platform docs](https://platform.openai.com/docs) | [OpenAI API keys](https://platform.openai.com/api-keys) 或你的兼容服务商 |
+| OpenAI-compatible Chat Completions / Responses | 主搜索，适合 OpenAI 官方或兼容中转；这里不会发送 xAI search tools | `OPENAI_COMPATIBLE_API_URL`、`OPENAI_COMPATIBLE_API_KEY`、`OPENAI_COMPATIBLE_MODEL`、`OPENAI_COMPATIBLE_API_MODE`、`OPENAI_COMPATIBLE_FALLBACK_MODELS`、`OPENAI_COMPATIBLE_STREAM` | [OpenAI platform docs](https://platform.openai.com/docs) | [OpenAI API keys](https://platform.openai.com/api-keys) 或你的兼容服务商 |
 | Exa | 官方文档、API、论文、产品页、可信网页的低噪声发现 | `EXA_API_KEY` | [Exa docs](https://docs.exa.ai/) | [Exa API keys](https://dashboard.exa.ai/api-keys) |
 | Context7 | SDK、库、框架、API 文档兜底 | `CONTEXT7_API_KEY`、`CONTEXT7_BASE_URL` | [Context7 docs](https://context7.com/docs) | [Context7](https://context7.com/) |
 | 智谱 Web Search API | 中文、国内、时效、域名过滤类来源发现 | `ZHIPU_API_KEY`、`ZHIPU_API_URL`、`ZHIPU_SEARCH_ENGINE` | [智谱联网搜索文档](https://docs.bigmodel.cn/cn/guide/tools/web-search) | [智谱 API keys](https://open.bigmodel.cn/usercenter/apikeys) |
@@ -296,11 +296,11 @@ smart-search route-calibrate --models "Qwen/Qwen3-Embedding-8B" --format markdow
 
 几个容易混淆的点：
 
-- xAI 官方联网搜索路线是 Responses API `/responses`，只通过 `XAI_*` 配置。兼容中转/网关走 Chat Completions `/chat/completions`，只通过 `OPENAI_COMPATIBLE_*` 配置。
+- xAI 官方联网搜索通过 `XAI_*` 走 `/responses`。OpenAI-compatible 中转默认走 `/chat/completions`；只有中转明确要求 Responses 时才设置 `OPENAI_COMPATIBLE_API_MODE=responses`。
 - `OPENAI_COMPATIBLE_STREAM=true` 或 `smart-search search --stream` 只会给 OpenAI-compatible 的 `search` 和 provider 侧 `fetch` 设置 `stream=true`。它是中转长请求兼容开关，不改变 xAI Responses、URL 描述和来源排序行为。
 - `OPENAI_COMPATIBLE_FALLBACK_MODELS` 是失败后接力，不是时间片。主模型会用完剩余的 `--timeout`；只有硬失败（例如 `model_not_found`、鉴权失败、空结果、不可重试协议错误）才会换兜底模型。`doctor` 和 `diagnose openai-compatible` 会在兜底模型不在 `/models` 里时给出警告。
 - 旧的 `SMART_SEARCH_API_URL`、`SMART_SEARCH_API_KEY`、`SMART_SEARCH_API_MODE`、`SMART_SEARCH_MODEL`、`SMART_SEARCH_XAI_TOOLS` 不再是受支持配置项。请显式使用 `XAI_*` 或 `OPENAI_COMPATIBLE_*`。
-- 不要给 OpenAI-compatible Chat Completions 中转强塞 xAI 的 `web_search` / `x_search` 工具或旧 `search_parameters`。
+- 不要给 OpenAI-compatible 的任一 API mode 强塞 xAI 的 `web_search` / `x_search` 工具或旧 `search_parameters`。
 - `zhipu-search` 对应的是智谱 Web Search API，不是 Chat Completions `tools=[web_search]`，不是 Search Agent，也不是 MCP Server。
 - 智谱 Coding Plan 是单独的 Remote MCP 路线：`web_search_prime` 对应 `web_search`，`webReader` 对应 `web_fetch`，zread 工具对应显式仓库/文档发现命令。它不会混进现有 `/paas/v4/web_search` 智谱 REST provider。
 - 智谱 Coding Plan MCP 需要单独的 Coding Plan 权益。普通 `ZHIPU_API_KEY` 能用 Web Search API，不代表能用 `zhipu-mcp-search` 或 zread。未配置或未授权 `ZHIPU_MCP_API_KEY` 时，Smart Search 会跳过这些 MCP provider；`standard` 最低配置和同 capability 兜底仍会通过已配置的 REST/search/fetch provider 工作。
@@ -396,6 +396,7 @@ smart-search sciverse-relations "unique-id-from-search" --relation CITATIONS --p
 | `OPENAI_COMPATIBLE_API_URL` | OpenAI-compatible `/v1` base URL |
 | `OPENAI_COMPATIBLE_API_KEY` | OpenAI-compatible key |
 | `OPENAI_COMPATIBLE_MODEL` | 兼容模型名 |
+| `OPENAI_COMPATIBLE_API_MODE` | `chat-completions` 或 `responses`，默认 `chat-completions` |
 | `OPENAI_COMPATIBLE_STREAM` | OpenAI-compatible 中转兼容开关，接受 `true/1/yes`，默认 `false` |
 | `ANYSEARCH_API_URL` | AnySearch JSON-RPC endpoint，默认 `https://api.anysearch.com/mcp` |
 | `ANYSEARCH_API_KEY` | 可选 AnySearch key |

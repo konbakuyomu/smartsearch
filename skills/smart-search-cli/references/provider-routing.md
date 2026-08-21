@@ -40,15 +40,15 @@ Intent router rules:
 
 ## Provider Boundaries
 
-- `search` builds `main_search` from configured peer providers: `XAI_API_KEY` for xAI Responses and `OPENAI_COMPATIBLE_API_URL` + `OPENAI_COMPATIBLE_API_KEY` for OpenAI-compatible Chat Completions.
+- `search` builds `main_search` from configured peer providers: `XAI_API_KEY` for xAI Responses and `OPENAI_COMPATIBLE_API_URL` + `OPENAI_COMPATIBLE_API_KEY` for an OpenAI-compatible route.
 - `search` uses unified `IntentRouter` output to populate `required_capabilities` and `supplemental_paths`; provider execution still follows capability-first fallback.
 - `research` reuses the same `IntentRouter` before provider-advantage ordering.
 - `deep` uses offline rules/local signals only and must not call remote embeddings or classifier components.
-- Official xAI uses the Responses API `/responses` route through `XAI_*`. Compatible relays/gateways use Chat Completions `/chat/completions` through `OPENAI_COMPATIBLE_*`.
+- Official xAI uses `/responses` through `XAI_*`. OpenAI-compatible relays default to `/chat/completions`; `OPENAI_COMPATIBLE_API_MODE=responses` explicitly selects `/responses` for relays that require it.
 - `OPENAI_COMPATIBLE_STREAM=true` or `search --stream` sets `stream=true` only for OpenAI-compatible `search` and provider-side `fetch`; it is a relay compatibility switch and does not affect xAI Responses, URL description, or source ranking.
 - Legacy `SMART_SEARCH_API_URL`, `SMART_SEARCH_API_KEY`, `SMART_SEARCH_API_MODE`, `SMART_SEARCH_MODEL`, and `SMART_SEARCH_XAI_TOOLS` are unsupported config keys.
 - xAI Responses mode may use only `XAI_TOOLS=web_search,x_search` and a subset of those tools.
-- Chat Completions mode must not send xAI `web_search` / `x_search` tools or legacy `search_parameters`; xAI Chat Completions Live Search is deprecated.
+- Neither OpenAI-compatible API mode sends xAI `web_search` / `x_search` tools or legacy `search_parameters`; xAI Chat Completions Live Search is deprecated.
 - The standard minimum profile requires one configured provider in each of `main_search`, `docs_search`, and fetch capability. Missing required capabilities should be treated as a hard configuration failure.
 - AnySearch is reported only as optional experimental `vertical_search`; it is not part of the `web_search` fallback and is not required by the `standard` minimum profile.
 - Sciverse is reported only as optional experimental explicit-only `vertical_search`; it is not `docs_search`, not part of default `search` / `research` fallback, and not required by the `standard` minimum profile.
@@ -132,6 +132,7 @@ Sciverse:
 
 OpenAI-compatible streaming:
 
+- `OPENAI_COMPATIBLE_API_MODE` defaults to `chat-completions` and accepts `chat-completions` or `responses`. The selected protocol applies consistently to `search()`, provider-side `fetch()`, `describe_url()`, `rank_sources()`, `doctor`, and `diagnose openai-compatible`.
 - `OPENAI_COMPATIBLE_STREAM` defaults to `false` and accepts `true`, `1`, or `yes` as true.
 - `search --stream` means "prefer stream first"; stream empty/timeout/retryable protocol failures fall back to the same provider/model with `stream=false`.
 - `search --no-stream` forces `stream=false` for the current invocation.

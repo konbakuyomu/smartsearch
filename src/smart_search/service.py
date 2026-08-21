@@ -1778,7 +1778,7 @@ def _main_search_provider_configs(model_override: str = "", providers: str = "au
     if config.openai_compatible_api_url and config.openai_compatible_api_key:
         by_provider["openai-compatible"] = {
             "provider": "openai-compatible",
-            "mode": "chat-completions",
+            "mode": config.openai_compatible_api_mode,
             "api_url": config.openai_compatible_api_url,
             "api_key": config.openai_compatible_api_key,
             "model": model_override or config.openai_compatible_model,
@@ -1815,6 +1815,7 @@ def _main_search_providers(provider_configs: list[dict[str, Any]], fallback: str
                     provider_config["api_key"],
                     provider_config["model"],
                     provider_config.get("stream", False),
+                    api_mode=provider_config.get("mode", "chat-completions"),
                 )
             )
     return providers
@@ -3696,17 +3697,22 @@ async def _probe_openai_compatible_search_shape(
     *,
     stream: bool,
     timeout_seconds: float,
+    api_mode: str = "chat-completions",
 ) -> dict[str, Any]:
     name = "真实 search 请求 (stream=true)" if stream else "真实 search 请求 (stream=false)"
     start = time.time()
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": search_prompt},
-            {"role": "user", "content": get_local_time_info() + "\nping"},
-        ],
-        "stream": stream,
-    }
+    provider = OpenAICompatibleSearchProvider(
+        api_url,
+        api_key,
+        model,
+        stream=stream,
+        api_mode=api_mode,
+    )
+    payload = provider._build_request_payload(
+        search_prompt,
+        get_local_time_info() + "\nping",
+        stream=stream,
+    )
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -3719,36 +3725,16 @@ async def _probe_openai_compatible_search_shape(
             if stream:
                 async with client.stream(
                     "POST",
-                    f"{api_url.rstrip('/')}/chat/completions",
+                    provider._api_endpoint(),
                     headers=headers,
                     json=payload,
                 ) as response:
                     content_type = response.headers.get("content-type", "")
+                    if response.status_code >= 400:
+                        await response.aread()
                     response.raise_for_status()
-                    has_content = False
-                    async for line in response.aiter_lines():
-                        stripped = line.strip()
-                        if not stripped:
-                            continue
-                        if not stripped.startswith("data:"):
-                            continue
-                        if stripped in ("data: [DONE]", "data:[DONE]"):
-                            continue
-                        try:
-                            data = json.loads(stripped[5:].lstrip())
-                        except json.JSONDecodeError:
-                            continue
-                        choices = data.get("choices", []) if isinstance(data, dict) else []
-                        if not choices:
-                            continue
-                        delta = choices[0].get("delta", {})
-                        if isinstance(delta, dict) and str(delta.get("content") or "").strip():
-                            has_content = True
-                            break
-                        message = choices[0].get("message", {})
-                        if isinstance(message, dict) and str(message.get("content") or "").strip():
-                            has_content = True
-                            break
+                    content = await provider._parse_streaming_response(response)
+                    has_content = bool(content.strip())
                     status = "ok" if has_content else "empty"
                     message = f"HTTP {response.status_code}; {'收到流式内容' if has_content else '未收到内容'}"
                     return _diagnose_check_result(
@@ -3763,13 +3749,13 @@ async def _probe_openai_compatible_search_shape(
                     )
 
             response = await client.post(
-                f"{api_url.rstrip('/')}/chat/completions",
+                provider._api_endpoint(),
                 headers=headers,
                 json=payload,
             )
             content_type = response.headers.get("content-type", "")
             response.raise_for_status()
-            content = await OpenAICompatibleSearchProvider(api_url, api_key, model, stream=False)._parse_completion_response(response)
+            content = await provider._parse_completion_response(response)
             has_content = bool(content.strip())
             status = "ok" if has_content else "empty"
             message = f"HTTP {response.status_code}; {'收到内容' if has_content else '返回为空'}"
@@ -3827,6 +3813,7 @@ async def diagnose_openai_compatible(timeout_seconds: float = 30.0) -> dict[str,
     api_url = config.openai_compatible_api_url
     api_key = config.openai_compatible_api_key
     model = config.openai_compatible_model
+    api_mode = config.openai_compatible_api_mode
     info = config.config_path_info()
     result: dict[str, Any] = {
         "ok": False,
@@ -3834,6 +3821,7 @@ async def diagnose_openai_compatible(timeout_seconds: float = 30.0) -> dict[str,
         "api_url": api_url or "未配置",
         "api_key": config._mask_api_key(api_key) if api_key else "未配置",
         "model": model,
+        "configured_api_mode": api_mode,
         "configured_stream": config.openai_compatible_stream,
         "timeout_seconds": timeout_seconds,
         "config_file": info.get("config_file", ""),
@@ -3859,16 +3847,20 @@ async def diagnose_openai_compatible(timeout_seconds: float = 30.0) -> dict[str,
         )
         return result
 
+    quick_label = "轻量 Responses 请求" if api_mode == "responses" else "轻量 chat 请求"
     try:
-        quick = await _test_primary_chat_completion(api_url, api_key, model)
+        if api_mode == "responses":
+            quick = await _test_primary_responses(api_url, api_key, model)
+        else:
+            quick = await _test_primary_chat_completion(api_url, api_key, model)
     except httpx.TimeoutException as e:
-        quick = {"status": "timeout", "message": f"轻量 chat 请求超时: {sanitize_provider_error_message(e)}"}
+        quick = {"status": "timeout", "message": f"{quick_label}超时: {sanitize_provider_error_message(e)}"}
     except httpx.RequestError as e:
-        quick = {"status": "error", "message": f"轻量 chat 网络错误: {sanitize_provider_error_message(e)}"}
+        quick = {"status": "error", "message": f"{quick_label}网络错误: {sanitize_provider_error_message(e)}"}
     except Exception as e:
-        quick = {"status": "error", "message": f"轻量 chat 运行错误: {sanitize_provider_error_message(e)}"}
+        quick = {"status": "error", "message": f"{quick_label}运行错误: {sanitize_provider_error_message(e)}"}
     quick_check = {
-        "name": "轻量 chat 请求",
+        "name": quick_label,
         "status": quick.get("status", "error"),
         "message": quick.get("message", ""),
         "response_time_ms": quick.get("response_time_ms"),
@@ -3877,9 +3869,24 @@ async def diagnose_openai_compatible(timeout_seconds: float = 30.0) -> dict[str,
         "has_content": bool(quick.get("has_content", quick.get("status") == "ok")),
     }
     result["checks"].append(quick_check)
-    no_stream = await _probe_openai_compatible_search_shape(api_url, api_key, model, stream=False, timeout_seconds=timeout_seconds)
+    probe_mode_args = {"api_mode": api_mode} if api_mode != "chat-completions" else {}
+    no_stream = await _probe_openai_compatible_search_shape(
+        api_url,
+        api_key,
+        model,
+        stream=False,
+        timeout_seconds=timeout_seconds,
+        **probe_mode_args,
+    )
     result["checks"].append(no_stream)
-    stream = await _probe_openai_compatible_search_shape(api_url, api_key, model, stream=True, timeout_seconds=timeout_seconds)
+    stream = await _probe_openai_compatible_search_shape(
+        api_url,
+        api_key,
+        model,
+        stream=True,
+        timeout_seconds=timeout_seconds,
+        **probe_mode_args,
+    )
     result["checks"].append(stream)
 
     available_models: list[str] = []
@@ -4008,11 +4015,25 @@ async def _test_primary_responses(api_url: str, api_key: str, model: str) -> dic
                 "message": f"HTTP {response.status_code}: {sanitize_provider_error_message(response.text, limit=100)}",
                 "response_time_ms": response_time,
             }
-        return {"status": "ok", "message": f"xAI Responses API 可用 (HTTP {response.status_code})", "response_time_ms": response_time}
+        provider = OpenAICompatibleSearchProvider(api_url, api_key, model, api_mode="responses")
+        content = await provider._parse_completion_response(response)
+        if not content:
+            return {
+                "status": "warning",
+                "message": f"Responses API 返回空内容 (HTTP {response.status_code})",
+                "response_time_ms": response_time,
+                "has_content": False,
+            }
+        return {
+            "status": "ok",
+            "message": f"Responses API 可用 (HTTP {response.status_code})",
+            "response_time_ms": response_time,
+            "has_content": True,
+        }
 
 
 async def _test_main_provider_connection(provider_config: dict[str, Any]) -> dict[str, Any]:
-    if provider_config["mode"] == "xai-responses":
+    if provider_config["mode"] in {"xai-responses", "responses"}:
         return await _test_primary_responses(provider_config["api_url"], provider_config["api_key"], provider_config["model"])
     return await _test_primary_connection(provider_config["api_url"], provider_config["api_key"], provider_config["model"])
 

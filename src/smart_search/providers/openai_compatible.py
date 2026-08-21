@@ -15,9 +15,10 @@ from ..provider_errors import classify_provider_exception
 
 _logger = logging.getLogger(__name__)
 _ssl_warning_emitted = False
-_STREAM_BREAKERS: dict[tuple[str, str], dict[str, Any]] = {}
+_STREAM_BREAKERS: dict[tuple[str, str, str], dict[str, Any]] = {}
 STREAM_BREAKER_FAILURE_THRESHOLD = 2
 STREAM_BREAKER_COOLDOWN_SECONDS = 600.0
+OPENAI_COMPATIBLE_API_MODES = {"chat-completions", "responses"}
 
 
 def get_local_time_info() -> str:
@@ -61,8 +62,8 @@ def _transport_error_message(exc: BaseException, api_key: str = "") -> str:
     return classify_provider_exception(exc, additional_secrets=(api_key,))[1]
 
 
-def _stream_breaker_key(api_url: str, model: str) -> tuple[str, str]:
-    return (api_url.rstrip("/"), model)
+def _stream_breaker_key(api_url: str, model: str, api_mode: str) -> tuple[str, str, str]:
+    return (api_url.rstrip("/"), model, api_mode)
 
 
 def reset_openai_compatible_breakers() -> None:
@@ -106,10 +107,21 @@ class _WaitWithRetryAfter(wait_base):
 
 
 class OpenAICompatibleSearchProvider(BaseSearchProvider):
-    def __init__(self, api_url: str, api_key: str, model: str = "grok-4-fast", stream: bool = False):
+    def __init__(
+        self,
+        api_url: str,
+        api_key: str,
+        model: str = "grok-4-fast",
+        stream: bool = False,
+        api_mode: str = "chat-completions",
+    ):
         super().__init__(api_url.rstrip("/"), api_key)
         self.model = model
         self.stream = stream
+        self.api_mode = (api_mode or "chat-completions").strip().lower()
+        if self.api_mode not in OPENAI_COMPATIBLE_API_MODES:
+            allowed = ", ".join(sorted(OPENAI_COMPATIBLE_API_MODES))
+            raise ValueError(f"Invalid OpenAI-compatible API mode: {self.api_mode}. Supported values: {allowed}")
         self.last_transport_attempts: list[dict[str, Any]] = []
 
     def get_provider_name(self) -> str:
@@ -131,6 +143,29 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
             _logger.warning("SSL_VERIFY=false: OpenAI-compatible API 请求已禁用 SSL 证书验证，存在安全风险")
         return verify
 
+    def _api_endpoint(self) -> str:
+        path = "responses" if self.api_mode == "responses" else "chat/completions"
+        return f"{self.api_url}/{path}"
+
+    def _build_request_payload(self, instructions: str, user_content: str, *, stream: bool) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "stream": stream,
+        }
+        if self.api_mode == "responses":
+            payload.update(
+                {
+                    "instructions": instructions,
+                    "input": [{"role": "user", "content": user_content}],
+                }
+            )
+        else:
+            payload["messages"] = [
+                {"role": "system", "content": instructions},
+                {"role": "user", "content": user_content},
+            ]
+        return payload
+
     async def search(self, query: str, platform: str = "", ctx=None) -> List[SearchResult]:
         headers = self._build_api_headers()
         platform_prompt = ""
@@ -140,17 +175,11 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
 
         time_context = get_local_time_info() + "\n"
 
-        payload = {
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": search_prompt,
-                },
-                {"role": "user", "content": time_context + query + platform_prompt},
-            ],
-            "stream": self.stream,
-        }
+        payload = self._build_request_payload(
+            search_prompt,
+            time_context + query + platform_prompt,
+            stream=self.stream,
+        )
 
         await log_info(ctx, f"platform_prompt: { query + platform_prompt}", config.debug_enabled)
 
@@ -158,21 +187,16 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
 
     async def fetch(self, url: str, ctx=None) -> str:
         headers = self._build_api_headers()
-        payload = {
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": fetch_prompt,
-                },
-                {"role": "user", "content": url + "\n获取该网页内容并返回其结构化Markdown格式" },
-            ],
-            "stream": self.stream,
-        }
+        payload = self._build_request_payload(
+            fetch_prompt,
+            url + "\n获取该网页内容并返回其结构化Markdown格式",
+            stream=self.stream,
+        )
         return await self._execute_with_transport_fallback(headers, payload, ctx)
 
     def _breaker_state(self) -> dict[str, Any]:
-        state = _STREAM_BREAKERS.get(_stream_breaker_key(self.api_url, self.model), {})
+        key = _stream_breaker_key(self.api_url, self.model, self.api_mode)
+        state = _STREAM_BREAKERS.get(key, {})
         opened_until = float(state.get("opened_until") or 0.0)
         now = time.monotonic()
         if opened_until and opened_until > now:
@@ -182,14 +206,14 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                 "consecutive_failures": int(state.get("consecutive_failures") or 0),
             }
         if opened_until and opened_until <= now:
-            _STREAM_BREAKERS.pop(_stream_breaker_key(self.api_url, self.model), None)
+            _STREAM_BREAKERS.pop(key, None)
         return {"state": "closed", "consecutive_failures": int(state.get("consecutive_failures") or 0)}
 
     def _record_stream_success(self) -> None:
-        _STREAM_BREAKERS.pop(_stream_breaker_key(self.api_url, self.model), None)
+        _STREAM_BREAKERS.pop(_stream_breaker_key(self.api_url, self.model, self.api_mode), None)
 
     def _record_stream_failure(self) -> dict[str, Any]:
-        key = _stream_breaker_key(self.api_url, self.model)
+        key = _stream_breaker_key(self.api_url, self.model, self.api_mode)
         state = _STREAM_BREAKERS.setdefault(key, {"consecutive_failures": 0, "opened_until": 0.0})
         state["consecutive_failures"] = int(state.get("consecutive_failures") or 0) + 1
         if state["consecutive_failures"] >= STREAM_BREAKER_FAILURE_THRESHOLD:
@@ -215,6 +239,7 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
             "elapsed_ms": _elapsed_ms(start),
             "result_count": 1 if status == "ok" else 0,
             "model": self.model,
+            "api_mode": self.api_mode,
         }
         if breaker_state:
             attempt["breaker_state"] = breaker_state
@@ -314,6 +339,9 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
             raise
 
     async def _parse_streaming_response(self, response, ctx=None) -> str:
+        if self.api_mode == "responses":
+            return await self._parse_responses_streaming_response(response, ctx)
+
         content = ""
         full_body_buffer = []
 
@@ -352,6 +380,47 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
 
         return content
 
+    async def _parse_responses_streaming_response(self, response, ctx=None) -> str:
+        deltas: list[str] = []
+        final_text = ""
+        sources: list[dict] = []
+
+        async for line in response.aiter_lines():
+            stripped = line.strip()
+            if not stripped.startswith("data:") or stripped in ("data: [DONE]", "data:[DONE]"):
+                continue
+            try:
+                data = json.loads(stripped[5:].lstrip())
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(data, dict):
+                continue
+
+            event_type = data.get("type")
+            if event_type == "response.output_text.delta":
+                delta = data.get("delta")
+                if isinstance(delta, str):
+                    deltas.append(delta)
+                continue
+
+            if event_type == "response.output_text.done":
+                text = data.get("text")
+                if isinstance(text, str) and text:
+                    final_text = text
+                sources = self._merge_citations(sources, self._normalize_citations(data.get("annotations")))
+                continue
+
+            response_data = data.get("response") if event_type == "response.completed" else data
+            text, event_sources = self._extract_responses_content(response_data)
+            if text:
+                final_text = text
+            sources = self._merge_citations(sources, event_sources)
+
+        content = "".join(deltas).strip() or final_text.strip()
+        content = self._append_sources(content, sources)
+        await log_info(ctx, f"content: {content}", config.debug_enabled)
+        return content
+
     async def _execute_stream_with_retry(self, headers: dict, payload: dict, ctx=None) -> str:
         timeout = httpx.Timeout(connect=6.0, read=120.0, write=10.0, pool=None)
 
@@ -365,10 +434,12 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                 with attempt:
                     async with client.stream(
                         "POST",
-                        f"{self.api_url}/chat/completions",
+                        self._api_endpoint(),
                         headers=headers,
                         json=payload,
                     ) as response:
+                        if response.status_code >= 400:
+                            await response.aread()
                         response.raise_for_status()
                         return await self._parse_streaming_response(response, ctx)
 
@@ -384,15 +455,18 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
             data = None
 
         if isinstance(data, dict):
-            sources = self._extract_citations(data)
-            choices = data.get("choices", [])
-            if choices:
-                message = choices[0].get("message", {})
-                if isinstance(message, dict):
-                    content = message.get("content", "") or ""
-                    message_citations = self._normalize_citations(message.get("citations"))
-                    if message_citations:
-                        sources = self._merge_citations(sources, message_citations)
+            if self.api_mode == "responses":
+                content, sources = self._extract_responses_content(data)
+            else:
+                sources = self._extract_citations(data)
+                choices = data.get("choices", [])
+                if choices:
+                    message = choices[0].get("message", {})
+                    if isinstance(message, dict):
+                        content = message.get("content", "") or ""
+                        message_citations = self._normalize_citations(message.get("citations"))
+                        if message_citations:
+                            sources = self._merge_citations(sources, message_citations)
 
         # SSE fallback: 部分中转站即使设置 stream=False 仍可能返回 SSE 格式
         if not content and body_text.lstrip().startswith("data:"):
@@ -406,11 +480,41 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
 
             content = await self._parse_streaming_response(_LineResponse(body_text), ctx)
 
-        if content and sources:
-            content = f"{content.rstrip()}\n\nsources({json.dumps(sources, ensure_ascii=False)})"
+        content = self._append_sources(content, sources)
 
         await log_info(ctx, f"content: {content}", config.debug_enabled)
 
+        return content
+
+    def _extract_responses_content(self, data: Any) -> tuple[str, list[dict]]:
+        if not isinstance(data, dict):
+            return "", []
+
+        text_parts: list[str] = []
+        sources: list[dict] = []
+        top_level_text = data.get("output_text")
+        if isinstance(top_level_text, str) and top_level_text.strip():
+            text_parts.append(top_level_text.strip())
+
+        for item in data.get("output", []) or []:
+            if not isinstance(item, dict):
+                continue
+            for content_item in item.get("content", []) or []:
+                if not isinstance(content_item, dict) or content_item.get("type") != "output_text":
+                    continue
+                text = content_item.get("text")
+                if isinstance(text, str) and text.strip():
+                    text_parts.append(text.strip())
+                sources = self._merge_citations(
+                    sources,
+                    self._normalize_citations(content_item.get("annotations")),
+                )
+
+        return "\n\n".join(text_parts).strip(), sources
+
+    def _append_sources(self, content: str, sources: list[dict]) -> str:
+        if content and sources:
+            return f"{content.rstrip()}\n\nsources({json.dumps(sources, ensure_ascii=False)})"
         return content
 
     def _extract_citations(self, data: dict) -> list[dict]:
@@ -480,7 +584,7 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
             ):
                 with attempt:
                     response = await client.post(
-                        f"{self.api_url}/chat/completions",
+                        self._api_endpoint(),
                         headers=headers,
                         json=payload,
                     )
@@ -489,14 +593,7 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
 
     async def describe_url(self, url: str, ctx=None) -> dict:
         headers = self._build_api_headers()
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": url_describe_prompt},
-                {"role": "user", "content": url},
-            ],
-            "stream": False,
-        }
+        payload = self._build_request_payload(url_describe_prompt, url, stream=False)
         result = await self._execute_completion_with_retry(headers, payload, ctx)
         title, extracts = url, ""
         for line in result.strip().splitlines():
@@ -509,14 +606,11 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
     async def rank_sources(self, query: str, sources_text: str, total: int, ctx=None) -> list[int]:
         """让 OpenAI-compatible 模型按查询相关度对信源排序，返回排序后的序号列表"""
         headers = self._build_api_headers()
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": rank_sources_prompt},
-                {"role": "user", "content": f"Query: {query}\n\n{sources_text}"},
-            ],
-            "stream": False,
-        }
+        payload = self._build_request_payload(
+            rank_sources_prompt,
+            f"Query: {query}\n\n{sources_text}",
+            stream=False,
+        )
         result = await self._execute_completion_with_retry(headers, payload, ctx)
         order: list[int] = []
         seen: set[int] = set()

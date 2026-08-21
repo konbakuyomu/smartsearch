@@ -2402,6 +2402,7 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
         ("OPENAI_COMPATIBLE_API_KEY", "OpenAI-compatible API key", True),
         ("OPENAI_COMPATIBLE_MODEL", "OpenAI-compatible model", True),
         ("OPENAI_COMPATIBLE_FALLBACK_MODELS", "OpenAI-compatible fallback models (comma-separated)", True),
+        ("OPENAI_COMPATIBLE_API_MODE", "OpenAI-compatible API mode (chat-completions/responses)", True),
         ("OPENAI_COMPATIBLE_STREAM", "OpenAI-compatible stream mode (true/false)", True),
         ("SMART_SEARCH_VALIDATION_LEVEL", "Validation level (fast/balanced/strict)", True),
         ("SMART_SEARCH_FALLBACK_MODE", "Fallback mode (auto/off)", True),
@@ -2734,6 +2735,7 @@ def _run_setup(args: argparse.Namespace) -> int:
         "OPENAI_COMPATIBLE_API_KEY": args.openai_compatible_api_key,
         "OPENAI_COMPATIBLE_MODEL": args.openai_compatible_model,
         "OPENAI_COMPATIBLE_FALLBACK_MODELS": args.openai_compatible_fallback_models,
+        "OPENAI_COMPATIBLE_API_MODE": args.openai_compatible_api_mode,
         "OPENAI_COMPATIBLE_STREAM": args.openai_compatible_stream,
         "SMART_SEARCH_VALIDATION_LEVEL": args.validation_level,
         "SMART_SEARCH_FALLBACK_MODE": args.fallback_mode,
@@ -3288,6 +3290,12 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--openai-compatible-api-key", default="", help="Save OPENAI_COMPATIBLE_API_KEY.")
     setup_parser.add_argument("--openai-compatible-model", default="", help="Save OPENAI_COMPATIBLE_MODEL.")
     setup_parser.add_argument("--openai-compatible-fallback-models", default="", help="Save OPENAI_COMPATIBLE_FALLBACK_MODELS.")
+    setup_parser.add_argument(
+        "--openai-compatible-api-mode",
+        choices=["chat-completions", "responses"],
+        default="",
+        help="Save OPENAI_COMPATIBLE_API_MODE.",
+    )
     setup_parser.add_argument("--openai-compatible-stream", default="", help="Save OPENAI_COMPATIBLE_STREAM.")
     setup_parser.add_argument("--validation-level", default="", help="Save SMART_SEARCH_VALIDATION_LEVEL.")
     setup_parser.add_argument("--fallback-mode", default="", help="Save SMART_SEARCH_FALLBACK_MODE.")

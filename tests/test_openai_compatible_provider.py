@@ -42,6 +42,73 @@ async def test_search_uses_non_stream_completion_and_headers(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_search_responses_mode_uses_responses_payload(monkeypatch):
+    provider = OpenAICompatibleSearchProvider(
+        "https://api.example.com/v1",
+        "test-key",
+        "test-model",
+        api_mode="responses",
+    )
+    captured = {}
+
+    async def fake_execute(headers, payload, ctx):
+        captured["payload"] = payload
+        return "ok"
+
+    monkeypatch.setattr(provider, "_execute_completion_with_retry", fake_execute)
+
+    result = await provider.search("current release notes", platform="github.com")
+
+    assert result == "ok"
+    assert captured["payload"]["model"] == "test-model"
+    assert captured["payload"]["instructions"]
+    assert captured["payload"]["input"][0]["role"] == "user"
+    assert "current release notes" in captured["payload"]["input"][0]["content"]
+    assert "github.com" in captured["payload"]["input"][0]["content"]
+    assert captured["payload"]["stream"] is False
+    assert "messages" not in captured["payload"]
+    assert "tools" not in captured["payload"]
+
+
+@pytest.mark.asyncio
+async def test_responses_mode_posts_to_responses_endpoint(monkeypatch):
+    provider = OpenAICompatibleSearchProvider(
+        "https://api.example.com/v1",
+        "test-key",
+        "test-model",
+        api_mode="responses",
+    )
+    captured = {}
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            captured["client_kwargs"] = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, headers, json):
+            captured["url"] = url
+            captured["payload"] = json
+            return httpx.Response(
+                200,
+                json={"output": [{"content": [{"type": "output_text", "text": "ok"}]}]},
+                request=httpx.Request("POST", url),
+            )
+
+    monkeypatch.setattr("smart_search.providers.openai_compatible.httpx.AsyncClient", FakeAsyncClient)
+
+    result = await provider.search("ping")
+
+    assert result == "ok"
+    assert captured["url"] == "https://api.example.com/v1/responses"
+    assert captured["payload"]["stream"] is False
+
+
+@pytest.mark.asyncio
 async def test_fetch_uses_non_stream(monkeypatch):
     """验证 fetch() 使用非流式 completion"""
     provider = OpenAICompatibleSearchProvider("https://api.example.com", "test-key", "test-model")
@@ -57,6 +124,37 @@ async def test_fetch_uses_non_stream(monkeypatch):
 
     assert result == "fetched content"
     assert captured["payload"]["stream"] is False
+
+
+@pytest.mark.asyncio
+async def test_responses_mode_fetch_describe_and_rank_use_responses_payloads(monkeypatch):
+    provider = OpenAICompatibleSearchProvider(
+        "https://api.example.com/v1",
+        "test-key",
+        "test-model",
+        api_mode="responses",
+    )
+    payloads = []
+
+    async def fake_execute(headers, payload, ctx):
+        payloads.append(payload)
+        user_content = payload["input"][0]["content"]
+        if user_content.startswith("Query:"):
+            return "1"
+        if user_content == "https://example.com":
+            return "Title: Example\nExtracts: Some text"
+        return "fetched content"
+
+    monkeypatch.setattr(provider, "_execute_completion_with_retry", fake_execute)
+
+    assert await provider.fetch("https://example.com/page") == "fetched content"
+    assert (await provider.describe_url("https://example.com"))["title"] == "Example"
+    assert await provider.rank_sources("query", "1. Source", 1) == [1]
+
+    assert len(payloads) == 3
+    assert all("input" in payload and "instructions" in payload for payload in payloads)
+    assert all("messages" not in payload for payload in payloads)
+    assert all(payload["stream"] is False for payload in payloads)
 
 
 @pytest.mark.asyncio
@@ -315,6 +413,66 @@ async def test_parse_streaming_response_ignores_done_and_empty_stream_returns_em
 
     assert await provider._parse_streaming_response(StreamResponse()) == "hello world"
     assert await provider._parse_streaming_response(EmptyStreamResponse()) == ""
+
+
+@pytest.mark.asyncio
+async def test_parse_responses_streaming_response_reads_deltas_and_citations():
+    provider = OpenAICompatibleSearchProvider(
+        "https://api.example.com/v1",
+        "test-key",
+        "test-model",
+        api_mode="responses",
+    )
+
+    class StreamResponse:
+        async def aiter_lines(self):
+            for line in [
+                "event: response.output_text.delta",
+                'data: {"type":"response.output_text.delta","delta":"hello"}',
+                "event: response.output_text.delta",
+                'data: {"type":"response.output_text.delta","delta":" world"}',
+                "event: response.completed",
+                'data: {"type":"response.completed","response":{"output":[{"content":[{"type":"output_text","text":"hello world","annotations":[{"type":"url_citation","url":"https://example.com/a","title":"A"}]}]}]}}',
+            ]:
+                yield line
+
+    result = await provider._parse_streaming_response(StreamResponse())
+
+    assert result.startswith("hello world")
+    assert "https://example.com/a" in result
+
+
+@pytest.mark.asyncio
+async def test_parse_responses_completion_reads_output_and_citations():
+    provider = OpenAICompatibleSearchProvider(
+        "https://api.example.com/v1",
+        "test-key",
+        "test-model",
+        api_mode="responses",
+    )
+    response = DummyResponse(
+        text="",
+        json_data={
+            "output": [
+                {
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "hello world",
+                            "annotations": [
+                                {"type": "url_citation", "url": "https://example.com/a", "title": "A"}
+                            ],
+                        }
+                    ]
+                }
+            ]
+        },
+    )
+
+    result = await provider._parse_completion_response(response)
+
+    assert result.startswith("hello world")
+    assert "https://example.com/a" in result
 
 
 @pytest.mark.asyncio

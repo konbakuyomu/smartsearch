@@ -12,6 +12,7 @@ class Config:
     )
     _DEFAULT_MODEL = "grok-4-fast"
     _DEFAULT_XAI_TOOLS = "web_search,x_search"
+    _DEFAULT_OPENAI_COMPATIBLE_API_MODE = "chat-completions"
     _DEFAULT_VALIDATION_LEVEL = "balanced"
     _DEFAULT_FALLBACK_MODE = "auto"
     _DEFAULT_MINIMUM_PROFILE = "standard"
@@ -20,6 +21,7 @@ class Config:
     _DEFAULT_INTENT_EMBEDDING_THRESHOLD = "0.74"
     _DEFAULT_INTENT_EMBEDDING_MARGIN = "0.05"
     _ALLOWED_XAI_TOOLS = {"web_search", "x_search"}
+    _ALLOWED_OPENAI_COMPATIBLE_API_MODES = {"chat-completions", "responses"}
     _ALLOWED_VALIDATION_LEVELS = {"fast", "balanced", "strict"}
     _ALLOWED_FALLBACK_MODES = {"auto", "off"}
     _ALLOWED_MINIMUM_PROFILES = {"standard", "off"}
@@ -33,6 +35,7 @@ class Config:
         "OPENAI_COMPATIBLE_API_KEY",
         "OPENAI_COMPATIBLE_MODEL",
         "OPENAI_COMPATIBLE_FALLBACK_MODELS",
+        "OPENAI_COMPATIBLE_API_MODE",
         "OPENAI_COMPATIBLE_STREAM",
         "SMART_SEARCH_VALIDATION_LEVEL",
         "SMART_SEARCH_FALLBACK_MODE",
@@ -249,6 +252,7 @@ class Config:
             "OPENAI_COMPATIBLE_API_KEY",
             "OPENAI_COMPATIBLE_MODEL",
             "OPENAI_COMPATIBLE_FALLBACK_MODELS",
+            "OPENAI_COMPATIBLE_API_MODE",
             "OPENAI_COMPATIBLE_STREAM",
             "SMART_SEARCH_VALIDATION_LEVEL",
             "SMART_SEARCH_FALLBACK_MODE",
@@ -276,6 +280,7 @@ class Config:
             "OPENAI_COMPATIBLE_API_KEY",
             "OPENAI_COMPATIBLE_MODEL",
             "OPENAI_COMPATIBLE_FALLBACK_MODELS",
+            "OPENAI_COMPATIBLE_API_MODE",
             "OPENAI_COMPATIBLE_STREAM",
             "SMART_SEARCH_VALIDATION_LEVEL",
             "SMART_SEARCH_FALLBACK_MODE",
@@ -360,6 +365,14 @@ class Config:
             seen.add(model)
             models.append(model)
         return models
+
+    @property
+    def openai_compatible_api_mode(self) -> str:
+        return self._validated_enum(
+            "OPENAI_COMPATIBLE_API_MODE",
+            self._DEFAULT_OPENAI_COMPATIBLE_API_MODE,
+            self._ALLOWED_OPENAI_COMPATIBLE_API_MODES,
+        )
 
     @property
     def openai_compatible_stream(self) -> bool:
@@ -726,6 +739,11 @@ class Config:
             self._DEFAULT_INTENT_ROUTER_MODE,
             self._ALLOWED_INTENT_ROUTER_MODES,
         )
+        openai_compatible_api_mode, openai_compatible_api_mode_error = self._enum_info(
+            "OPENAI_COMPATIBLE_API_MODE",
+            self._DEFAULT_OPENAI_COMPATIBLE_API_MODE,
+            self._ALLOWED_OPENAI_COMPATIBLE_API_MODES,
+        )
         intent_router_timeout, intent_router_timeout_error = self._float_info(
             "INTENT_ROUTER_TIMEOUT_SECONDS",
             self._DEFAULT_INTENT_ROUTER_TIMEOUT_SECONDS,
@@ -749,6 +767,7 @@ class Config:
                 fallback_error,
                 minimum_error,
                 intent_router_error,
+                openai_compatible_api_mode_error,
                 intent_router_timeout_error,
                 intent_embedding_threshold_error,
                 intent_embedding_margin_error,
@@ -767,6 +786,7 @@ class Config:
             "OPENAI_COMPATIBLE_API_KEY": self._mask_api_key(self.openai_compatible_api_key) if self.openai_compatible_api_key else "未配置",
             "OPENAI_COMPATIBLE_MODEL": self.openai_compatible_model,
             "OPENAI_COMPATIBLE_FALLBACK_MODELS": ",".join(self.openai_compatible_fallback_models),
+            "OPENAI_COMPATIBLE_API_MODE": openai_compatible_api_mode,
             "OPENAI_COMPATIBLE_STREAM": self.openai_compatible_stream,
             "SMART_SEARCH_VALIDATION_LEVEL": validation_level,
             "SMART_SEARCH_FALLBACK_MODE": fallback_mode,
@@ -823,7 +843,7 @@ class Config:
             "JINA_READER_API_URL": self.jina_reader_api_url,
             "JINA_RESPOND_WITH": self.jina_respond_with,
             "JINA_TIMEOUT_SECONDS": self.jina_timeout,
-            "primary_api_mode": "xai-responses" if self.xai_api_key else ("chat-completions" if self.openai_compatible_api_url and self.openai_compatible_api_key else "未配置"),
+            "primary_api_mode": "xai-responses" if self.xai_api_key else (openai_compatible_api_mode if self.openai_compatible_api_url and self.openai_compatible_api_key else "未配置"),
             "primary_api_mode_source": "config_file" if explicit_main_configured else "default",
             "config_file": str(self.config_file),
             "config_dir": str(self.config_file.parent),

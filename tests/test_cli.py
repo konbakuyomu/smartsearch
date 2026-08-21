@@ -1496,6 +1496,8 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
         "relay-model",
         "--openai-compatible-fallback-models",
         "fallback-a,fallback-b",
+        "--openai-compatible-api-mode",
+        "responses",
         "--openai-compatible-stream",
         "true",
         "--validation-level",
@@ -1577,6 +1579,7 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
     assert saved["OPENAI_COMPATIBLE_API_KEY"] == "relay-test-secret"
     assert saved["OPENAI_COMPATIBLE_MODEL"] == "relay-model"
     assert saved["OPENAI_COMPATIBLE_FALLBACK_MODELS"] == "fallback-a,fallback-b"
+    assert saved["OPENAI_COMPATIBLE_API_MODE"] == "responses"
     assert saved["OPENAI_COMPATIBLE_STREAM"] == "true"
     assert saved["SMART_SEARCH_VALIDATION_LEVEL"] == "balanced"
     assert saved["SMART_SEARCH_FALLBACK_MODE"] == "auto"

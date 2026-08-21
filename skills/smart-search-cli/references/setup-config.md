@@ -67,6 +67,7 @@
 - Use `smart-search setup --non-interactive --jina-key "key"` to let Jina satisfy `web_fetch`; `JINA_RESPOND_WITH=readerlm-v2` also requires `JINA_API_KEY`.
 - Use `smart-search setup --non-interactive --zhipu-mcp-key "key"` only when the user explicitly wants Coding Plan Remote MCP quota.
 - Use `smart-search setup --non-interactive --openai-compatible-stream true` only when an OpenAI-compatible relay benefits from SSE streaming for long requests. Default remains false.
+- Use `smart-search setup --non-interactive --openai-compatible-api-mode responses` only when the relay requires `/responses`; the default is `chat-completions` and uses `/chat/completions`.
 - Use `smart-search setup --non-interactive --openai-compatible-fallback-models "model-a,model-b"` to save ordered OpenAI-compatible backup models for primary model hard failure. These models do not receive a reserved time slice; the primary model keeps the remaining `--timeout`. `--fallback off` and `search --model MODEL` disable this model fallback for one invocation.
 - Use `smart-search setup --non-interactive --anysearch-api-url "https://api.anysearch.com/mcp" --anysearch-key "key"` only for experimental AnySearch acceptance; do not add it to the normal minimum-profile setup.
 - Use `smart-search setup --non-interactive --sciverse-token "key" --sciverse-api-url "https://api.sciverse.space"` only for explicit experimental Sciverse academic commands; do not add it to the normal minimum-profile setup.

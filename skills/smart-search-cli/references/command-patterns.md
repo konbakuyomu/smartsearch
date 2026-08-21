@@ -72,6 +72,7 @@ smart-search config set XAI_TOOLS "web_search,x_search" --format json
 smart-search config set OPENAI_COMPATIBLE_API_URL "https://api.openai.com/v1" --format json
 smart-search config set OPENAI_COMPATIBLE_API_KEY "key" --format json
 smart-search config set OPENAI_COMPATIBLE_MODEL "model-id" --format json
+smart-search config set OPENAI_COMPATIBLE_API_MODE "responses" --format json
 smart-search config set OPENAI_COMPATIBLE_FALLBACK_MODELS "model-a,model-b" --format json
 smart-search config set OPENAI_COMPATIBLE_STREAM "true" --format json
 smart-search config set ANYSEARCH_API_URL "https://api.anysearch.com/mcp" --format json
