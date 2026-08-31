@@ -830,6 +830,25 @@ def _format_skills_markdown(data: dict[str, Any]) -> str:
             )
         lines.extend(["", "## Targets"])
         lines.extend(_markdown_table(["Target", "Status", "Files", "Installed", "Hash match", "Extra", "Path"], rows))
+    legacy_rows = []
+    for item in targets:
+        for legacy in item.get("legacy_locations") or []:
+            legacy_rows.append(
+                [
+                    item.get("target", ""),
+                    legacy.get("status", ""),
+                    legacy.get("installed_files", ""),
+                    len(legacy.get("extra_files") or []),
+                    legacy.get("path", ""),
+                ]
+            )
+    if legacy_rows:
+        lines.extend([
+            "",
+            "## Legacy Locations",
+            "Reported read-only; setup and update write only to the canonical target.",
+        ])
+        lines.extend(_markdown_table(["Target", "Status", "Installed", "Extra", "Path"], legacy_rows))
     if data.get("failed"):
         lines.extend(["", "## Failed"])
         lines.extend(_markdown_table(["Target", "Path", "Error"], [[item.get("target"), item.get("path"), item.get("error")] for item in data.get("failed", [])]))
@@ -3241,7 +3260,7 @@ def build_parser() -> argparse.ArgumentParser:
     skills_status.add_argument(
         "--skills-root",
         default="",
-        help="Advanced override for the user-level skill root; defaults to the current user's home directory.",
+        help="Advanced synthetic home-directory override for portable or test installs; defaults to the current user's home directory.",
     )
     _add_format_args(skills_status)
     skills_update = skills_sub.add_parser("update", aliases=SKILLS_COMMAND_ALIASES["update"], help="Overwrite selected installed skill files with bundled assets.")
@@ -3255,7 +3274,7 @@ def build_parser() -> argparse.ArgumentParser:
     skills_update.add_argument(
         "--skills-root",
         default="",
-        help="Advanced override for the user-level skill root; defaults to the current user's home directory.",
+        help="Advanced synthetic home-directory override for portable or test installs; defaults to the current user's home directory.",
     )
     _add_format_args(skills_update)
 
@@ -3275,7 +3294,7 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument(
         "--skills-root",
         default="",
-        help="Advanced override for the user-level skill root; defaults to the current user's home directory.",
+        help="Advanced synthetic home-directory override for portable or test installs; defaults to the current user's home directory.",
     )
     setup_parser.add_argument("--xai-api-url", default="", help="Save XAI_API_URL.")
     setup_parser.add_argument("--xai-api-key", default="", help="Save XAI_API_KEY.")

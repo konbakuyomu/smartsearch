@@ -123,8 +123,10 @@ smart-search setup --non-interactive --install-skills codex,claude,cursor,hermes
 ```
 
 Skill installation writes the bundled `smart-search-cli` skill into user-level tool directories such as
-`~/.codex/skills`, `~/.claude/skills`, `~/.cursor/skills`, and `~/.hermes/skills`. It does not initialize
-Trellis, hooks, agents, or commands. `--skills-root PATH` is only an advanced override for portable or test installs.
+`~/.codex/skills`, `~/.claude/skills`, `~/.cursor/skills`, `~/.hermes/skills`, and OpenCode
+`~/.config/opencode/skills/smart-search-cli`. It does not initialize Trellis, hooks, agents, or commands. `--skills-root PATH` is a
+synthetic home-root override for portable or test installs, so an OpenCode install under `T` writes to
+`T/.config/opencode/skills/smart-search-cli`.
 
 9. After upgrading the CLI, refresh the installed global skill:
 
@@ -135,7 +137,9 @@ smart-search skills update --targets codex --format json
 
 `setup --install-skills` remains available for first-time setup. For routine synchronization after package updates, use
 `skills status` and `skills update`; they only inspect or overwrite the managed `smart-search-cli` files and do not change
-provider keys or create Trellis/hooks/agents/commands.
+provider keys or create Trellis/hooks/agents/commands. OpenCode status reports a discovered legacy
+`~/.opencode/skills/smart-search-cli` tree as read-only `legacy_locations` metadata; it is never moved or deleted automatically. Setup and update write
+only managed bundled files to the canonical OpenCode target and leave legacy and other extra files untouched.
 
 ## Current Architecture
 

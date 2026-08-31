@@ -46,13 +46,14 @@
 ## Skill Installation Sync
 
 - Skill installation installs the bundled `smart-search-cli` skill into selected AI-tool skill directories and must not run `trellis init`, create hooks, create agents, create commands, or modify other skills.
-- Targets are user-level/global directories under the current user's home directory, for example Codex `~/.codex/skills/`, Claude Code `~/.claude/skills/`, Cursor `~/.cursor/skills/`, GitHub Copilot `~/.copilot/skills/`, and Hermes Agent `~/.hermes/skills/`.
+- Targets are user-level/global directories under the current user's home directory, for example Codex `~/.codex/skills/`, Claude Code `~/.claude/skills/`, Cursor `~/.cursor/skills/`, OpenCode `~/.config/opencode/skills/`, GitHub Copilot `~/.copilot/skills/`, and Hermes Agent `~/.hermes/skills/`.
 - Skill targets are `codex`, `claude`, `cursor`, `opencode`, `copilot`, `gemini`, `kiro`, `qoder`, `codebuddy`, `droid`, `pi`, `kilo`, `antigravity`, `windsurf`, and `hermes`.
+- OpenCode's canonical global skill directory is `~/.config/opencode/skills/smart-search-cli`. `skills status` reports a discovered legacy `~/.opencode/skills/smart-search-cli` directory as read-only `legacy_locations` metadata; it never migrates or deletes that tree.
 - `--skip-skills` disables skill installation.
 - `--install-skills codex,claude,cursor,hermes` selects targets explicitly.
-- `--skills-root PATH` is an advanced override for the user-level install root used in portable installs or tests. Normal users should omit it.
-- `smart-search skills status --targets codex,claude,cursor,hermes --format json` compares bundled skill files with installed user-level skill directories. Status values are `missing`, `up_to_date`, `stale`, `extra_files`, and `error`. It reports target paths, bundled file count, installed file count, hashes, hash match flags, missing files, stale files, and extra files. It must not write or delete files.
-- `smart-search skills update --targets codex,claude,cursor,hermes --format json` overwrites the managed bundled `smart-search-cli` files for selected targets. `smart-search skills update --all --format json` selects every target id.
+- `--skills-root PATH` is an advanced synthetic home-root override used in portable installs or tests. For OpenCode, `--skills-root T` writes to `T/.config/opencode/skills/smart-search-cli`. Normal users should omit it.
+- `smart-search skills status --targets codex,claude,cursor,hermes --format json` compares bundled skill files with installed user-level skill directories. Status values are `missing`, `up_to_date`, `stale`, `extra_files`, and `error`. It reports target paths, bundled file count, installed file count, hashes, hash match flags, missing files, stale files, and extra files. OpenCode also reports discovered legacy locations. Status must not write or delete files.
+- `smart-search skills update --targets codex,claude,cursor,hermes --format json` overwrites the managed bundled `smart-search-cli` files for selected targets. For OpenCode, setup and update write managed files only to the canonical config path; legacy trees and user extra files remain untouched. `smart-search skills update --all --format json` selects every target id.
 - This daily sync path must not change provider keys, run setup prompts, create Trellis files, create hooks, create agents, create commands, or delete leftover files. Extra installed files are only reported by `skills status`.
 - `smart-search setup --non-interactive --install-skills codex` remains the first-time setup compatibility path. Prefer `skills status` and `skills update` for routine global skill synchronization after CLI upgrades.
 

@@ -1478,28 +1478,46 @@ def test_non_content_commands_have_non_empty_content_fallback():
         assert not rendered.lstrip().startswith("{"), command
 
 
-def test_skills_status_reports_missing_and_update_writes_target(tmp_path, capsys):
-    status_code = cli.main(["skills", "status", "--targets", "codex", "--skills-root", str(tmp_path), "--format", "json"])
+def test_skills_status_reports_missing_and_update_writes_opencode_config_target(tmp_path, capsys):
+    status_code = cli.main(["skills", "status", "--targets", "opencode", "--skills-root", str(tmp_path), "--format", "json"])
     status = json.loads(capsys.readouterr().out)
 
     assert status_code == cli.EXIT_OK
-    assert status["selected"] == ["codex"]
+    assert status["selected"] == ["opencode"]
     assert status["targets"][0]["status"] == "missing"
     assert status["targets"][0]["hash_match"] is False
+    assert status["targets"][0].get("legacy_locations", []) == []
 
-    update_code = cli.main(["skills", "update", "--targets", "codex", "--skills-root", str(tmp_path), "--format", "json"])
+    update_code = cli.main(["skills", "update", "--targets", "opencode", "--skills-root", str(tmp_path), "--format", "json"])
     update = json.loads(capsys.readouterr().out)
 
     assert update_code == cli.EXIT_OK
     assert update["installed_count"] == 1
-    assert (tmp_path / ".codex" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
+    assert (tmp_path / ".config" / "opencode" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
+    assert not (tmp_path / ".opencode" / "skills" / "smart-search-cli").exists()
 
-    status_code = cli.main(["skills", "status", "--targets", "codex", "--skills-root", str(tmp_path), "--format", "json"])
+    status_code = cli.main(["skills", "status", "--targets", "opencode", "--skills-root", str(tmp_path), "--format", "json"])
     status = json.loads(capsys.readouterr().out)
 
     assert status_code == cli.EXIT_OK
     assert status["targets"][0]["status"] == "up_to_date"
     assert status["targets"][0]["hash_match"] is True
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["skills", "status", "--help"],
+        ["skills", "update", "--help"],
+        ["setup", "--help"],
+    ],
+)
+def test_skills_root_help_describes_a_synthetic_home_override(argv, capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(argv)
+
+    assert exc_info.value.code == 0
+    assert "synthetic home-directory override" in capsys.readouterr().out
 
 
 def test_skills_update_all_selects_every_target(tmp_path, capsys):
@@ -1876,7 +1894,7 @@ def test_setup_non_interactive_installs_selected_skills_under_user_root_override
         "setup",
         "--non-interactive",
         "--install-skills",
-        "codex,claude,cursor",
+        "codex,claude,cursor,opencode",
         "--skills-root",
         str(tmp_path),
     ])
@@ -1884,10 +1902,12 @@ def test_setup_non_interactive_installs_selected_skills_under_user_root_override
 
     assert code == cli.EXIT_OK
     assert saved == {}
-    assert data["skills"]["installed_count"] == 3
+    assert data["skills"]["installed_count"] == 4
     assert (tmp_path / ".codex" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
     assert (tmp_path / ".claude" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
     assert (tmp_path / ".cursor" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
+    assert (tmp_path / ".config" / "opencode" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
+    assert not (tmp_path / ".opencode" / "skills" / "smart-search-cli").exists()
 
 
 def test_setup_non_interactive_installs_skill_under_home_by_default(monkeypatch, tmp_path, capsys):
@@ -2036,6 +2056,119 @@ def test_skill_installer_pi_target_uses_agent_skill_root(tmp_path):
     assert Path(result["installed"][0]["path"]).as_posix().endswith(".pi/agent/skills/smart-search-cli")
     assert (tmp_path / "project" / ".pi" / "agent" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
     assert not (tmp_path / "project" / ".pi" / "skills" / "smart-search-cli").exists()
+
+
+def test_opencode_status_reports_legacy_tree_without_migrating_or_overwriting_extras(tmp_path, capsys):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "SKILL.md").write_text("new", encoding="utf-8")
+    root = tmp_path / "portable-home"
+    canonical = root / ".config" / "opencode" / "skills" / "smart-search-cli"
+    legacy = root / ".opencode" / "skills" / "smart-search-cli"
+
+    missing = skill_installer.status_skill_targets(["opencode"], project_root=root, source_root=source)["targets"][0]
+    assert missing["status"] == "missing"
+    assert Path(missing["path"]).as_posix().endswith(".config/opencode/skills/smart-search-cli")
+    assert missing.get("legacy_locations", []) == []
+
+    legacy.mkdir(parents=True)
+    (legacy / "SKILL.md").write_text("new", encoding="utf-8")
+    legacy_only = skill_installer.status_skill_targets(["opencode"], project_root=root, source_root=source)["targets"][0]
+    assert legacy_only["status"] == "missing"
+    assert legacy_only["legacy_locations"][0]["status"] == "up_to_date"
+    assert legacy_only["legacy_locations"][0]["managed_hash_match"] is True
+    assert legacy_only["legacy_locations"][0]["hash_match"] is True
+    assert Path(legacy_only["legacy_locations"][0]["path"]).as_posix().endswith(".opencode/skills/smart-search-cli")
+
+    legacy_skill_before_status = (legacy / "SKILL.md").read_bytes()
+    json_status_code = cli.main(["skills", "status", "--targets", "opencode", "--skills-root", str(root), "--format", "json"])
+    json_status = json.loads(capsys.readouterr().out)
+    assert json_status_code == cli.EXIT_OK
+    assert json_status["targets"][0]["status"] == "missing"
+    assert json_status["targets"][0]["legacy_locations"][0]["path"] == str(legacy)
+    assert (legacy / "SKILL.md").read_bytes() == legacy_skill_before_status
+
+    markdown_code = cli.main(["skills", "status", "--targets", "opencode", "--skills-root", str(root), "--format", "markdown"])
+    markdown = capsys.readouterr().out
+    assert markdown_code == cli.EXIT_OK
+    assert "## Legacy Locations" in markdown
+    assert str(legacy) in markdown
+    assert (legacy / "SKILL.md").read_bytes() == legacy_skill_before_status
+
+    canonical.mkdir(parents=True)
+    (canonical / "SKILL.md").write_text("old", encoding="utf-8")
+    stale = skill_installer.status_skill_targets(["opencode"], project_root=root, source_root=source)["targets"][0]
+    assert stale["status"] == "stale"
+    assert stale["stale_files"] == ["SKILL.md"]
+
+    (canonical / "SKILL.md").write_text("new", encoding="utf-8")
+    both = skill_installer.status_skill_targets(["opencode"], project_root=root, source_root=source)["targets"][0]
+    assert both["status"] == "up_to_date"
+    assert both["legacy_locations"][0]["status"] == "up_to_date"
+
+    canonical_extra = canonical / "user-extra.md"
+    canonical_extra.write_bytes(b"keep canonical extra")
+    extra = skill_installer.status_skill_targets(["opencode"], project_root=root, source_root=source)["targets"][0]
+    assert extra["status"] == "extra_files"
+    assert extra["extra_files"] == ["user-extra.md"]
+
+    legacy_extra = legacy / "legacy-extra.md"
+    legacy_extra.write_bytes(b"keep legacy extra")
+    legacy_extra_status = skill_installer.status_skill_targets(["opencode"], project_root=root, source_root=source)["targets"][0]
+    assert legacy_extra_status["legacy_locations"][0]["status"] == "extra_files"
+    assert legacy_extra_status["legacy_locations"][0]["extra_files"] == ["legacy-extra.md"]
+    assert legacy_extra_status["legacy_locations"][0]["managed_hash_match"] is True
+    assert legacy_extra_status["legacy_locations"][0]["hash_match"] is False
+    legacy_skill_before = (legacy / "SKILL.md").read_bytes()
+    legacy_extra_before = legacy_extra.read_bytes()
+    canonical_extra_before = canonical_extra.read_bytes()
+    (canonical / "SKILL.md").write_text("old", encoding="utf-8")
+
+    update_code = cli.main(["skills", "update", "--targets", "opencode", "--skills-root", str(root), "--format", "json"])
+    update = json.loads(capsys.readouterr().out)
+
+    assert update_code == cli.EXIT_OK
+    assert update["installed_count"] == 1
+    assert (canonical / "SKILL.md").read_text(encoding="utf-8") != "old"
+    assert canonical_extra.read_bytes() == canonical_extra_before
+    assert (legacy / "SKILL.md").read_bytes() == legacy_skill_before
+    assert legacy_extra.read_bytes() == legacy_extra_before
+
+
+def test_setup_opencode_preserves_legacy_skill_tree(monkeypatch, tmp_path, capsys):
+    root = tmp_path / "portable-home"
+    canonical = root / ".config" / "opencode" / "skills" / "smart-search-cli"
+    canonical.mkdir(parents=True)
+    canonical_extra = canonical / "canonical-extra.md"
+    canonical_extra.write_bytes(b"canonical user extra")
+    canonical_extra_before = canonical_extra.read_bytes()
+    legacy = root / ".opencode" / "skills" / "smart-search-cli"
+    legacy.mkdir(parents=True)
+    (legacy / "SKILL.md").write_bytes(b"legacy managed file")
+    legacy_extra = legacy / "legacy-extra.md"
+    legacy_extra.write_bytes(b"legacy user extra")
+    legacy_skill_before = (legacy / "SKILL.md").read_bytes()
+    legacy_extra_before = legacy_extra.read_bytes()
+
+    monkeypatch.setattr(cli.service, "config_set", lambda key, value: {"ok": True, "key": key, "value": "***"})
+    monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
+
+    code = cli.main([
+        "setup",
+        "--non-interactive",
+        "--install-skills",
+        "opencode",
+        "--skills-root",
+        str(root),
+    ])
+    data = json.loads(capsys.readouterr().out)
+
+    assert code == cli.EXIT_OK
+    assert data["skills"]["installed_count"] == 1
+    assert (root / ".config" / "opencode" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
+    assert canonical_extra.read_bytes() == canonical_extra_before
+    assert (legacy / "SKILL.md").read_bytes() == legacy_skill_before
+    assert legacy_extra.read_bytes() == legacy_extra_before
 
 
 def test_skill_installer_status_detects_stale_and_extra_files(tmp_path):

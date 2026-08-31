@@ -510,11 +510,17 @@ Interactive setup contract:
   `antigravity`, `windsurf`, and `hermes`.
 - Skill install targets are relative to the user's home directory by default:
   Codex `~/.codex/skills/`, Claude Code `~/.claude/skills/`, Cursor
-  `~/.cursor/skills/`, GitHub Copilot `~/.copilot/skills/`, Hermes Agent
-  `~/.hermes/skills/`, and the remaining targets under their listed user-level
-  dot-directories. The npm wrapper must preserve the caller cwd for CLI
-  execution; package assets are passed separately via package-root metadata and
-  must not become the default skill installation root.
+  `~/.cursor/skills/`, OpenCode `~/.config/opencode/skills/`, GitHub Copilot
+  `~/.copilot/skills/`, Hermes Agent `~/.hermes/skills/`, and the remaining
+  targets under their listed user-level dot-directories. The npm wrapper must
+  preserve the caller cwd for CLI execution; package assets are passed
+  separately via package-root metadata and must not become the default skill
+  installation root.
+- OpenCode's canonical global target is
+  `~/.config/opencode/skills/smart-search-cli`. A discovered legacy
+  `~/.opencode/skills/smart-search-cli` tree is reported only as read-only
+  `legacy_locations` status metadata; setup and update must not move, delete,
+  or overwrite it.
 - Pi Agent installs to `~/.pi/agent/skills/smart-search-cli`, not the older
   `~/.pi/skills/smart-search-cli` path.
 - Runtime skill injection must load bundled package assets, not a developer's
@@ -524,13 +530,14 @@ Interactive setup contract:
   `src/smart_search/assets/skills/smart-search-cli/**`. A source-only skill
   update leaves installed npm users with stale setup/install guidance.
 - `--skip-skills` disables skill install. `--install-skills CSV` explicitly
-  chooses targets. `--skills-root PATH` is an advanced override for the
-  user-level install root used in portable installs or tests. Normal users
-  should omit it.
+  chooses targets. `--skills-root PATH` is an advanced synthetic home-root
+  override used in portable installs or tests. For OpenCode, a root `T` writes
+  to `T/.config/opencode/skills/smart-search-cli`. Normal users should omit it.
 - `smart-search skills status` is the routine stale-skill check. It compares
   bundled assets with installed user-level `smart-search-cli` directories and
   reports per-target `missing`, `up_to_date`, `stale`, `extra_files`, or
-  `error` without writing or deleting files.
+  `error` without writing or deleting files. OpenCode legacy metadata does not
+  change the canonical target status.
 - `smart-search skills update` is the routine skill sync path after CLI
   upgrades. It reuses the same bundled-file overwrite behavior as setup skill
   installation, supports `--targets CSV`, `--all`, and `--skills-root PATH`,

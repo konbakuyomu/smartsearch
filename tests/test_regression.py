@@ -299,6 +299,31 @@ def test_deep_research_shared_skill_files_are_synchronized():
     assert _skill_text_files(PUBLIC_SKILL_DIR) == _skill_text_files(PACKAGED_SKILL_DIR)
 
 
+def test_opencode_skill_path_contract_is_synchronized():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    public_contract = _read_reference_tree(PUBLIC_SKILL_DIR)
+    packaged_contract = _read_reference_tree(PACKAGED_SKILL_DIR)
+    required_markers = [
+        "~/.config/opencode/skills/smart-search-cli",
+        "~/.opencode/skills/smart-search-cli",
+        "legacy_locations",
+        "synthetic home",
+    ]
+
+    for marker in required_markers:
+        assert marker in readme
+        assert marker in public_contract
+        assert marker in packaged_contract
+
+    for marker in [
+        "~/.config/opencode/skills/smart-search-cli",
+        "~/.opencode/skills/smart-search-cli",
+        "legacy_locations",
+    ]:
+        assert marker in readme_zh
+
+
 def test_zhipu_setup_contract_public_and_packaged_assets_match():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")

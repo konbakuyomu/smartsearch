@@ -28,7 +28,7 @@ SKILL_TARGETS: tuple[SkillTarget, ...] = (
     SkillTarget("codex", "Codex", ".codex/skills", True),
     SkillTarget("claude", "Claude Code", ".claude/skills", True),
     SkillTarget("cursor", "Cursor", ".cursor/skills", True),
-    SkillTarget("opencode", "OpenCode", ".opencode/skills"),
+    SkillTarget("opencode", "OpenCode", ".config/opencode/skills"),
     SkillTarget("copilot", "GitHub Copilot", ".copilot/skills"),
     SkillTarget("gemini", "Gemini CLI", ".gemini/skills"),
     SkillTarget("kiro", "Kiro", ".kiro/skills"),
@@ -44,6 +44,9 @@ SKILL_TARGETS: tuple[SkillTarget, ...] = (
 
 SKILL_TARGET_BY_ID = {target.target_id: target for target in SKILL_TARGETS}
 DEFAULT_SKILL_TARGET_IDS = [target.target_id for target in SKILL_TARGETS if target.default]
+LEGACY_SKILL_ROOTS_BY_TARGET: dict[str, tuple[str, ...]] = {
+    "opencode": (".opencode/skills",),
+}
 
 _TARGET_ALIASES = {
     "agents": "codex",
@@ -186,6 +189,68 @@ def _target_installed_files(path: Path) -> list[tuple[str, bytes]]:
     return _iter_filesystem_files(path)
 
 
+def _describe_installed_skill(
+    dest: Path,
+    *,
+    source_by_path: dict[str, bytes],
+    bundled_digest: str,
+) -> dict[str, Any]:
+    item: dict[str, Any] = {
+        "path": str(dest),
+        "status": "missing",
+        "files": len(source_by_path),
+        "installed_files": 0,
+        "bundled_hash": bundled_digest,
+        "installed_hash": "",
+        "hash_match": False,
+        "managed_hash_match": False,
+        "extra_files": [],
+        "missing_files": sorted(source_by_path),
+        "stale_files": [],
+    }
+    try:
+        installed_files = _target_installed_files(dest)
+        installed_by_path = {rel_path: content for rel_path, content in installed_files}
+        item["installed_files"] = len(installed_files)
+        if not dest.exists():
+            return item
+        if not dest.is_dir():
+            item["status"] = "error"
+            item["error"] = "Installed skill path exists but is not a directory."
+            return item
+
+        installed_digest = _skill_digest(installed_files)
+        extra_files = sorted(rel_path for rel_path in installed_by_path if rel_path not in source_by_path)
+        missing_files = sorted(rel_path for rel_path in source_by_path if rel_path not in installed_by_path)
+        stale_files = sorted(
+            rel_path
+            for rel_path, content in source_by_path.items()
+            if rel_path in installed_by_path and installed_by_path[rel_path] != content
+        )
+        managed_hash_match = not missing_files and not stale_files
+        hash_match = managed_hash_match and not extra_files
+        item.update(
+            {
+                "installed_hash": installed_digest if installed_files else "",
+                "hash_match": hash_match,
+                "managed_hash_match": managed_hash_match,
+                "extra_files": extra_files,
+                "missing_files": missing_files,
+                "stale_files": stale_files,
+            }
+        )
+        if missing_files or stale_files:
+            item["status"] = "stale"
+        elif extra_files:
+            item["status"] = "extra_files"
+        else:
+            item["status"] = "up_to_date"
+    except OSError as e:
+        item["status"] = "error"
+        item["error"] = str(e)
+    return item
+
+
 def status_skill_targets(
     target_ids: list[str],
     *,
@@ -202,63 +267,25 @@ def status_skill_targets(
 
     for target in selected:
         dest = root / Path(target.skill_relative_path)
-        item: dict[str, Any] = {
-            "target": target.target_id,
-            "label": target.label,
-            "path": str(dest),
-            "status": "missing",
-            "files": len(source_files),
-            "installed_files": 0,
-            "bundled_hash": bundled_digest,
-            "installed_hash": "",
-            "hash_match": False,
-            "managed_hash_match": False,
-            "extra_files": [],
-            "missing_files": sorted(source_by_path),
-            "stale_files": [],
-        }
-        try:
-            installed_files = _target_installed_files(dest)
-            installed_by_path = {rel_path: content for rel_path, content in installed_files}
-            item["installed_files"] = len(installed_files)
-            if not dest.exists():
-                targets.append(item)
-                continue
-            if not dest.is_dir():
-                item["status"] = "error"
-                item["error"] = "Installed skill path exists but is not a directory."
-                targets.append(item)
-                continue
-
-            installed_digest = _skill_digest(installed_files)
-            extra_files = sorted(rel_path for rel_path in installed_by_path if rel_path not in source_by_path)
-            missing_files = sorted(rel_path for rel_path in source_by_path if rel_path not in installed_by_path)
-            stale_files = sorted(
-                rel_path
-                for rel_path, content in source_by_path.items()
-                if rel_path in installed_by_path and installed_by_path[rel_path] != content
-            )
-            managed_hash_match = not missing_files and not stale_files
-            hash_match = managed_hash_match and not extra_files
-            item.update(
-                {
-                    "installed_hash": installed_digest if installed_files else "",
-                    "hash_match": hash_match,
-                    "managed_hash_match": managed_hash_match,
-                    "extra_files": extra_files,
-                    "missing_files": missing_files,
-                    "stale_files": stale_files,
-                }
-            )
-            if missing_files or stale_files:
-                item["status"] = "stale"
-            elif extra_files:
-                item["status"] = "extra_files"
-            else:
-                item["status"] = "up_to_date"
-        except OSError as e:
-            item["status"] = "error"
-            item["error"] = str(e)
+        item = _describe_installed_skill(
+            dest,
+            source_by_path=source_by_path,
+            bundled_digest=bundled_digest,
+        )
+        item.update({"target": target.target_id, "label": target.label})
+        legacy_locations = []
+        for legacy_relative_root in LEGACY_SKILL_ROOTS_BY_TARGET.get(target.target_id, ()):
+            legacy_dest = root / Path(legacy_relative_root) / SKILL_NAME
+            if legacy_dest.exists():
+                legacy_locations.append(
+                    _describe_installed_skill(
+                        legacy_dest,
+                        source_by_path=source_by_path,
+                        bundled_digest=bundled_digest,
+                    )
+                )
+        if legacy_locations:
+            item["legacy_locations"] = legacy_locations
         targets.append(item)
 
     status_counts: dict[str, int] = {}

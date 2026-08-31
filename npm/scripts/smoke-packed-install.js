@@ -110,4 +110,45 @@ const smokeOutput = run(process.execPath, [wrapperPath, "smoke", "--mock", "--fo
 });
 assert.equal(JSON.parse(smokeOutput).ok, true, "packed mock smoke must report ok=true");
 
+const skillsUpdate = JSON.parse(
+  run(
+    process.execPath,
+    [
+      wrapperPath,
+      "skills",
+      "update",
+      "--targets",
+      "opencode",
+      "--skills-root",
+      homeDir,
+      "--format",
+      "json"
+    ],
+    { cwd: callerCwd, env: isolatedEnv, capture: true }
+  )
+);
+assert.equal(skillsUpdate.ok, true, "packed OpenCode skill update must report ok=true");
+assert.equal(skillsUpdate.installed_count, 1, "packed OpenCode skill update must install one target");
+const opencodeSkill = path.join(homeDir, ".config", "opencode", "skills", "smart-search-cli", "SKILL.md");
+assert.ok(fs.existsSync(opencodeSkill), "packed OpenCode skill update must use the canonical global path");
+
+const skillsStatus = JSON.parse(
+  run(
+    process.execPath,
+    [
+      wrapperPath,
+      "skills",
+      "status",
+      "--targets",
+      "opencode",
+      "--skills-root",
+      homeDir,
+      "--format",
+      "json"
+    ],
+    { cwd: callerCwd, env: isolatedEnv, capture: true }
+  )
+);
+assert.equal(skillsStatus.targets[0].status, "up_to_date", "packed OpenCode status must inspect the canonical global path");
+
 console.log(`Packed tarball install smoke passed in temporary prefix ${installPrefix}.`);

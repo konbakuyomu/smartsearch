@@ -116,8 +116,10 @@ smart-search setup --non-interactive --install-skills codex,claude,cursor,hermes
 ```
 
 Skill 安装会把内置 `smart-search-cli` 写入用户级工具目录，例如 `~/.codex/skills`、
-`~/.claude/skills`、`~/.cursor/skills`、`~/.hermes/skills`。它不会初始化 Trellis、hooks、
-agents 或 commands。`--skills-root PATH` 只适合便携安装或测试时高级覆盖根目录。
+`~/.claude/skills`、`~/.cursor/skills`、`~/.hermes/skills`，以及 OpenCode 的
+`~/.config/opencode/skills/smart-search-cli`。它不会初始化 Trellis、hooks、agents 或 commands。`--skills-root PATH`
+是便携安装或测试时的合成 home 根目录覆盖；OpenCode 在根目录 `T` 下会写到
+`T/.config/opencode/skills/smart-search-cli`。
 
 8. 升级 CLI 后，同步已经安装到全局 AI 工具里的 skill：
 
@@ -128,7 +130,9 @@ smart-search skills update --targets codex --format json
 
 `setup --install-skills` 仍然保留给第一次配置使用。平时升级包以后，优先用 `skills status` 和
 `skills update`；它们只检查或覆盖 `smart-search-cli` 托管文件，不会改 provider key，也不会创建
-Trellis、hooks、agents 或 commands。
+Trellis、hooks、agents 或 commands。OpenCode status 会将已发现的旧路径
+`~/.opencode/skills/smart-search-cli` 作为只读 `legacy_locations` 元数据报告，绝不会自动移动或删除它。Setup 和 update 只会向规范的
+OpenCode 路径写入托管内置文件，旧树和其他额外文件都会保持不变。
 
 ## 当前架构
 
