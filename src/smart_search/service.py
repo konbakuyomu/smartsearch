@@ -37,7 +37,12 @@ from .providers.anysearch import AnySearchProvider
 from .providers.context7 import Context7Provider
 from .providers.exa import ExaSearchProvider
 from .providers.jina import JinaReaderProvider
-from .providers.openai_compatible import OpenAICompatibleSearchProvider, get_local_time_info
+from .providers.openai_compatible import (
+    OpenAICompatibleSearchProvider,
+    get_local_time_info,
+    normalize_openai_compatible_api_url,
+    openai_compatible_endpoint,
+)
 from .providers.sciverse import SciverseProvider
 from .providers.xai_responses import XAIResponsesSearchProvider
 from .providers.zhipu import ZhipuWebSearchProvider
@@ -308,7 +313,7 @@ MAIN_SEARCH_PROVIDER_ALIASES = {
 }
 MODEL_BREAKER_FAILURE_THRESHOLD = 2
 MODEL_BREAKER_COOLDOWN_SECONDS = 600.0
-_OPENAI_COMPATIBLE_MODEL_BREAKERS: dict[tuple[str, str], dict[str, Any]] = {}
+_OPENAI_COMPATIBLE_MODEL_BREAKERS: dict[tuple[str, str, str], dict[str, Any]] = {}
 MAIN_SEARCH_RESERVE_CAP_SECONDS = 120.0
 
 
@@ -599,16 +604,16 @@ def _tavily_disabled_message() -> str:
     return "Tavily is disabled by TAVILY_ENABLED=false. No Tavily network request was made."
 
 
-def _openai_model_breaker_key(api_url: str, model: str) -> tuple[str, str]:
-    return (api_url.rstrip("/"), model)
+def _openai_model_breaker_key(api_url: str, model: str, api_mode: str = "chat-completions") -> tuple[str, str, str]:
+    return (normalize_openai_compatible_api_url(api_url), model, api_mode)
 
 
 def reset_runtime_breakers() -> None:
     _OPENAI_COMPATIBLE_MODEL_BREAKERS.clear()
 
 
-def _openai_model_breaker_state(api_url: str, model: str) -> dict[str, Any]:
-    key = _openai_model_breaker_key(api_url, model)
+def _openai_model_breaker_state(api_url: str, model: str, api_mode: str = "chat-completions") -> dict[str, Any]:
+    key = _openai_model_breaker_key(api_url, model, api_mode)
     state = _OPENAI_COMPATIBLE_MODEL_BREAKERS.get(key, {})
     opened_until = float(state.get("opened_until") or 0.0)
     now = time.monotonic()
@@ -624,17 +629,17 @@ def _openai_model_breaker_state(api_url: str, model: str) -> dict[str, Any]:
     return {"state": "closed", "consecutive_failures": int(state.get("consecutive_failures") or 0)}
 
 
-def _record_openai_model_success(api_url: str, model: str) -> None:
-    _OPENAI_COMPATIBLE_MODEL_BREAKERS.pop(_openai_model_breaker_key(api_url, model), None)
+def _record_openai_model_success(api_url: str, model: str, api_mode: str = "chat-completions") -> None:
+    _OPENAI_COMPATIBLE_MODEL_BREAKERS.pop(_openai_model_breaker_key(api_url, model, api_mode), None)
 
 
-def _record_openai_model_failure(api_url: str, model: str) -> dict[str, Any]:
-    key = _openai_model_breaker_key(api_url, model)
+def _record_openai_model_failure(api_url: str, model: str, api_mode: str = "chat-completions") -> dict[str, Any]:
+    key = _openai_model_breaker_key(api_url, model, api_mode)
     state = _OPENAI_COMPATIBLE_MODEL_BREAKERS.setdefault(key, {"consecutive_failures": 0, "opened_until": 0.0})
     state["consecutive_failures"] = int(state.get("consecutive_failures") or 0) + 1
     if state["consecutive_failures"] >= MODEL_BREAKER_FAILURE_THRESHOLD:
         state["opened_until"] = time.monotonic() + MODEL_BREAKER_COOLDOWN_SECONDS
-    return _openai_model_breaker_state(api_url, model)
+    return _openai_model_breaker_state(api_url, model, api_mode)
 
 
 def _openai_model_candidates(provider_config: dict[str, Any], *, fallback_mode: str, model_override: str) -> list[dict[str, Any]]:
@@ -1982,7 +1987,8 @@ def _main_search_provider_configs(model_override: str = "", providers: str = "au
     if config.openai_compatible_api_url and config.openai_compatible_api_key:
         by_provider["openai-compatible"] = {
             "provider": "openai-compatible",
-            "mode": "chat-completions",
+            "mode": config.openai_compatible_api_mode,
+            "api_mode": config.openai_compatible_api_mode,
             "api_url": config.openai_compatible_api_url,
             "api_key": config.openai_compatible_api_key,
             "model": model_override or config.openai_compatible_model,
@@ -2019,13 +2025,14 @@ def _main_search_providers(provider_configs: list[dict[str, Any]], fallback: str
                     provider_config["api_key"],
                     provider_config["model"],
                     provider_config.get("stream", False),
+                    provider_config.get("api_mode", provider_config.get("mode", "chat-completions")),
                 )
             )
     return providers
 
 
 async def fetch_available_models(api_url: str, api_key: str) -> list[str]:
-    models_url = f"{api_url.rstrip('/')}/models"
+    models_url = f"{normalize_openai_compatible_api_url(api_url)}/models"
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.get(
             models_url,
@@ -2687,6 +2694,7 @@ async def search(
         "providers": providers,
         "main_search_chain": [item["provider"] for item in selected_main_provider_configs],
         "openai_compatible_stream": next((bool(item.get("stream")) for item in selected_main_provider_configs if item["provider"] == "openai-compatible"), False),
+        "openai_compatible_api_mode": next((item.get("api_mode", item.get("mode", "")) for item in selected_main_provider_configs if item["provider"] == "openai-compatible"), ""),
         "openai_compatible_models": openai_candidate_models,
         "openai_compatible_model_fallback_enabled": len(openai_candidate_models) > 1,
         "openai_compatible_timeout_policy": OPENAI_COMPATIBLE_TIMEOUT_POLICY,
@@ -2722,10 +2730,19 @@ async def search(
                 attempt_extra["model"] = candidate_config["model"]
                 attempt_extra["model_role"] = candidate_config.get("model_role", "primary")
                 attempt_extra["stream"] = bool(candidate_config.get("stream", False))
+                attempt_extra["api_mode"] = candidate_config.get("api_mode", candidate_config.get("mode", "chat-completions"))
+                attempt_extra["endpoint"] = openai_compatible_endpoint(
+                    candidate_config["api_url"],
+                    attempt_extra["api_mode"],
+                )
                 if candidate_config.get("fallback_from_model"):
                     attempt_extra["fallback_from_model"] = candidate_config["fallback_from_model"]
                     model_fallback_used = True
-                breaker_state = _openai_model_breaker_state(candidate_config["api_url"], candidate_config["model"])
+                breaker_state = _openai_model_breaker_state(
+                    candidate_config["api_url"],
+                    candidate_config["model"],
+                    attempt_extra["api_mode"],
+                )
                 if breaker_state.get("state") == "open":
                     attempt_extra["breaker_state"] = breaker_state
                     provider_attempts.append(
@@ -2768,10 +2785,18 @@ async def search(
                             )
                         )
                     if candidate_config["provider"] == "openai-compatible":
-                        _record_openai_model_success(candidate_config["api_url"], candidate_config["model"])
+                        _record_openai_model_success(
+                            candidate_config["api_url"],
+                            candidate_config["model"],
+                            candidate_config.get("api_mode", candidate_config.get("mode", "chat-completions")),
+                        )
                     break
                 if candidate_config["provider"] == "openai-compatible":
-                    attempt_extra["breaker_state"] = _record_openai_model_failure(candidate_config["api_url"], candidate_config["model"])
+                    attempt_extra["breaker_state"] = _record_openai_model_failure(
+                        candidate_config["api_url"],
+                        candidate_config["model"],
+                        candidate_config.get("api_mode", candidate_config.get("mode", "chat-completions")),
+                    )
                 last_primary_error = _primary_search_error_result(
                     start,
                     session_id,
@@ -2793,7 +2818,11 @@ async def search(
                         attempt.get("fallback_from_transport") for attempt in transport_attempts
                     )
                 if candidate_config["provider"] == "openai-compatible":
-                    attempt_extra["breaker_state"] = _record_openai_model_failure(candidate_config["api_url"], candidate_config["model"])
+                    attempt_extra["breaker_state"] = _record_openai_model_failure(
+                        candidate_config["api_url"],
+                        candidate_config["model"],
+                        candidate_config.get("api_mode", candidate_config.get("mode", "chat-completions")),
+                    )
                 if candidate_config["provider"] != "openai-compatible" or not transport_attempts:
                     provider_attempts.append(
                         _attempt(
@@ -3994,18 +4023,23 @@ async def context7_docs(library_id: str, query: str) -> dict[str, Any]:
 
 
 async def _test_primary_chat_completion(api_url: str, api_key: str, model: str) -> dict[str, Any]:
-    chat_url = f"{api_url.rstrip('/')}/chat/completions"
+    return await _test_openai_compatible_primary(api_url, api_key, model, api_mode="chat-completions")
+
+
+async def _test_openai_compatible_primary(
+    api_url: str,
+    api_key: str,
+    model: str,
+    *,
+    api_mode: str,
+) -> dict[str, Any]:
+    provider = OpenAICompatibleSearchProvider(api_url, api_key, model, stream=False, api_mode=api_mode)
     start = time.time()
     async with httpx.AsyncClient(timeout=20.0) as client:
         response = await client.post(
-            chat_url,
+            provider._api_endpoint(),
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": "Reply with exactly: ok"}],
-                "stream": False,
-                "max_tokens": 8,
-            },
+            json=provider._build_request_payload("Reply with exactly: ok", "Reply with exactly: ok", stream=False),
         )
         response_time = _elapsed_ms(start)
         content_type = response.headers.get("content-type", "")
@@ -4017,14 +4051,18 @@ async def _test_primary_chat_completion(api_url: str, api_key: str, model: str) 
                 "http_status": response.status_code,
                 "content_type": content_type,
                 "has_content": bool(response.text.strip()),
+                "api_mode": api_mode,
+                "endpoint": provider._api_endpoint(),
             }
         return {
             "status": "ok",
-            "message": f"聊天接口可用 (HTTP {response.status_code})",
+            "message": f"{api_mode} endpoint available (HTTP {response.status_code})",
             "response_time_ms": response_time,
             "http_status": response.status_code,
             "content_type": content_type,
             "has_content": bool(response.text.strip()),
+            "api_mode": api_mode,
+            "endpoint": provider._api_endpoint(),
         }
 
 
@@ -4105,59 +4143,30 @@ async def _probe_openai_compatible_search_shape(
     *,
     stream: bool,
     timeout_seconds: float,
+    api_mode: str = "chat-completions",
 ) -> dict[str, Any]:
-    name = "真实 search 请求 (stream=true)" if stream else "真实 search 请求 (stream=false)"
+    name = f"真实 {api_mode} search 请求 (stream={'true' if stream else 'false'})"
     start = time.time()
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": search_prompt},
-            {"role": "user", "content": get_local_time_info() + "\nping"},
-        ],
-        "stream": stream,
-    }
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "Accept": "application/json, text/event-stream",
-        "User-Agent": "smart-search/diagnose",
-    }
+    provider = OpenAICompatibleSearchProvider(api_url, api_key, model, stream=stream, api_mode=api_mode)
+    payload = provider._build_request_payload(search_prompt, get_local_time_info() + "\nping", stream=stream)
+    headers = provider._build_api_headers()
+    headers["User-Agent"] = "smart-search/diagnose"
     timeout = httpx.Timeout(connect=6.0, read=timeout_seconds, write=10.0, pool=None)
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, verify=config.ssl_verify_enabled) as client:
             if stream:
                 async with client.stream(
                     "POST",
-                    f"{api_url.rstrip('/')}/chat/completions",
+                    provider._api_endpoint(),
                     headers=headers,
                     json=payload,
                 ) as response:
                     content_type = response.headers.get("content-type", "")
+                    if response.status_code >= 400:
+                        await response.aread()
                     response.raise_for_status()
-                    has_content = False
-                    async for line in response.aiter_lines():
-                        stripped = line.strip()
-                        if not stripped:
-                            continue
-                        if not stripped.startswith("data:"):
-                            continue
-                        if stripped in ("data: [DONE]", "data:[DONE]"):
-                            continue
-                        try:
-                            data = json.loads(stripped[5:].lstrip())
-                        except json.JSONDecodeError:
-                            continue
-                        choices = data.get("choices", []) if isinstance(data, dict) else []
-                        if not choices:
-                            continue
-                        delta = choices[0].get("delta", {})
-                        if isinstance(delta, dict) and str(delta.get("content") or "").strip():
-                            has_content = True
-                            break
-                        message = choices[0].get("message", {})
-                        if isinstance(message, dict) and str(message.get("content") or "").strip():
-                            has_content = True
-                            break
+                    content = await provider._parse_streaming_response(response)
+                    has_content = bool(content.strip())
                     status = "ok" if has_content else "empty"
                     message = f"HTTP {response.status_code}; {'收到流式内容' if has_content else '未收到内容'}"
                     return _diagnose_check_result(
@@ -4172,13 +4181,13 @@ async def _probe_openai_compatible_search_shape(
                     )
 
             response = await client.post(
-                f"{api_url.rstrip('/')}/chat/completions",
+                provider._api_endpoint(),
                 headers=headers,
                 json=payload,
             )
             content_type = response.headers.get("content-type", "")
             response.raise_for_status()
-            content = await OpenAICompatibleSearchProvider(api_url, api_key, model, stream=False)._parse_completion_response(response)
+            content = await provider._parse_completion_response(response)
             has_content = bool(content.strip())
             status = "ok" if has_content else "empty"
             message = f"HTTP {response.status_code}; {'收到内容' if has_content else '返回为空'}"
@@ -4237,12 +4246,37 @@ async def diagnose_openai_compatible(timeout_seconds: float = 30.0) -> dict[str,
     api_key = config.openai_compatible_api_key
     model = config.openai_compatible_model
     info = config.config_path_info()
+    try:
+        api_mode = config.openai_compatible_api_mode
+    except ValueError as e:
+        return {
+            "ok": False,
+            "provider": "openai-compatible",
+            "api_url": api_url or "未配置",
+            "api_key": config._mask_api_key(api_key) if api_key else "未配置",
+            "model": model,
+            "configured_api_mode": "invalid",
+            "configured_stream": config.openai_compatible_stream,
+            "timeout_seconds": timeout_seconds,
+            "config_file": info.get("config_file", ""),
+            "config_dir_source": info.get("config_dir_source", ""),
+            "checks": [],
+            "next_command": OPENAI_COMPATIBLE_DIAGNOSE_COMMAND,
+            "error_type": "parameter_error",
+            "error": str(e),
+            "summary": "OpenAI-compatible API mode is invalid.",
+            "recommendation": "Set OPENAI_COMPATIBLE_API_MODE to chat-completions or responses.",
+            "elapsed_ms": _elapsed_ms(start),
+        }
+    endpoint = openai_compatible_endpoint(api_url or "", api_mode)
     result: dict[str, Any] = {
         "ok": False,
         "provider": "openai-compatible",
         "api_url": api_url or "未配置",
         "api_key": config._mask_api_key(api_key) if api_key else "未配置",
         "model": model,
+        "configured_api_mode": api_mode,
+        "endpoint": endpoint if api_url else "",
         "configured_stream": config.openai_compatible_stream,
         "timeout_seconds": timeout_seconds,
         "config_file": info.get("config_file", ""),
@@ -4269,15 +4303,19 @@ async def diagnose_openai_compatible(timeout_seconds: float = 30.0) -> dict[str,
         return result
 
     try:
-        quick = await _test_primary_chat_completion(api_url, api_key, model)
+        quick = (
+            await _test_primary_chat_completion(api_url, api_key, model)
+            if api_mode == "chat-completions"
+            else await _test_openai_compatible_primary(api_url, api_key, model, api_mode=api_mode)
+        )
     except httpx.TimeoutException as e:
-        quick = {"status": "timeout", "message": f"轻量 chat 请求超时: {sanitize_provider_error_message(e)}"}
+        quick = {"status": "timeout", "message": f"轻量 {api_mode} 请求超时: {sanitize_provider_error_message(e)}"}
     except httpx.RequestError as e:
-        quick = {"status": "error", "message": f"轻量 chat 网络错误: {sanitize_provider_error_message(e)}"}
+        quick = {"status": "error", "message": f"轻量 {api_mode} 网络错误: {sanitize_provider_error_message(e)}"}
     except Exception as e:
-        quick = {"status": "error", "message": f"轻量 chat 运行错误: {sanitize_provider_error_message(e)}"}
+        quick = {"status": "error", "message": f"轻量 {api_mode} 运行错误: {sanitize_provider_error_message(e)}"}
     quick_check = {
-        "name": "轻量 chat 请求",
+        "name": f"轻量 {api_mode} 请求",
         "status": quick.get("status", "error"),
         "message": quick.get("message", ""),
         "response_time_ms": quick.get("response_time_ms"),
@@ -4286,9 +4324,15 @@ async def diagnose_openai_compatible(timeout_seconds: float = 30.0) -> dict[str,
         "has_content": bool(quick.get("has_content", quick.get("status") == "ok")),
     }
     result["checks"].append(quick_check)
-    no_stream = await _probe_openai_compatible_search_shape(api_url, api_key, model, stream=False, timeout_seconds=timeout_seconds)
+    probe_kwargs = {"stream": False, "timeout_seconds": timeout_seconds}
+    if api_mode != "chat-completions":
+        probe_kwargs["api_mode"] = api_mode
+    no_stream = await _probe_openai_compatible_search_shape(api_url, api_key, model, **probe_kwargs)
     result["checks"].append(no_stream)
-    stream = await _probe_openai_compatible_search_shape(api_url, api_key, model, stream=True, timeout_seconds=timeout_seconds)
+    probe_kwargs = {"stream": True, "timeout_seconds": timeout_seconds}
+    if api_mode != "chat-completions":
+        probe_kwargs["api_mode"] = api_mode
+    stream = await _probe_openai_compatible_search_shape(api_url, api_key, model, **probe_kwargs)
     result["checks"].append(stream)
 
     available_models: list[str] = []
@@ -4331,10 +4375,18 @@ async def diagnose_openai_compatible(timeout_seconds: float = 30.0) -> dict[str,
     return result
 
 
-async def _test_primary_connection(api_url: str, api_key: str, model: str) -> dict[str, Any]:
-    chat_test = await _test_primary_chat_completion(api_url, api_key, model)
+async def _test_primary_connection(
+    api_url: str,
+    api_key: str,
+    model: str,
+    *,
+    api_mode: str = "chat-completions",
+) -> dict[str, Any]:
+    completion_test = await _test_openai_compatible_primary(api_url, api_key, model, api_mode=api_mode)
+    completion_label = "聊天接口" if api_mode == "chat-completions" else "Responses 接口"
+    completion_key = "chat_completion_test" if api_mode == "chat-completions" else "responses_test"
 
-    models_url = f"{api_url.rstrip('/')}/models"
+    models_url = f"{normalize_openai_compatible_api_url(api_url)}/models"
     start = time.time()
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -4366,32 +4418,40 @@ async def _test_primary_connection(api_url: str, api_key: str, model: str) -> di
             "response_time_ms": _elapsed_ms(start),
         }
 
-    if chat_test.get("status") != "ok":
+    if completion_test.get("status") != "ok":
         models_state = "可用" if models_test.get("status") == "ok" else "不可用"
-        return {
+        result = {
             "status": "warning",
-            "message": f"聊天接口不可用: {chat_test.get('message', '')}；模型列表接口{models_state}: {models_test['message']}",
-            "response_time_ms": chat_test.get("response_time_ms", models_test.get("response_time_ms")),
+            "message": f"{completion_label}不可用: {completion_test.get('message', '')}；模型列表接口{models_state}: {models_test['message']}",
+            "response_time_ms": completion_test.get("response_time_ms", models_test.get("response_time_ms")),
             "models_endpoint_test": models_test,
-            "chat_completion_test": chat_test,
+            "completion_test": completion_test,
+            "api_mode": api_mode,
         }
+        result[completion_key] = completion_test
+        return result
 
     if models_test.get("status") != "ok":
-        return {
+        result = {
             "status": "ok",
-            "message": f"{chat_test['message']}；模型列表接口不可用: {models_test['message']}",
-            "response_time_ms": chat_test.get("response_time_ms"),
+            "message": f"{completion_test['message']}；模型列表接口不可用: {models_test['message']}",
+            "response_time_ms": completion_test.get("response_time_ms"),
             "models_endpoint_test": models_test,
-            "chat_completion_test": chat_test,
+            "completion_test": completion_test,
+            "api_mode": api_mode,
         }
+        result[completion_key] = completion_test
+        return result
 
     result: dict[str, Any] = {
         "status": "ok",
-        "message": f"{chat_test['message']}；{models_test['message']}",
-        "response_time_ms": chat_test.get("response_time_ms"),
+        "message": f"{completion_test['message']}；{models_test['message']}",
+        "response_time_ms": completion_test.get("response_time_ms"),
         "models_endpoint_test": models_test,
-        "chat_completion_test": chat_test,
+        "completion_test": completion_test,
+        "api_mode": api_mode,
     }
+    result[completion_key] = completion_test
     if "available_models" in models_test:
         result["available_models"] = models_test["available_models"]
     return result
@@ -4423,7 +4483,15 @@ async def _test_primary_responses(api_url: str, api_key: str, model: str) -> dic
 async def _test_main_provider_connection(provider_config: dict[str, Any]) -> dict[str, Any]:
     if provider_config["mode"] == "xai-responses":
         return await _test_primary_responses(provider_config["api_url"], provider_config["api_key"], provider_config["model"])
-    return await _test_primary_connection(provider_config["api_url"], provider_config["api_key"], provider_config["model"])
+    api_mode = provider_config.get("api_mode", provider_config.get("mode", "chat-completions"))
+    if api_mode == "chat-completions":
+        return await _test_primary_connection(provider_config["api_url"], provider_config["api_key"], provider_config["model"])
+    return await _test_primary_connection(
+        provider_config["api_url"],
+        provider_config["api_key"],
+        provider_config["model"],
+        api_mode=api_mode,
+    )
 
 
 async def _safe_test_main_provider_connection(provider_config: dict[str, Any]) -> dict[str, Any]:
@@ -4541,6 +4609,15 @@ async def doctor() -> dict[str, Any]:
         info["main_search_connection_tests"] = {}
         for provider_config in main_provider_configs:
             info["main_search_connection_tests"][provider_config["provider"]] = await _safe_test_main_provider_connection(provider_config)
+        openai_provider_config = next(
+            (item for item in main_provider_configs if item["provider"] == "openai-compatible"),
+            None,
+        )
+        if openai_provider_config:
+            info["openai_compatible_endpoint"] = openai_compatible_endpoint(
+                openai_provider_config["api_url"],
+                openai_provider_config.get("api_mode", openai_provider_config["mode"]),
+            )
         if main_provider_configs:
             first_provider = main_provider_configs[0]
             info["primary_api_mode"] = first_provider["mode"]
@@ -4642,11 +4719,21 @@ async def doctor() -> dict[str, Any]:
 
 
 def current_model() -> dict[str, Any]:
+    try:
+        api_mode = config.openai_compatible_api_mode
+    except ValueError as e:
+        return {
+            "ok": False,
+            "error_type": "parameter_error",
+            "error": str(e),
+            "config_file": str(config.config_file),
+        }
     return {
         "ok": True,
         "xai_model": config.xai_model,
         "openai_compatible_model": config.openai_compatible_model,
         "openai_compatible_fallback_models": config.openai_compatible_fallback_models,
+        "openai_compatible_api_mode": api_mode,
         "config_file": str(config.config_file),
     }
 
@@ -4778,6 +4865,24 @@ async def _smoke_mock(start: float) -> dict[str, Any]:
 
     main_attempts = [_attempt("main_search", "xAI Responses", "ok", time.time(), result_count=1)]
     cases.append(_case("main_search xai responses answer path", True, {"provider_attempts": main_attempts}))
+
+    responses_provider = OpenAICompatibleSearchProvider(
+        "https://relay.example.com/v1",
+        "mock-key",
+        "mock-model",
+        api_mode="responses",
+    )
+    responses_payload = responses_provider._build_request_payload("mock instructions", "mock input", stream=False)
+    cases.append(
+        _case(
+            "openai-compatible Responses mock protocol subset",
+            responses_provider._api_endpoint() == "https://relay.example.com/v1/responses"
+            and responses_payload.get("input") == [{"role": "user", "content": "mock input"}]
+            and "messages" not in responses_payload
+            and "tools" not in responses_payload,
+            {"api_mode": "responses", "endpoint": responses_provider._api_endpoint()},
+        )
+    )
 
     main_fallback_attempts = [
         _attempt("main_search", "xAI Responses", "error", time.time(), error_type="network_error", error="mock failure"),

@@ -28,7 +28,7 @@
 - If `smart-search doctor --format json` returns `ok: false`, follow the `error` field's guidance (`smart-search setup` or `smart-search config set KEY VALUE`); do not silently fall back to native web search.
 - `doctor --format markdown` must render a detailed diagnostic report with overall status, active/default/legacy config paths, log path resolution, file-logging status, masked config values with sources, minimum profile, capability status, main-search provider checks, provider connectivity checks, intent router status, embedding threshold/margin metadata, model metadata, and full long error/message detail.
 - Use `smart-search diagnose openai-compatible --format markdown` when `doctor` succeeds but OpenAI-compatible `search` appears to hang, returns a timeout, or differs between `--stream` and `--no-stream`. It is the beginner-facing one-command report for upstream/relay compatibility.
-- `diagnose openai-compatible --format markdown` must render a short copy-pasteable troubleshooting report with masked config, quick chat check, real search-shape `stream=false` and `stream=true` checks, fallback-model inventory against `/models`, the remaining-budget timeout policy, a plain-language summary, and a next command.
+- `diagnose openai-compatible --format markdown` must render a short copy-pasteable troubleshooting report with masked config, the selected API mode and endpoint, a quick selected-endpoint check, real search-shape `stream=false` and `stream=true` checks, fallback-model inventory against `/models`, the remaining-budget timeout policy, a plain-language summary, and a next command.
 
 ## Setup Workflow
 
@@ -68,6 +68,7 @@
 - Official Web Search API service values include `search_std`, `search_pro`, `search_pro_sogou`, and `search_pro_quark`.
 - Use `smart-search setup --non-interactive --jina-key "key"` to let Jina satisfy `web_fetch`; `JINA_RESPOND_WITH=readerlm-v2` also requires `JINA_API_KEY`.
 - Use `smart-search setup --non-interactive --zhipu-mcp-key "key"` only when the user explicitly wants Coding Plan Remote MCP quota.
+- Use `smart-search setup --non-interactive --openai-compatible-api-mode responses` only when a named relay requires `/responses`. The default is `chat-completions` and uses `/chat/completions`; invalid modes fail before setup saves any field.
 - Use `smart-search setup --non-interactive --openai-compatible-stream true` only when an OpenAI-compatible relay benefits from SSE streaming for long requests. Default remains false.
 - Use `smart-search setup --non-interactive --openai-compatible-fallback-models "model-a,model-b"` to save ordered OpenAI-compatible backup models for primary model hard failure. These models do not receive a reserved time slice; the primary model keeps the remaining shared main-search budget. `--fallback off` and `search --model MODEL` disable this model fallback for one invocation.
 - Use `smart-search setup --non-interactive --search-timeout 180` or `smart-search config set SMART_SEARCH_TIMEOUT_SECONDS 180` to persist the normal search budget. Invalid non-positive values fail before provider work.

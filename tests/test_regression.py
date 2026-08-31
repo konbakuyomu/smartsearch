@@ -527,3 +527,31 @@ def test_openai_compatible_fallback_is_fail_over_not_time_slice():
         assert marker in packaged_contract
     assert "fail-over, not a time slice" in readme
     assert "失败后接力，不是时间片" in readme_zh
+
+
+def test_openai_compatible_responses_mode_contract_is_documented_and_packaged():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    provider_contract = (ROOT / ".trellis/spec/backend/provider-capability-contract.md").read_text(encoding="utf-8")
+    public_text = _read_skill_tree(PUBLIC_SKILL_DIR)
+    packaged_text = _read_skill_tree(PACKAGED_SKILL_DIR)
+
+    for marker in [
+        "OPENAI_COMPATIBLE_API_MODE",
+        "chat-completions",
+        "responses",
+        "named relay",
+        "official",
+    ]:
+        assert marker in public_text
+        assert marker in packaged_text
+        assert marker in provider_contract
+
+    assert "does not promise `/responses` support" in public_text
+    assert "does not promise `/responses` support" in packaged_text
+    assert "official protocol subset plus named relay acceptance" in provider_contract
+
+    assert "OPENAI_COMPATIBLE_API_MODE=responses" in readme
+    assert "official `model` + `instructions`/`input` request subset" in readme
+    assert "OPENAI_COMPATIBLE_API_MODE=responses" in readme_zh
+    assert "官方 `model` + `instructions`/`input` 请求子集" in readme_zh

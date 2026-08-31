@@ -21,6 +21,7 @@ async def test_mock_smoke_passes():
     assert result["status"] == "healthy"
     assert result["failed_cases"] == []
     assert any(case["name"] == "docs_search fallback context7_to_exa" for case in result["cases"])
+    assert any(case["name"] == "openai-compatible Responses mock protocol subset" for case in result["cases"])
     assert any(case["name"] == "deep_research explicit planner simple current prompt uses capability plan" for case in result["cases"])
 
 

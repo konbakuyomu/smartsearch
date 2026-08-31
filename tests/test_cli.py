@@ -204,6 +204,8 @@ def test_diagnose_openai_compatible_defaults_to_markdown(monkeypatch, capsys):
             "api_url": "https://relay.example.com/v1",
             "api_key": "sk-T********cret",
             "model": "relay-model",
+            "configured_api_mode": "responses",
+            "endpoint": "https://relay.example.com/v1/responses",
             "configured_stream": True,
             "timeout_seconds": timeout_seconds,
             "config_file": "C:/tmp/config.json",
@@ -232,6 +234,8 @@ def test_diagnose_openai_compatible_defaults_to_markdown(monkeypatch, capsys):
     assert out.startswith("# Smart Search Diagnose")
     assert "小请求能通" in out
     assert "真实 search 请求" in out
+    assert "Configured API mode: `responses`" in out
+    assert "Endpoint: `https://relay.example.com/v1/responses`" in out
     assert "smart-search diagnose openai-compatible --format markdown" in out
 
 
@@ -398,6 +402,7 @@ def test_doctor_markdown_outputs_human_health_report(monkeypatch, capsys):
             "resolved_log_dir": "C:/tmp/logs",
             "file_logging_enabled": False,
             "config_status": "ok: complete",
+            "openai_compatible_endpoint": "https://relay.example.com/v1/responses",
             "XAI_API_KEY": "未配置",
             "SMART_SEARCH_LOG_DIR": "logs",
             "config_sources": {
@@ -418,6 +423,7 @@ def test_doctor_markdown_outputs_human_health_report(monkeypatch, capsys):
                     "response_time_ms": 123.45,
                     "available_models": ["relay-model"],
                     "chat_completion_test": {"status": "ok", "message": "chat ok", "response_time_ms": 100.0},
+                    "responses_test": {"status": "ok", "message": "responses ok", "response_time_ms": 100.0},
                     "models_endpoint_test": {"status": "ok", "message": "models ok", "response_time_ms": 23.45},
                 }
             },
@@ -472,6 +478,7 @@ def test_doctor_markdown_outputs_human_health_report(monkeypatch, capsys):
     assert "Log dir config value: `logs`" in out
     assert "Resolved log dir: `C:/tmp/logs`" in out
     assert "File logging enabled: NO" in out
+    assert "OpenAI-compatible endpoint: `https://relay.example.com/v1/responses`" in out
     assert "## Configuration Values" in out
     assert "| XAI_API_KEY | default | 未配置 |" in out
     assert "## Capabilities" in out
@@ -480,6 +487,7 @@ def test_doctor_markdown_outputs_human_health_report(monkeypatch, capsys):
     assert "## Provider Details" in out
     assert long_message in out
     assert "relay-model" in out
+    assert "responses ok" in out
     assert "Tavily ok" in out
     assert "## Intent Router" in out
     assert "| classifier_configured | YES |" in out
@@ -843,6 +851,36 @@ def test_setup_rejects_invalid_search_timeout_before_saving_other_values(monkeyp
 
     assert code == cli.EXIT_PARAMETER_ERROR
     assert data["error_type"] == "parameter_error"
+    assert data["saved"] == {}
+    assert saved == {}
+
+
+def test_setup_rejects_invalid_openai_compatible_api_mode_before_saving(monkeypatch, capsys):
+    saved = {}
+
+    def fake_config_set(key, value):
+        saved[key] = value
+        return {"ok": True, "key": key, "value": value, "config_file": "C:/tmp/config.json"}
+
+    monkeypatch.setattr(cli.service, "config_set", fake_config_set)
+    monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
+
+    code = cli.main(
+        [
+            "setup",
+            "--non-interactive",
+            "--skip-skills",
+            "--openai-compatible-api-mode",
+            "legacy-completions",
+            "--xai-api-key",
+            "xai-test-secret",
+        ]
+    )
+    data = json.loads(capsys.readouterr().out)
+
+    assert code == cli.EXIT_PARAMETER_ERROR
+    assert data["error_type"] == "parameter_error"
+    assert "Invalid OPENAI_COMPATIBLE_API_MODE" in data["error"]
     assert data["saved"] == {}
     assert saved == {}
 
@@ -1566,6 +1604,8 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
         "relay-model",
         "--openai-compatible-fallback-models",
         "fallback-a,fallback-b",
+        "--openai-compatible-api-mode",
+        "responses",
         "--openai-compatible-stream",
         "true",
         "--validation-level",
@@ -1649,6 +1689,7 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
     assert saved["OPENAI_COMPATIBLE_API_KEY"] == "relay-test-secret"
     assert saved["OPENAI_COMPATIBLE_MODEL"] == "relay-model"
     assert saved["OPENAI_COMPATIBLE_FALLBACK_MODELS"] == "fallback-a,fallback-b"
+    assert saved["OPENAI_COMPATIBLE_API_MODE"] == "responses"
     assert saved["OPENAI_COMPATIBLE_STREAM"] == "true"
     assert saved["SMART_SEARCH_VALIDATION_LEVEL"] == "balanced"
     assert saved["SMART_SEARCH_FALLBACK_MODE"] == "auto"

@@ -264,6 +264,9 @@ Provider configuration:
 - `OPENAI_COMPATIBLE_API_URL` plus `OPENAI_COMPATIBLE_API_KEY` registers
   `openai-compatible`.
 - `OPENAI_COMPATIBLE_MODEL` configures the compatible route.
+- `OPENAI_COMPATIBLE_API_MODE` accepts only `chat-completions` or `responses`
+  and defaults to `chat-completions`. Invalid values fail locally before an
+  OpenAI-compatible request or setup persistence.
 - `OPENAI_COMPATIBLE_FALLBACK_MODELS` optionally configures comma-separated
   backup model ids for the same OpenAI-compatible route. The list is ordered,
   empty entries are ignored, duplicates and the primary model are skipped, and
@@ -280,8 +283,21 @@ Provider configuration:
   stream failures must fall back to the same provider/model with
   `stream=false`.
 - Official xAI calls use the Responses API `/responses` route through `XAI_*`.
-- Compatible relays/gateways use Chat Completions `/chat/completions` through
-  `OPENAI_COMPATIBLE_*`.
+- Compatible relays/gateways use `/chat/completions` by default. They use
+  `/responses` only when `OPENAI_COMPATIBLE_API_MODE=responses` is explicit;
+  neither compatible mode sends xAI-only search tools.
+- Responses mode sends the official compatible subset: `model`, `instructions`,
+  `input`, and optional `stream`. Non-stream parsing must iterate every
+  heterogeneous `output` item and `output_text` part, retain URL-citation
+  annotations as structured sources, and never duplicate an SDK-style
+  `output_text` helper with the authoritative `output` parts.
+- Responses streaming accepts typed `response.output_text.delta`, text-part,
+  output-item, annotation, and terminal events. Unknown typed events are safe
+  to ignore, while failed, cancelled, incomplete, malformed, or empty terminal
+  streams are not successful answers. The final `response.completed` payload is
+  authoritative when it includes output/citations.
+- This is an official protocol subset plus named relay acceptance, not a claim
+  that every service marketed as OpenAI-compatible implements `/responses`.
 - `ANYSEARCH_API_URL` configures the experimental AnySearch JSON-RPC endpoint
   and defaults to `https://api.anysearch.com/mcp`.
 - `ANYSEARCH_API_KEY` is optional. When present, AnySearch requests send
@@ -368,7 +384,7 @@ Main-search peer rule:
   OpenAI-compatible `search()` and provider-side `fetch()`. It must not affect
   xAI Responses, URL description, source ranking, or capability routing.
 - OpenAI-compatible stream failures are guarded by a process-local breaker keyed
-  by `api_url + model`; two consecutive stream failures open the breaker for
+  by `api_url + model + api_mode`; two consecutive stream failures open the breaker for
   10 minutes and skip stream attempts for that model. Non-stream success does
   not reset the stream breaker; a later stream success resets it.
 - OpenAI-compatible model fallback is same-provider fallback, not provider
@@ -379,7 +395,7 @@ Main-search peer rule:
   Configuring fallback models must not cap the primary attempt at 30 seconds
   or half of the remaining budget.
 - OpenAI-compatible primary model instability is guarded by a process-local
-  model breaker keyed by `api_url + model`; two consecutive whole-model
+  model breaker keyed by `api_url + model + api_mode`; two consecutive whole-model
   failures open the breaker for 10 minutes and skip that model in favor of
   configured fallback models without writing config.
 
@@ -690,10 +706,11 @@ Output contracts:
 - `doctor().primary_connection_test` is a backward-compatible alias for the
   first configured main provider only.
 - `diagnose openai-compatible` is the beginner-facing focused report for
-  OpenAI-compatible Chat Completions search hangs/timeouts. It must default to
-  Markdown, support JSON, mask API keys, report base URL/model/stream/config
-  path, run a lightweight chat check, then probe real Smart Search search-shape
-  requests with `stream=false` and `stream=true`.
+  OpenAI-compatible search hangs/timeouts. It must default to Markdown, support
+  JSON, mask API keys, report the selected API mode and endpoint plus base
+  URL/model/stream/config path, run a lightweight selected-endpoint check, then
+  probe real Smart Search search-shape requests with `stream=false` and
+  `stream=true`.
 - Each `diagnose openai-compatible` check must report status, elapsed time,
   HTTP status when available, content type when available, and whether response
   content was observed. The summary must be plain language: missing config,
@@ -708,10 +725,10 @@ Output contracts:
   source is `legacy_windows_home` so upgrades do not silently lose
   configuration. Diagnostics must report the override value and whether it
   matches the current default path.
-- OpenAI-compatible doctor checks must use `/chat/completions` as the health
-  gate. `/models` may be probed for supplementary model metadata, but a
-  `/models` failure must not mark `openai-compatible` unhealthy when
-  `/chat/completions` succeeds.
+- OpenAI-compatible doctor checks must use the endpoint selected by
+  `OPENAI_COMPATIBLE_API_MODE` as the health gate. `/models` may be probed for
+  supplementary model metadata, but a `/models` failure must not mark
+  `openai-compatible` unhealthy when the selected completion endpoint succeeds.
 - Exa domain filters accept both comma-separated and whitespace-separated
   domains. The service must normalize strings and list/tuple argv values with
   commas or whitespace into the same list before calling Exa. This protects
@@ -891,6 +908,7 @@ smart-search doctor --format json
 | --- | --- |
 | Missing required capability under `standard` | Return `ok: false`, `error_type: "config_error"`, and missing capability ids |
 | Invalid validation/fallback/minimum enum | Return `error_type: "parameter_error"` |
+| Invalid `OPENAI_COMPATIBLE_API_MODE` | `config set`, non-interactive setup, search, doctor, and diagnose return `parameter_error` before an OpenAI-compatible request |
 | `SMART_SEARCH_TIMEOUT_SECONDS` is non-positive, non-finite, or not numeric | `config set` and non-interactive setup return `parameter_error` without persisting it; `search` returns `parameter_error` before provider work |
 | Provider filter excludes all configured main providers | Return config error; do not silently choose another capability |
 | `OPENAI_COMPATIBLE_STREAM` is missing | Treat as `false`; do not send `stream: true` |
@@ -1047,6 +1065,12 @@ When this contract changes, add or update tests that assert:
 - xAI Responses and OpenAI-compatible use separate explicit config families;
 - `XAI_API_KEY` alone does not fabricate an OpenAI-compatible fallback;
 - OpenAI-compatible alone satisfies `main_search`;
+- OpenAI-compatible API mode defaults to `chat-completions`; explicit
+  `responses` consistently selects `/responses` for search, provider fetch,
+  description, ranking, doctor, and diagnose without adding xAI-only tools;
+- Responses fixtures cover heterogeneous output, URL citations, typed deltas,
+  terminal failures, malformed/unknown events, empty streams, and API-mode
+  breaker isolation;
 - OpenAI-compatible stream defaults to false, accepts `true`/`1`/`yes`, applies
   only to `search()` and provider-side `fetch()`, and CLI `--stream` /
   `--no-stream` overrides config for one search invocation;

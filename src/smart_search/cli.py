@@ -383,6 +383,8 @@ def _format_doctor_markdown(data: dict[str, Any]) -> str:
         f"Resolved log dir: `{data.get('resolved_log_dir', '')}`",
         f"File logging enabled: {_yes_no(data.get('file_logging_enabled'))}",
     ]
+    if data.get("openai_compatible_endpoint"):
+        lines.append(f"OpenAI-compatible endpoint: `{data.get('openai_compatible_endpoint')}`")
     if data.get("legacy_windows_config_file"):
         lines.append(f"Legacy Windows config file: `{data.get('legacy_windows_config_file')}`")
         lines.append(f"Legacy Windows config exists: {_status_label(data.get('legacy_windows_config_exists'))}")
@@ -533,6 +535,7 @@ def _provider_detail_lines(title: str, provider_tests: dict[str, Any]) -> list[s
         nested_checks = [
             ("models_endpoint_test", test.get("models_endpoint_test")),
             ("chat_completion_test", test.get("chat_completion_test")),
+            ("responses_test", test.get("responses_test")),
         ]
         if not message and not available_models and not any(isinstance(item, dict) for _, item in nested_checks):
             continue
@@ -608,6 +611,8 @@ def _format_diagnose_markdown(data: dict[str, Any]) -> str:
         f"API URL: `{data.get('api_url', '')}`",
         f"API key: `{data.get('api_key', '')}`",
         f"Model: `{data.get('model', '')}`",
+        f"Configured API mode: `{data.get('configured_api_mode', 'chat-completions')}`",
+        f"Endpoint: `{data.get('endpoint', '')}`",
         f"Configured stream: {_yes_no(data.get('configured_stream'))}",
         f"Timeout: {_format_seconds(float(data.get('timeout_seconds', 0) or 0))} seconds",
         f"Timeout policy: `{data.get('timeout_policy', 'remaining_budget')}`",
@@ -779,6 +784,8 @@ def _format_model_markdown(data: dict[str, Any]) -> str:
         rows.append(["xai-responses", data.get("xai_model")])
     if data.get("openai_compatible_model"):
         rows.append(["openai-compatible", data.get("openai_compatible_model")])
+    if data.get("openai_compatible_api_mode"):
+        rows.append(["openai-compatible API mode", data.get("openai_compatible_api_mode")])
     fallback_models = data.get("openai_compatible_fallback_models") or []
     if fallback_models:
         rows.append(["openai-compatible fallback", ", ".join(fallback_models)])
@@ -2415,6 +2422,7 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
         ("OPENAI_COMPATIBLE_API_KEY", "OpenAI-compatible API key", True),
         ("OPENAI_COMPATIBLE_MODEL", "OpenAI-compatible model", True),
         ("OPENAI_COMPATIBLE_FALLBACK_MODELS", "OpenAI-compatible fallback models (comma-separated)", True),
+        ("OPENAI_COMPATIBLE_API_MODE", "OpenAI-compatible API mode (chat-completions/responses)", True),
         ("OPENAI_COMPATIBLE_STREAM", "OpenAI-compatible stream mode (true/false)", True),
         ("SMART_SEARCH_VALIDATION_LEVEL", "Validation level (fast/balanced/strict)", True),
         ("SMART_SEARCH_FALLBACK_MODE", "Fallback mode (auto/off)", True),
@@ -2752,6 +2760,7 @@ def _run_setup(args: argparse.Namespace) -> int:
         "OPENAI_COMPATIBLE_API_KEY": args.openai_compatible_api_key,
         "OPENAI_COMPATIBLE_MODEL": args.openai_compatible_model,
         "OPENAI_COMPATIBLE_FALLBACK_MODELS": args.openai_compatible_fallback_models,
+        "OPENAI_COMPATIBLE_API_MODE": args.openai_compatible_api_mode,
         "OPENAI_COMPATIBLE_STREAM": args.openai_compatible_stream,
         "SMART_SEARCH_VALIDATION_LEVEL": args.validation_level,
         "SMART_SEARCH_FALLBACK_MODE": args.fallback_mode,
@@ -2812,6 +2821,23 @@ def _run_setup(args: argparse.Namespace) -> int:
         current_for_setup = service.config_list(show_secrets=True)["values"]
         if _has_embedding_setup_values(values):
             setup_warnings.extend(_apply_embedding_setup_preset(values, current_for_setup, interactive=False, lang=lang))
+
+    # Validate all local enum/numeric constraints before persisting any setup
+    # field, so an invalid API mode cannot leave a partial provider profile.
+    for key, value in values.items():
+        if not value:
+            continue
+        try:
+            service.config._validate_config_value(key, value)
+        except ValueError as e:
+            data = {
+                "ok": False,
+                "error_type": "parameter_error",
+                "error": str(e),
+                "config_file": service.config_path()["config_file"],
+                "saved": {},
+            }
+            return _print_result("setup", data, args.format, args.output)
 
     saved: dict[str, str] = {}
     for key, value in values.items():
@@ -3337,6 +3363,7 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--openai-compatible-api-key", default="", help="Save OPENAI_COMPATIBLE_API_KEY.")
     setup_parser.add_argument("--openai-compatible-model", default="", help="Save OPENAI_COMPATIBLE_MODEL.")
     setup_parser.add_argument("--openai-compatible-fallback-models", default="", help="Save OPENAI_COMPATIBLE_FALLBACK_MODELS.")
+    setup_parser.add_argument("--openai-compatible-api-mode", default="", help="Save OPENAI_COMPATIBLE_API_MODE (chat-completions or responses).")
     setup_parser.add_argument("--openai-compatible-stream", default="", help="Save OPENAI_COMPATIBLE_STREAM.")
     setup_parser.add_argument("--validation-level", default="", help="Save SMART_SEARCH_VALIDATION_LEVEL.")
     setup_parser.add_argument("--fallback-mode", default="", help="Save SMART_SEARCH_FALLBACK_MODE.")

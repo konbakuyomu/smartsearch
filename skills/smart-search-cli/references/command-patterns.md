@@ -57,6 +57,7 @@ smart-search skills update --targets codex --format json
 smart-search skills update --all --format json
 smart-search route "React useEffect API docs" --format markdown
 smart-search setup --non-interactive --zhipu-api-url "https://open.bigmodel.cn/api" --zhipu-search-engine "search_std"
+smart-search setup --non-interactive --openai-compatible-api-mode responses
 smart-search setup --non-interactive --openai-compatible-stream true
 smart-search setup --non-interactive --openai-compatible-fallback-models "model-a,model-b"
 smart-search setup --non-interactive --anysearch-api-url "https://api.anysearch.com/mcp" --anysearch-key "key"
@@ -72,6 +73,7 @@ smart-search config set XAI_TOOLS "web_search,x_search" --format json
 smart-search config set OPENAI_COMPATIBLE_API_URL "https://api.openai.com/v1" --format json
 smart-search config set OPENAI_COMPATIBLE_API_KEY "key" --format json
 smart-search config set OPENAI_COMPATIBLE_MODEL "model-id" --format json
+smart-search config set OPENAI_COMPATIBLE_API_MODE "responses" --format json
 smart-search config set OPENAI_COMPATIBLE_FALLBACK_MODELS "model-a,model-b" --format json
 smart-search config set OPENAI_COMPATIBLE_STREAM "true" --format json
 smart-search config set SMART_SEARCH_TIMEOUT_SECONDS "180" --format json
