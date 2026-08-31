@@ -84,12 +84,12 @@ smart-search anysearch-batch QUERY...
   [--max-results N]
   [--format json|markdown|content]
 smart-search sciverse-catalog
-  [--collection papers|authors|sources]
+  [--collection papers]
   [--include-sample-values]
   [--include-field-stats]
   [--format json|markdown|content]
 smart-search sciverse-search [QUERY]
-  [--collection papers|authors|sources]
+  [--collection papers]
   [--title-contains TEXT]
   [--abstract-contains TEXT]
   [--authors CSV]
@@ -106,8 +106,9 @@ smart-search sciverse-search [QUERY]
   [--format json|markdown|content]
 smart-search sciverse-semantic QUERY
   [--top-k N]
-  [--mode fast|balanced|quality]
-  [--source-types CSV]
+  [--retrieval hybrid|milvus|es]
+  [--mode fast|balanced|quality] # deprecated compatibility alias for hybrid
+  [--source-types web|pdf CSV]
   [--format json|markdown|content]
 smart-search sciverse-read DOC_ID
   [--offset N]
@@ -491,12 +492,34 @@ Sciverse boundary:
 - Relation direction must stay explicit: `CITATIONS` means papers citing the
   target paper, `REFERENCES` means papers cited by the target paper, and
   `RELATED_WORKS` means related work suggestions.
-- Local parameter limits: search `page_size <= 50`, semantic `top_k <= 30`,
-  read `limit <= 16384`, relations `page_size <= 200`; violations return
-  `error_type=parameter_error` before network.
+- Current schema for `GET /meta-catalog` and `POST /meta-search` has no `collection` selector.
+  Keep legacy `collection=papers` as a local
+  compatibility value without forwarding it; reject `authors` and `sources`
+  with `parameter_error` before a request. Current `POST /meta-search`
+  payloads contain only `query`, `filters`, `sort`, `freshness_boost`, `page`,
+  and `page_size`. Do not send legacy flat fields or `collection`.
+- `title_contains` and `abstract_contains` fold into full-text `query`.
+  Authors, journals, subjects, and year bounds normalize to current
+  `FieldFilterItem` entries. Advanced filter items require `field` and
+  `value`; `operator` uses current `FILTER_OP_*` values, while legacy `op` is
+  accepted only when it maps unambiguously. Advanced sort items require
+  `field` and normalize `order` to `SORT_ORDER_ASC` or `SORT_ORDER_DESC`.
+- Current MetaSearch forbids a non-empty full-text `query` together with
+  `sort`. `--sort-by-year` therefore defaults to `none`; sorting is for
+  filter-only requests.
+- `--retrieval hybrid|milvus|es` is the current semantic interface. Legacy
+  `--mode fast|balanced|quality` remains a deprecated bridge that maps to
+  `retrieval=hybrid`. An explicit `--retrieval milvus|es` conflicts with
+  legacy `--mode` and returns `parameter_error`; `--source-types` accepts
+  only `web,pdf`.
+- Local parameter limits: search `page_size <= 200` and
+  `page * page_size <= 10000`, semantic `top_k <= 100`, read `limit <= 16384`,
+  relations `page_size <= 200`; violations return `error_type=parameter_error`
+  before network.
 - HTTP errors map as: 400 `parameter_error`, 401/403 `auth_error`, 404
   `provider_error`, 429 `rate_limited`, 502/503/network `network_error`,
-  timeout `timeout`, and invalid JSON `parse_error`.
+  Sciverse's documented HTTP 504 deadline response `timeout`, and invalid JSON
+  `parse_error`.
 
 Interactive setup contract:
 
@@ -1046,8 +1069,10 @@ When this contract changes, add or update tests that assert:
   `explicit_only`, route-disabled for default routing, and does not change
   required minimum capabilities;
 - Sciverse mock calls cover catalog, search, semantic, read, relations, missing
-  token no-network behavior, Bearer auth, local bounds, relation enum, HTTP
-  error mapping, timeout, invalid JSON, and CLI advanced JSON validation;
+  token no-network behavior, Bearer auth, current query/filter/sort/retrieval
+  payload fixtures, deprecated `--mode` compatibility/conflict behavior,
+  legacy collection rejection/no-upstream selector, local bounds, every relation enum/page combination, HTTP error mapping,
+  timeout, invalid JSON, and CLI advanced JSON validation;
 - default `search` / `research` provider attempts never contain `sciverse`
   unless a future routing task explicitly changes this contract;
 - `doctor()` tests configured main providers independently;

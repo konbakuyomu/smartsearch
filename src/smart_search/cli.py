@@ -17,6 +17,12 @@ from .embedding_presets import (
     embedding_preset_for_model,
 )
 from .providers.anysearch import parse_sub_domain_params
+from .sciverse_schema import (
+    SciverseParameterError,
+    normalize_sciverse_filters,
+    normalize_sciverse_retrieval,
+    normalize_sciverse_sort,
+)
 from .skill_installer import (
     DEFAULT_SKILL_TARGET_IDS,
     SKILL_TARGETS,
@@ -2578,8 +2584,12 @@ async def _run_async(args: argparse.Namespace) -> int:
         return _print_result("sciverse-catalog", data, args.format, args.output)
     if args.command == "sciverse-search":
         try:
-            filters_advanced = _parse_json_array_arg(args.filters_advanced, "--filters-advanced")
-            sort_advanced = _parse_json_array_arg(args.sort_advanced, "--sort-advanced")
+            filters_advanced = normalize_sciverse_filters(
+                _parse_json_array_arg(args.filters_advanced, "--filters-advanced")
+            )
+            sort_advanced = normalize_sciverse_sort(
+                _parse_json_array_arg(args.sort_advanced, "--sort-advanced")
+            )
         except ValueError as exc:
             data = {"ok": False, "provider": "sciverse", "error_type": "parameter_error", "error": str(exc)}
             return _print_result("sciverse-search", data, args.format, args.output)
@@ -2602,10 +2612,17 @@ async def _run_async(args: argparse.Namespace) -> int:
         )
         return _print_result("sciverse-search", data, args.format, args.output)
     if args.command == "sciverse-semantic":
+        try:
+            retrieval, warning = normalize_sciverse_retrieval(args.retrieval, legacy_mode=args.mode)
+        except SciverseParameterError as exc:
+            data = {"ok": False, "provider": "sciverse", "error_type": "parameter_error", "error": str(exc)}
+            return _print_result("sciverse-semantic", data, args.format, args.output)
+        if warning:
+            print(f"Warning: {warning}", file=sys.stderr)
         data = await service.sciverse_semantic(
             args.query,
             top_k=args.top_k,
-            mode=args.mode,
+            retrieval=retrieval,
             source_types=args.source_types,
         )
         return _print_result("sciverse-semantic", data, args.format, args.output)
@@ -3090,10 +3107,15 @@ def build_parser() -> argparse.ArgumentParser:
     sciverse_catalog_parser = sub.add_parser(
         "sciverse-catalog",
         aliases=COMMAND_ALIASES["sciverse-catalog"],
-        help="List Sciverse academic metadata fields.",
+        help="List Sciverse academic metadata fields (current API supports papers only).",
     )
     sciverse_catalog_parser.set_defaults(command="sciverse-catalog")
-    sciverse_catalog_parser.add_argument("--collection", choices=["papers", "authors", "sources"], default="papers")
+    sciverse_catalog_parser.add_argument(
+        "--collection",
+        choices=["papers", "authors", "sources"],
+        default="papers",
+        help="Legacy selector; authors and sources return parameter_error with the current API.",
+    )
     sciverse_catalog_parser.add_argument("--include-sample-values", action="store_true")
     sciverse_catalog_parser.add_argument("--include-field-stats", action="store_true")
     _add_format_args(sciverse_catalog_parser)
@@ -3105,7 +3127,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sciverse_search_parser.set_defaults(command="sciverse-search")
     sciverse_search_parser.add_argument("query", nargs="?", default="")
-    sciverse_search_parser.add_argument("--collection", choices=["papers", "authors", "sources"], default="papers")
+    sciverse_search_parser.add_argument(
+        "--collection",
+        choices=["papers", "authors", "sources"],
+        default="papers",
+        help="Legacy selector; authors and sources return parameter_error with the current API.",
+    )
     sciverse_search_parser.add_argument("--title-contains", default="")
     sciverse_search_parser.add_argument("--abstract-contains", default="")
     sciverse_search_parser.add_argument("--authors", default="", help="Comma-separated author names.")
@@ -3113,9 +3140,9 @@ def build_parser() -> argparse.ArgumentParser:
     sciverse_search_parser.add_argument("--subjects", default="", help="Comma-separated subject labels.")
     sciverse_search_parser.add_argument("--year-from", type=int, default=None)
     sciverse_search_parser.add_argument("--year-to", type=int, default=None)
-    sciverse_search_parser.add_argument("--filters-advanced", default="", help="JSON array forwarded to Sciverse advanced filters.")
-    sciverse_search_parser.add_argument("--sort-advanced", default="", help="JSON array forwarded to Sciverse advanced sorting.")
-    sciverse_search_parser.add_argument("--sort-by-year", choices=["desc", "asc", "none"], default="desc")
+    sciverse_search_parser.add_argument("--filters-advanced", default="", help="JSON array of current Sciverse FieldFilterItem values.")
+    sciverse_search_parser.add_argument("--sort-advanced", default="", help="JSON array of current Sciverse SortFieldItem values.")
+    sciverse_search_parser.add_argument("--sort-by-year", choices=["desc", "asc", "none"], default="none")
     sciverse_search_parser.add_argument("--freshness-boost", choices=["NONE", "MILD", "STRONG"], default="NONE")
     sciverse_search_parser.add_argument("--page", type=int, default=1)
     sciverse_search_parser.add_argument("--page-size", type=int, default=10)
@@ -3129,8 +3156,14 @@ def build_parser() -> argparse.ArgumentParser:
     sciverse_semantic_parser.set_defaults(command="sciverse-semantic")
     sciverse_semantic_parser.add_argument("query")
     sciverse_semantic_parser.add_argument("--top-k", type=int, default=10)
-    sciverse_semantic_parser.add_argument("--mode", choices=["fast", "balanced", "quality"], default="balanced")
-    sciverse_semantic_parser.add_argument("--source-types", default="", help="Comma-separated Sciverse source types.")
+    sciverse_semantic_parser.add_argument("--retrieval", choices=["hybrid", "milvus", "es"], default="")
+    sciverse_semantic_parser.add_argument(
+        "--mode",
+        choices=["fast", "balanced", "quality"],
+        default=None,
+        help="Deprecated compatibility alias; maps to --retrieval hybrid.",
+    )
+    sciverse_semantic_parser.add_argument("--source-types", default="", help="Comma-separated Sciverse source types: web,pdf.")
     _add_format_args(sciverse_semantic_parser)
 
     sciverse_read_parser = sub.add_parser(

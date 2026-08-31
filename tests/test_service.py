@@ -2333,8 +2333,8 @@ async def test_sciverse_service_wrappers_decode_provider_json(monkeypatch):
             calls.append(("search", kwargs))
             return json.dumps({"ok": True, "provider": "sciverse", "tool": "search_papers", "query": kwargs.get("query")})
 
-        async def semantic_search(self, query, top_k=10, mode="balanced", source_types=None):
-            calls.append(("semantic", query, top_k, mode, source_types))
+        async def semantic_search(self, query, top_k=10, retrieval="hybrid", source_types=None):
+            calls.append(("semantic", query, top_k, retrieval, source_types))
             return json.dumps({"ok": True, "provider": "sciverse", "tool": "semantic_search", "query": query})
 
         async def read_content(self, doc_id, offset=0, limit=4096):
@@ -2357,7 +2357,7 @@ async def test_sciverse_service_wrappers_decode_provider_json(monkeypatch):
         filters_advanced=[{"field": "year", "op": ">=", "value": 2020}],
         page_size=5,
     )
-    semantic = await service.sciverse_semantic("attention mechanism", top_k=3, mode="balanced", source_types=["paper"])
+    semantic = await service.sciverse_semantic("attention mechanism", top_k=3, mode="balanced", source_types=["web"])
     read = await service.sciverse_read("doc-1", offset=10, limit=100)
     relations = await service.sciverse_relations("paper-1", relation="REFERENCES", page=2, page_size=25)
 
@@ -2374,29 +2374,47 @@ async def test_sciverse_service_wrappers_decode_provider_json(monkeypatch):
             "search",
             {
                 "query": "transformer retrieval",
-                "collection": "papers",
-                "title_contains": "",
-                "abstract_contains": "",
-                "authors": None,
-                "journals": None,
-                "subjects": None,
-                "year_from": 2020,
-                "year_to": None,
-                "filters_advanced": [{"field": "year", "op": ">=", "value": 2020}],
-                "sort_advanced": None,
-                "sort_by_year": "desc",
+                "filters": [
+                    {"field": "publication_published_year", "operator": "FILTER_OP_GTE", "value": 2020},
+                    {"field": "year", "operator": "FILTER_OP_GTE", "value": 2020},
+                ],
+                "sort": [],
                 "freshness_boost": "NONE",
                 "page": 1,
                 "page_size": 5,
             },
         ),
         ("init", "https://sciverse.example.com", "sciverse-test-secret", 7.0),
-        ("semantic", "attention mechanism", 3, "balanced", ["paper"]),
+        ("semantic", "attention mechanism", 3, "hybrid", ["web"]),
         ("init", "https://sciverse.example.com", "sciverse-test-secret", 7.0),
         ("read", "doc-1", 10, 100),
         ("init", "https://sciverse.example.com", "sciverse-test-secret", 7.0),
         ("relations", "paper-1", "REFERENCES", 2, 25),
     ]
+    assert semantic["warnings"] == ["--mode is deprecated and maps to --retrieval hybrid; use --retrieval hybrid|milvus|es."]
+
+
+@pytest.mark.asyncio
+async def test_sciverse_service_rejects_current_schema_conflicts_before_provider(monkeypatch):
+    class FakeSciverseProvider:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("invalid Sciverse requests must not construct a provider")
+
+    monkeypatch.setattr(service, "SciverseProvider", FakeSciverseProvider)
+
+    unsupported_catalog_collection = await service.sciverse_catalog(collection="authors")
+    query_and_sort = await service.sciverse_search("query", sort_by_year="desc")
+    unsupported_collection = await service.sciverse_search("", collection="authors")
+    incompatible_retrieval = await service.sciverse_semantic("query", retrieval="milvus", mode="balanced")
+
+    assert unsupported_catalog_collection["error_type"] == "parameter_error"
+    assert "collection=papers only" in unsupported_catalog_collection["error"]
+    assert query_and_sort["error_type"] == "parameter_error"
+    assert "query together with sort" in query_and_sort["error"]
+    assert unsupported_collection["error_type"] == "parameter_error"
+    assert "collection=papers only" in unsupported_collection["error"]
+    assert incompatible_retrieval["error_type"] == "parameter_error"
+    assert "conflicts" in incompatible_retrieval["error"]
 
 
 @pytest.mark.asyncio

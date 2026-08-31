@@ -125,10 +125,14 @@ Sciverse:
 - `SCIVERSE_API_URL` defaults to `https://api.sciverse.space`; `SCIVERSE_TIMEOUT_SECONDS` defaults to `30`.
 - `SCIVERSE_API_TOKEN` is required. Missing token returns `error_type=config_error` without a network request; configured requests send `Authorization: Bearer ...` and must never expose the token.
 - Commands map directly to Sciverse OpenAPI: catalog -> `GET /meta-catalog`, search -> `POST /meta-search`, semantic -> `POST /agentic-search`, read -> `GET /content`, relations -> `POST /meta-paper-relations`.
+- Current `meta-catalog` and `meta-search` schemas have no `collection` selector. Legacy `--collection papers` is accepted without being sent upstream; `authors` and `sources` return `parameter_error` before a request. `meta-search` sends only `query`, `filters`, `sort`, `freshness_boost`, `page`, and `page_size`. `--title-contains` / `--abstract-contains` fold into `query`; author, journal, subject, and year conveniences become current filter items.
+- Advanced filters and sorts are structured local contracts: filters require `field` and `value` with a current `operator` such as `FILTER_OP_GTE`; legacy `op` is accepted only when it maps unambiguously. Sort items require `field` and normalize `order` to `SORT_ORDER_ASC` or `SORT_ORDER_DESC`. Full-text `query` and any `sort` conflict, so `--sort-by-year` defaults to `none` and sorting is filter-only.
+- `sciverse-semantic --retrieval hybrid|milvus|es` is the current semantic contract. Deprecated `--mode fast|balanced|quality` maps to `retrieval=hybrid` with a warning; it conflicts with explicit `milvus` or `es`. Semantic `--source-types` accepts only `web,pdf`.
 - `sciverse-read` uses `doc_id`; `sciverse-relations` uses `unique_id`.
 - Relation direction must stay explicit: `CITATIONS` means papers citing the target paper, `REFERENCES` means papers cited by the target paper, and `RELATED_WORKS` means related work suggestions.
-- Local limits reject before network: search `page_size <= 50`, semantic `top_k <= 30`, read `limit <= 16384`, relations `page_size <= 200`.
-- `--filters-advanced` and `--sort-advanced` must be JSON arrays and fail with `parameter_error` before service/provider calls when invalid.
+- Sciverse's documented HTTP `504` deadline response is `timeout`; other `5xx` responses remain `network_error`.
+- Local limits reject before network: search `page_size <= 200` and `page * page_size <= 10000`, semantic `top_k <= 100`, read `limit <= 16384`, relations `page_size <= 200`.
+- `--filters-advanced` and `--sort-advanced` must be JSON arrays of valid objects and fail with `parameter_error` before service/provider calls when malformed.
 
 OpenAI-compatible streaming:
 

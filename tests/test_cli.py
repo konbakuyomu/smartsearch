@@ -2907,8 +2907,8 @@ def test_sciverse_commands_use_service_wrappers(monkeypatch, capsys):
         calls.append(("search", kwargs))
         return {"ok": True, "provider": "sciverse", "tool": "search_papers", "query": kwargs.get("query"), "results": []}
 
-    async def fake_semantic(query, top_k=10, mode="balanced", source_types=""):
-        calls.append(("semantic", query, top_k, mode, source_types))
+    async def fake_semantic(query, top_k=10, retrieval="hybrid", source_types=""):
+        calls.append(("semantic", query, top_k, retrieval, source_types))
         return {"ok": True, "provider": "sciverse", "tool": "semantic_search", "query": query, "hits": []}
 
     async def fake_read(doc_id, offset=0, limit=4096):
@@ -2945,8 +2945,15 @@ def test_sciverse_commands_use_service_wrappers(monkeypatch, capsys):
         == cli.EXIT_OK
     )
     assert json.loads(capsys.readouterr().out)["query"] == "transformer retrieval"
-    assert cli.main(["sv-semantic", "attention mechanism", "--top-k", "3", "--mode", "balanced", "--source-types", "paper,abstract"]) == cli.EXIT_OK
-    assert json.loads(capsys.readouterr().out)["tool"] == "semantic_search"
+    assert (
+        cli.main(
+            ["sv-semantic", "attention mechanism", "--top-k", "3", "--mode", "balanced", "--source-types", "web,pdf"]
+        )
+        == cli.EXIT_OK
+    )
+    semantic_output = capsys.readouterr()
+    assert json.loads(semantic_output.out)["tool"] == "semantic_search"
+    assert "--mode is deprecated" in semantic_output.err
     assert cli.main(["sv-read", "doc-1", "--offset", "10", "--limit", "100"]) == cli.EXIT_OK
     assert json.loads(capsys.readouterr().out)["doc_id"] == "doc-1"
     assert cli.main(["sv-relations", "paper-1", "--relation", "REFERENCES", "--page", "2", "--page-size", "25"]) == cli.EXIT_OK
@@ -2966,15 +2973,15 @@ def test_sciverse_commands_use_service_wrappers(monkeypatch, capsys):
                 "subjects": "",
                 "year_from": 2020,
                 "year_to": None,
-                "filters_advanced": [{"field": "year", "op": ">=", "value": 2020}],
-                "sort_advanced": None,
-                "sort_by_year": "desc",
+                "filters_advanced": [{"field": "year", "operator": "FILTER_OP_GTE", "value": 2020}],
+                "sort_advanced": [],
+                "sort_by_year": "none",
                 "freshness_boost": "NONE",
                 "page": 1,
                 "page_size": 5,
             },
         ),
-        ("semantic", "attention mechanism", 3, "balanced", "paper,abstract"),
+        ("semantic", "attention mechanism", 3, "hybrid", "web,pdf"),
         ("read", "doc-1", 10, 100),
         ("relations", "paper-1", "REFERENCES", 2, 25),
     ]
@@ -2994,6 +3001,21 @@ def test_sciverse_search_rejects_invalid_json_before_service(monkeypatch, capsys
     assert "--filters-advanced must be a JSON array" in data["error"]
 
 
+def test_sciverse_catalog_rejects_legacy_collection_before_provider(monkeypatch, capsys):
+    class FakeSciverseProvider:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("invalid Sciverse catalog requests must not construct a provider")
+
+    monkeypatch.setattr(cli.service, "SciverseProvider", FakeSciverseProvider)
+
+    code = cli.main(["sv-catalog", "--collection", "authors", "--format", "json"])
+
+    data = json.loads(capsys.readouterr().out)
+    assert code == cli.EXIT_PARAMETER_ERROR
+    assert data["error_type"] == "parameter_error"
+    assert "collection=papers only" in data["error"]
+
+
 def test_sciverse_search_rejects_non_array_advanced_json(monkeypatch, capsys):
     async def should_not_search(*args, **kwargs):
         raise AssertionError("invalid advanced JSON must fail before service call")
@@ -3006,6 +3028,51 @@ def test_sciverse_search_rejects_non_array_advanced_json(monkeypatch, capsys):
     assert code == cli.EXIT_PARAMETER_ERROR
     assert data["error_type"] == "parameter_error"
     assert data["error"] == "--sort-advanced must be a JSON array"
+
+
+def test_sciverse_search_rejects_malformed_advanced_items_before_service(monkeypatch, capsys):
+    async def should_not_search(*args, **kwargs):
+        raise AssertionError("malformed advanced JSON must fail before service call")
+
+    monkeypatch.setattr(cli.service, "sciverse_search", should_not_search)
+
+    cases = [
+        (["--filters-advanced", "[{}]"], "field must be a non-empty string"),
+        (["--filters-advanced", '[{"field":"year","value":null}]'], "must not be null"),
+        (["--filters-advanced", '[{"field":"year","value":2020,"unknown":true}]'], "unsupported keys"),
+        (["--sort-advanced", '[{"field":"year","order":"up"}]'], "must be one of"),
+    ]
+    for args, expected in cases:
+        code = cli.main(["sv", "query", *args, "--format", "json"])
+        data = json.loads(capsys.readouterr().out)
+        assert code == cli.EXIT_PARAMETER_ERROR
+        assert data["error_type"] == "parameter_error"
+        assert expected in data["error"]
+
+
+def test_sciverse_semantic_prefers_retrieval_and_rejects_conflicting_legacy_mode(monkeypatch, capsys):
+    calls = []
+
+    async def fake_semantic(query, top_k=10, retrieval="hybrid", source_types=""):
+        calls.append((query, top_k, retrieval, source_types))
+        return {"ok": True, "provider": "sciverse", "tool": "semantic_search", "query": query, "hits": []}
+
+    monkeypatch.setattr(cli.service, "sciverse_semantic", fake_semantic)
+
+    assert cli.main(["sv-semantic", "attention mechanism", "--retrieval", "milvus", "--format", "json"]) == cli.EXIT_OK
+    output = capsys.readouterr()
+    assert json.loads(output.out)["ok"] is True
+    assert output.err == ""
+    assert calls == [("attention mechanism", 10, "milvus", "")]
+
+    code = cli.main(
+        ["sv-semantic", "attention mechanism", "--mode", "quality", "--retrieval", "es", "--format", "json"]
+    )
+    data = json.loads(capsys.readouterr().out)
+    assert code == cli.EXIT_PARAMETER_ERROR
+    assert data["error_type"] == "parameter_error"
+    assert "conflicts" in data["error"]
+    assert len(calls) == 1
 
 
 def test_zhipu_mcp_commands_use_service_wrappers(monkeypatch, capsys):

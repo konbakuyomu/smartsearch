@@ -35,9 +35,9 @@
 - `smart-search anysearch-search QUERY [--domain DOMAIN] [--sub-domain SUB_DOMAIN] [--sub-domain-params JSON_OBJECT] [--param KEY=VALUE] [--max-results N] [--format json|markdown|content] [--output PATH]`
 - `smart-search anysearch-extract URL [--max-length N] [--format json|markdown|content] [--output PATH]`
 - `smart-search anysearch-batch QUERY... [--max-results N] [--format json|markdown|content] [--output PATH]`
-- `smart-search sciverse-catalog [--collection papers|authors|sources] [--include-sample-values] [--include-field-stats] [--format json|markdown|content] [--output PATH]`
-- `smart-search sciverse-search [QUERY] [--collection papers|authors|sources] [--title-contains TEXT] [--abstract-contains TEXT] [--authors CSV] [--journals CSV] [--subjects CSV] [--year-from YEAR] [--year-to YEAR] [--filters-advanced JSON_ARRAY] [--sort-advanced JSON_ARRAY] [--sort-by-year desc|asc|none] [--freshness-boost NONE|MILD|STRONG] [--page N] [--page-size N] [--format json|markdown|content] [--output PATH]`
-- `smart-search sciverse-semantic QUERY [--top-k N] [--mode fast|balanced|quality] [--source-types CSV] [--format json|markdown|content] [--output PATH]`
+- `smart-search sciverse-catalog [--collection papers] [--include-sample-values] [--include-field-stats] [--format json|markdown|content] [--output PATH]`
+- `smart-search sciverse-search [QUERY] [--collection papers] [--title-contains TEXT] [--abstract-contains TEXT] [--authors CSV] [--journals CSV] [--subjects CSV] [--year-from YEAR] [--year-to YEAR] [--filters-advanced JSON_ARRAY] [--sort-advanced JSON_ARRAY] [--sort-by-year desc|asc|none] [--freshness-boost NONE|MILD|STRONG] [--page N] [--page-size N] [--format json|markdown|content] [--output PATH]`
+- `smart-search sciverse-semantic QUERY [--top-k N] [--retrieval hybrid|milvus|es] [--mode fast|balanced|quality] [--source-types CSV] [--format json|markdown|content] [--output PATH]`
 - `smart-search sciverse-read DOC_ID [--offset N] [--limit N] [--format json|markdown|content] [--output PATH]`
 - `smart-search sciverse-relations UNIQUE_ID [--relation CITATIONS|REFERENCES|RELATED_WORKS] [--page N] [--page-size N] [--format json|markdown|content] [--output PATH]`
 - `smart-search context7-library NAME [QUERY] [--format json|markdown|content] [--output PATH]`
@@ -73,7 +73,7 @@ Nested aliases: `config path`/`cfg p`, `config list`/`cfg ls`/`cfg l`, `config s
 - Exa search output includes `ok`, `query`, `search_type`, `results`, `total`, and `elapsed_ms`. Exa similar output includes `ok`, `url`, `results`, `total`, and `elapsed_ms`.
 - Zhipu search output includes `ok`, `query`, `provider`, `search_engine`, `results`, `total`, and `elapsed_ms`.
 - Zhipu MCP command output includes `ok`, `provider`, `tool`, `elapsed_ms`, and either `content` for reader/file-like tools or `results` plus `total` for search-like tools.
-- Sciverse command output includes `ok`, `provider=sciverse`, `tool`, `elapsed_ms`, and command-specific fields such as `fields`, `results`, `hits`, `text`, `items`, `unique_id`, `doc_id`, and `relation_direction`.
+- Sciverse command output includes `ok`, `provider=sciverse`, `tool`, `elapsed_ms`, and command-specific fields such as `fields`, `results`, `hits`, `text`, `items`, `unique_id`, `doc_id`, and `relation_direction`. Current catalog and search schemas have no `collection` selector: legacy `--collection papers` is not sent upstream, while `authors` and `sources` return `parameter_error`. `sciverse-semantic --retrieval hybrid|milvus|es` is current; legacy `--mode fast|balanced|quality` warns and maps to `hybrid`, while a conflicting explicit retrieval is a `parameter_error`.
 - AnySearch parses `--sub-domain-params` JSON before repeatable `--param KEY=VALUE` overrides, returning `parameter_error` before a request for invalid values. `anysearch-extract` sends only `url` upstream and locally truncates successful text fields only when `--max-length` is positive.
 - Context7 library output includes `ok`, `query`, `provider`, `results`, `total`, and `elapsed_ms`; Context7 docs output also includes `library_id`, `content`, and result metadata.
 - Map output includes `ok`, `base_url`, `results`, `response_time`, `url`, and `elapsed_ms`.

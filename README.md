@@ -370,12 +370,16 @@ Experimental Sciverse configuration is also optional and does not satisfy or cha
 smart-search setup --non-interactive --sciverse-token "your-sciverse-token" --sciverse-api-url "https://api.sciverse.space"
 smart-search sciverse-catalog --collection papers --format json
 smart-search sciverse-search "transformer retrieval" --year-from 2020 --page-size 5 --format json
-smart-search sciverse-semantic "attention mechanism" --top-k 3 --mode balanced --format json
+smart-search sciverse-semantic "attention mechanism" --top-k 3 --retrieval hybrid --source-types web,pdf --format json
 smart-search sciverse-read "doc-id-from-search" --offset 0 --limit 4096 --format json
 smart-search sciverse-relations "unique-id-from-search" --relation CITATIONS --page-size 25 --format json
 ```
 
-Use `doc_id` for `sciverse-read` and `unique_id` for `sciverse-relations`. `CITATIONS` means papers citing the target paper; `REFERENCES` means papers cited by the target paper; `RELATED_WORKS` means related work suggestions. `--filters-advanced` and `--sort-advanced` accept JSON arrays for fields not promoted to first-class CLI flags.
+The current `GET /meta-catalog` and `POST /meta-search` schemas have no `collection` selector. Legacy `--collection papers` remains accepted without being sent upstream; `authors` and `sources` return `parameter_error` before a request. The `POST /meta-search` body uses only `query`, `filters`, `sort`, `freshness_boost`, `page`, and `page_size`. `--title-contains` and `--abstract-contains` are folded into `query`; authors, journals, subjects, and year bounds become current `FieldFilterItem` filters.
+
+`--filters-advanced` and `--sort-advanced` accept structured JSON arrays, not arbitrary pass-through JSON. A filter item needs `field` and `value`, uses current `operator` values such as `FILTER_OP_GTE`, and accepts legacy `op` only when it maps unambiguously. A sort item needs `field` and accepts `order` values `SORT_ORDER_ASC` or `SORT_ORDER_DESC` (or `asc` / `desc`). Full-text `query` cannot be combined with any sort in the current schema, so `--sort-by-year` defaults to `none` and sorting is for filter-only searches.
+
+Use `--retrieval hybrid|milvus|es` for semantic search. Legacy `--mode fast|balanced|quality` remains accepted with a deprecation warning and maps to `--retrieval hybrid`; combining it with `--retrieval milvus` or `--retrieval es` is a parameter error. Semantic `--source-types` accepts `web,pdf`. Use `doc_id` for `sciverse-read` and `unique_id` for `sciverse-relations`. `CITATIONS` means papers citing the target paper; `REFERENCES` means papers cited by the target paper; `RELATED_WORKS` means related work suggestions.
 
 Local config path:
 

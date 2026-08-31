@@ -41,7 +41,7 @@ smart-search anysearch-extract "https://example.com/source" --max-length 12000 -
 smart-search anysearch-batch "AAPL" "RAG papers" --max-results 2 --format json
 smart-search sciverse-catalog --collection papers --format json
 smart-search sciverse-search "transformer retrieval" --year-from 2020 --page-size 5 --format json
-smart-search sciverse-semantic "attention mechanism" --top-k 3 --mode balanced --format json
+smart-search sciverse-semantic "attention mechanism" --top-k 3 --retrieval hybrid --source-types web,pdf --format json
 smart-search sciverse-read "doc-id-from-search" --offset 0 --limit 4096 --format json
 smart-search sciverse-relations "unique-id-from-search" --relation CITATIONS --page-size 25 --format json
 smart-search fetch "https://example.com" --format markdown --output page.md

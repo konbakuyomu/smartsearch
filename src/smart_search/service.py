@@ -43,6 +43,14 @@ from .providers.xai_responses import XAIResponsesSearchProvider
 from .providers.zhipu import ZhipuWebSearchProvider
 from .providers.zhipu_mcp import ZhipuMCPProvider
 from .provider_errors import ProviderCallError, classify_provider_exception, provider_call_error, sanitize_provider_error_message
+from .sciverse_schema import (
+    SciverseParameterError,
+    build_sciverse_meta_search_payload,
+    normalize_sciverse_catalog_params,
+    normalize_sciverse_relations_payload,
+    normalize_sciverse_retrieval,
+    normalize_sciverse_semantic_payload,
+)
 from .sources import merge_sources, new_session_id, split_answer_and_sources
 from .utils import search_prompt
 
@@ -3671,6 +3679,19 @@ async def _decode_provider_json(raw: str, provider: str = "anysearch") -> dict[s
         return {"ok": False, "provider": provider, "error_type": "parse_error", "error": raw}
 
 
+def _sciverse_parameter_error(tool: str, error: str, **extra: Any) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "ok": False,
+        "provider": "sciverse",
+        "tool": tool,
+        "error_type": "parameter_error",
+        "error": error,
+        "elapsed_ms": 0,
+    }
+    result.update({key: value for key, value in extra.items() if value not in (None, "")})
+    return result
+
+
 async def anysearch_domains(domain: str = "") -> dict[str, Any]:
     return await _decode_provider_json(await _anysearch_provider().get_sub_domains(domain))
 
@@ -3706,11 +3727,18 @@ async def sciverse_catalog(
     include_sample_values: bool = False,
     include_field_stats: bool = False,
 ) -> dict[str, Any]:
-    return await _decode_provider_json(
-        await _sciverse_provider().list_catalog(
+    try:
+        params = normalize_sciverse_catalog_params(
             collection=collection,
             include_sample_values=include_sample_values,
             include_field_stats=include_field_stats,
+        )
+    except SciverseParameterError as exc:
+        return _sciverse_parameter_error("list_catalog", str(exc))
+    return await _decode_provider_json(
+        await _sciverse_provider().list_catalog(
+            collection="papers",
+            **params,
         ),
         provider="sciverse",
     )
@@ -3728,13 +3756,13 @@ async def sciverse_search(
     year_to: int | None = None,
     filters_advanced: list[dict[str, Any]] | None = None,
     sort_advanced: list[dict[str, Any]] | None = None,
-    sort_by_year: str = "desc",
+    sort_by_year: str = "none",
     freshness_boost: str = "NONE",
     page: int = 1,
     page_size: int = 10,
 ) -> dict[str, Any]:
-    return await _decode_provider_json(
-        await _sciverse_provider().search_papers(
+    try:
+        payload = build_sciverse_meta_search_payload(
             query=query,
             collection=collection,
             title_contains=title_contains,
@@ -3750,7 +3778,11 @@ async def sciverse_search(
             freshness_boost=freshness_boost,
             page=page,
             page_size=page_size,
-        ),
+        )
+    except SciverseParameterError as exc:
+        return _sciverse_parameter_error("search_papers", str(exc), query=query)
+    return await _decode_provider_json(
+        await _sciverse_provider().search_papers(**payload),
         provider="sciverse",
     )
 
@@ -3758,13 +3790,32 @@ async def sciverse_search(
 async def sciverse_semantic(
     query: str,
     top_k: int = 10,
-    mode: str = "balanced",
+    retrieval: str = "",
     source_types: list[str] | str | None = None,
+    *,
+    mode: str | None = None,
 ) -> dict[str, Any]:
-    return await _decode_provider_json(
-        await _sciverse_provider().semantic_search(query=query, top_k=top_k, mode=mode, source_types=source_types),
+    legacy_mode = mode
+    if legacy_mode is None and isinstance(retrieval, str) and retrieval.strip().lower() in {"fast", "balanced", "quality"}:
+        legacy_mode = retrieval
+        retrieval = ""
+    try:
+        effective_retrieval, warning = normalize_sciverse_retrieval(retrieval, legacy_mode=legacy_mode)
+        payload = normalize_sciverse_semantic_payload(
+            query=query,
+            top_k=top_k,
+            retrieval=effective_retrieval,
+            source_types=source_types,
+        )
+    except SciverseParameterError as exc:
+        return _sciverse_parameter_error("semantic_search", str(exc), query=query)
+    result = await _decode_provider_json(
+        await _sciverse_provider().semantic_search(**payload),
         provider="sciverse",
     )
+    if warning:
+        result["warnings"] = [warning]
+    return result
 
 
 async def sciverse_read(doc_id: str, offset: int = 0, limit: int = 4096) -> dict[str, Any]:
@@ -3780,13 +3831,17 @@ async def sciverse_relations(
     page: int = 1,
     page_size: int = 25,
 ) -> dict[str, Any]:
-    return await _decode_provider_json(
-        await _sciverse_provider().list_paper_relations(
+    try:
+        payload = normalize_sciverse_relations_payload(
             unique_id=unique_id,
             relation=relation,
             page=page,
             page_size=page_size,
-        ),
+        )
+    except SciverseParameterError as exc:
+        return _sciverse_parameter_error("list_paper_relations", str(exc), unique_id=unique_id, relation=relation)
+    return await _decode_provider_json(
+        await _sciverse_provider().list_paper_relations(**payload),
         provider="sciverse",
     )
 

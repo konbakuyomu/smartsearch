@@ -379,12 +379,16 @@ Sciverse 也是可选实验配置，不满足也不改变 `standard` 最低配�
 smart-search setup --non-interactive --sciverse-token "your-sciverse-token" --sciverse-api-url "https://api.sciverse.space"
 smart-search sciverse-catalog --collection papers --format json
 smart-search sciverse-search "transformer retrieval" --year-from 2020 --page-size 5 --format json
-smart-search sciverse-semantic "attention mechanism" --top-k 3 --mode balanced --format json
+smart-search sciverse-semantic "attention mechanism" --top-k 3 --retrieval hybrid --source-types web,pdf --format json
 smart-search sciverse-read "doc-id-from-search" --offset 0 --limit 4096 --format json
 smart-search sciverse-relations "unique-id-from-search" --relation CITATIONS --page-size 25 --format json
 ```
 
-`sciverse-read` 用 `doc_id`，`sciverse-relations` 用 `unique_id`。`CITATIONS` 表示引用目标论文的论文；`REFERENCES` 表示目标论文引用的论文；`RELATED_WORKS` 表示相关工作。`--filters-advanced` 和 `--sort-advanced` 接收 JSON array，用于第一版没有提升成一等参数的学术字段。
+当前 `GET /meta-catalog` 和 `POST /meta-search` schema 都没有 `collection` selector。旧 `--collection papers` 仍可使用，但不会发给上游；`authors` 和 `sources` 会在发请求前返回 `parameter_error`。`POST /meta-search` 请求体只使用 `query`、`filters`、`sort`、`freshness_boost`、`page` 和 `page_size`。`--title-contains` 与 `--abstract-contains` 会并入 `query`；作者、期刊、主题和年份边界会转换为当前 `FieldFilterItem` 过滤条件。
+
+`--filters-advanced` 和 `--sort-advanced` 接收结构化 JSON array，不再把任意 JSON 原样透传。过滤项必须有 `field` 和 `value`，使用 `FILTER_OP_GTE` 等当前 `operator`；旧 `op` 仅在能无歧义映射时兼容。排序项必须有 `field`，`order` 使用 `SORT_ORDER_ASC` / `SORT_ORDER_DESC` 或 `asc` / `desc`。当前 schema 不允许全文 `query` 与任意 sort 同时存在，因此 `--sort-by-year` 默认 `none`，排序仅用于无全文 query 的过滤检索。
+
+语义检索使用 `--retrieval hybrid|milvus|es`。旧 `--mode fast|balanced|quality` 仍可使用，但会给出弃用警告并映射到 `--retrieval hybrid`；它与 `--retrieval milvus` 或 `--retrieval es` 一起使用时是参数错误。语义 `--source-types` 仅接受 `web,pdf`。`sciverse-read` 用 `doc_id`，`sciverse-relations` 用 `unique_id`。`CITATIONS` 表示引用目标论文的论文；`REFERENCES` 表示目标论文引用的论文；`RELATED_WORKS` 表示相关工作。
 
 本机配置文件位置：
 
