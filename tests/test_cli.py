@@ -749,17 +749,33 @@ def test_search_timeout_respects_requested_format_and_exit_4(monkeypatch, capsys
     monkeypatch.setenv("OPENAI_COMPATIBLE_MODEL", "relay-timeout-model")
     monkeypatch.setenv("OPENAI_COMPATIBLE_STREAM", "true")
 
-    async def slow_search(query, **kwargs):
-        await asyncio.sleep(1)
+    async def structured_timeout(query, timeout_seconds=None, **kwargs):
         return {
-            "ok": True,
+            "ok": False,
+            "error_type": "timeout",
+            "error": f"Search deadline exhausted after {timeout_seconds} seconds",
             "query": query,
-            "content": "late answer",
-            "sources": [{"url": "https://example.com"}],
-            "sources_count": 1,
+            "content": "",
+            "sources": [],
+            "sources_count": 0,
+            "primary_sources": [],
+            "primary_sources_count": 0,
+            "extra_sources": [],
+            "extra_sources_count": 0,
+            "source_warning": "",
+            "provider_attempts": [],
+            "timeout_seconds": timeout_seconds,
+            "timeout_phase": "main_search",
+            "phase_attempts": [{"phase": "main_search", "status": "timeout"}],
+            "deadline_elapsed_ms": 10,
+            "deadline_remaining_ms": 0,
+            "partial_success": False,
+            "timeout_warning": "Search deadline reached during: main_search",
+            "model": "relay-timeout-model",
+            "stream": True,
         }
 
-    monkeypatch.setattr(cli.service, "search", slow_search)
+    monkeypatch.setattr(cli.service, "search", structured_timeout)
 
     code = cli.main(["search", "slow query", "--timeout", "0.01", "--format", "markdown"])
 
@@ -767,18 +783,18 @@ def test_search_timeout_respects_requested_format_and_exit_4(monkeypatch, capsys
     out = capsys.readouterr()
     assert out.err == ""
     assert out.out.startswith("\n## Errors") or "## Errors" in out.out
-    assert "network_error" in out.out
+    assert "timeout" in out.out
     assert "0.01" in out.out
     assert "seconds" in out.out
     assert "relay-timeout-model" in out.out
     assert "Stream: YES" in out.out
-    assert "smart-search diagnose openai-compatible --format markdown" in out.out
+    assert "Timeout phase: `main_search`" in out.out
 
     code = cli.main(["search", "slow query", "--timeout", "0.01", "--format", "content"])
     assert code == cli.EXIT_NETWORK_ERROR
     content_out = capsys.readouterr().out
-    assert "network_error" in content_out
-    assert "Search timed out after 0.01 seconds" in content_out
+    assert "timeout" in content_out
+    assert "Search deadline exhausted after 0.01 seconds" in content_out
 
     code = cli.main(["search", "slow query", "--timeout", "0.01", "--format", "json"])
     assert code == cli.EXIT_NETWORK_ERROR
@@ -789,10 +805,46 @@ def test_search_timeout_respects_requested_format_and_exit_4(monkeypatch, capsys
     assert data["extra_sources"] == []
     assert data["extra_sources_count"] == 0
     assert data["source_warning"] == ""
-    assert data["diagnose_command"] == "smart-search diagnose openai-compatible --format markdown"
     assert data["model"] == "relay-timeout-model"
     assert data["stream"] is True
-    assert data["recommendation"]
+    assert data["timeout_phase"] == "main_search"
+    assert data["timeout_seconds"] == 0.01
+
+
+def test_setup_rejects_invalid_search_timeout_before_saving_other_values(monkeypatch, capsys):
+    saved = {}
+
+    def fake_config_set(key, value):
+        if key == "SMART_SEARCH_TIMEOUT_SECONDS":
+            return {
+                "ok": False,
+                "error_type": "parameter_error",
+                "error": "Invalid SMART_SEARCH_TIMEOUT_SECONDS: 0. Expected a positive finite number.",
+                "config_file": "C:/tmp/config.json",
+            }
+        saved[key] = value
+        return {"ok": True, "key": key, "value": value, "config_file": "C:/tmp/config.json"}
+
+    monkeypatch.setattr(cli.service, "config_set", fake_config_set)
+    monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
+
+    code = cli.main(
+        [
+            "setup",
+            "--non-interactive",
+            "--skip-skills",
+            "--search-timeout",
+            "0",
+            "--xai-api-key",
+            "xai-test-secret",
+        ]
+    )
+    data = json.loads(capsys.readouterr().out)
+
+    assert code == cli.EXIT_PARAMETER_ERROR
+    assert data["error_type"] == "parameter_error"
+    assert data["saved"] == {}
+    assert saved == {}
 
 
 def test_markdown_search_includes_sources(monkeypatch, capsys):
@@ -1506,6 +1558,8 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
         "standard",
         "--intent-router",
         "hybrid",
+        "--search-timeout",
+        "240",
         "--intent-embedding-api-url",
         "api.example.com/v1/embeddings",
         "--intent-embedding-api-key",
@@ -1582,6 +1636,7 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
     assert saved["SMART_SEARCH_FALLBACK_MODE"] == "auto"
     assert saved["SMART_SEARCH_MINIMUM_PROFILE"] == "standard"
     assert saved["SMART_SEARCH_INTENT_ROUTER"] == "hybrid"
+    assert saved["SMART_SEARCH_TIMEOUT_SECONDS"] == "240"
     assert saved["INTENT_EMBEDDING_API_URL"] == "https://api.example.com/v1/embeddings"
     assert saved["INTENT_EMBEDDING_API_KEY"] == "embed-test-secret"
     assert saved["INTENT_EMBEDDING_MODEL"] == "embed-model"

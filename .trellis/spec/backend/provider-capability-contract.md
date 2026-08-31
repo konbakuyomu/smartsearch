@@ -28,6 +28,7 @@ smart-search search QUERY
   [--fallback auto|off]
   [--providers auto|CSV]
   [--stream | --no-stream]
+  [--timeout SECONDS]
   [--format json|markdown|content]
 smart-search research QUERY
   [--budget quick|standard|deep]
@@ -127,7 +128,7 @@ Service-level contracts:
 get_capability_status() -> dict[str, Any]
 validate_minimum_profile() -> dict[str, Any]
 search(query, platform="", model="", extra_sources=0,
-       validation="", fallback="", providers="auto") -> dict[str, Any]
+       validation="", fallback="", providers="auto", timeout_seconds=None) -> dict[str, Any]
 research(query, budget="deep", evidence_dir="", fallback="auto") -> dict[str, Any]
 route_calibrate(models="") -> dict[str, Any]
 doctor() -> dict[str, Any]
@@ -252,6 +253,10 @@ Minimum profile:
 
 Provider configuration:
 
+- `SMART_SEARCH_TIMEOUT_SECONDS` configures the total monotonic `search`
+  budget and defaults to `180`. Environment values override the local config
+  file; explicit `search --timeout` overrides both for one invocation. Values
+  must be positive finite numbers and invalid values fail before provider work.
 - `XAI_API_KEY` registers `xai-responses`.
 - `XAI_API_URL` defaults to `https://api.x.ai/v1`.
 - `XAI_MODEL` and `XAI_TOOLS` configure the xAI Responses route.
@@ -263,7 +268,7 @@ Provider configuration:
   empty entries are ignored, duplicates and the primary model are skipped, and
   the same model suffix normalization as `OPENAI_COMPATIBLE_MODEL` applies.
   Model fallback is fail-over after a hard failure, not a time slice. The
-  current candidate must receive the remaining `--timeout` budget even when
+  current candidate must receive the remaining main-search budget even when
   later fallback models are configured. `doctor` and `diagnose openai-compatible`
   must warn when a configured fallback id is absent from `/models`, without
   turning a healthy primary chat path into `ok: false`.
@@ -429,6 +434,11 @@ Intent router contract:
   embeddings/classifier calls must set `degraded=true` and `degraded_reason`;
   ordinary `search` must not fail because optional intent router components are
   unavailable.
+- A `search` execution applies one service-owned monotonic deadline. Hybrid
+  router engines share one cap no greater than
+  `INTENT_ROUTER_TIMEOUT_SECONDS` or the time remaining after reserving
+  `min(120 seconds, two thirds of the total budget)` for `main_search`.
+  Router expiry must degrade to local rules rather than starve the main model.
 - `deep` is an offline planner and must use local rules/signals only. It must
   not call remote embeddings or classifier components.
 - The classifier must not broaden generic explanation or docs-like queries into
@@ -567,6 +577,9 @@ Interactive setup contract:
   `INTENT_EMBEDDING_THRESHOLD` and `INTENT_EMBEDDING_MARGIN`. The default
   grouped wizard may avoid asking for these values directly; the preferred user
   path is to run `route-calibrate` and then set the recommended values.
+- Non-interactive setup exposes `--search-timeout` (alias
+  `--search-timeout-seconds`) for `SMART_SEARCH_TIMEOUT_SECONDS`; `config set`
+  and `config list` must support the same persisted key without migration.
 - `--non-interactive` must remain script-stable: it only saves flags passed on
   the command line and must not prompt, inspect local developer-only state, or
   call providers.
@@ -601,6 +614,17 @@ Output contracts:
 - Include observability fields: `routing_decision`, `providers_used`,
   `provider_attempts`, `fallback_used`, `validation_level`,
   `minimum_profile_ok`, and `capability_status`.
+- `search` must also expose the effective `timeout_seconds`, `timeout_phase`,
+  `timed_out_phases`, scheduler-level `phase_attempts`,
+  `deadline_elapsed_ms`, `deadline_remaining_ms`, `partial_success`, and a
+  secret-safe `timeout_warning`. These are additive to provider attempts; a
+  scheduler deadline must not fabricate an unstarted provider attempt.
+- `main_search` provider/model/transport retries and peer fallback are bounded
+  by the active main phase. Extra-source and supplemental phases consume only
+  post-primary remaining time; cancelling those optional phases must retain
+  primary content and completed sources. `strict` may still return
+  `evidence_error` when sources are insufficient, while retaining content and
+  deadline telemetry.
 - `research` JSON must include `final_answer`, `content`, `citations`,
   `evidence_items`, `gap_check`, `provider_attempts`, `fallback_used`,
   `degraded`, `route_policy_version`, and `evidence_dir`.
@@ -832,6 +856,7 @@ smart-search doctor --format json
 | --- | --- |
 | Missing required capability under `standard` | Return `ok: false`, `error_type: "config_error"`, and missing capability ids |
 | Invalid validation/fallback/minimum enum | Return `error_type: "parameter_error"` |
+| `SMART_SEARCH_TIMEOUT_SECONDS` is non-positive, non-finite, or not numeric | `config set` and non-interactive setup return `parameter_error` without persisting it; `search` returns `parameter_error` before provider work |
 | Provider filter excludes all configured main providers | Return config error; do not silently choose another capability |
 | `OPENAI_COMPATIBLE_STREAM` is missing | Treat as `false`; do not send `stream: true` |
 | `OPENAI_COMPATIBLE_STREAM` or `--stream` is true | Send `stream: true` only to OpenAI-compatible `search()` / `fetch()` and parse SSE deltas, ignoring `[DONE]` |

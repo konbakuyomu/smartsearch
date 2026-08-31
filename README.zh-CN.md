@@ -281,6 +281,7 @@ smart-search deep "https://example.com/source" --format json
 | `INTENT_CLASSIFIER_API_KEY` | 可选 classifier key；`doctor` 和 config 输出会脱敏 |
 | `INTENT_CLASSIFIER_MODEL` | classifier 模型名 |
 | `INTENT_ROUTER_TIMEOUT_SECONDS` | 可选远程路由调用超时，默认 `8` |
+| `SMART_SEARCH_TIMEOUT_SECONDS` | `search` 的总单调时限，默认 `180`；单次 `search --timeout` 可覆盖 |
 
 默认 `hybrid` 是 fail-open：embeddings 或 classifier 没配置、超时或失败时，会在 `degraded_reason` 里说明，然后自动退回本地规则。语义路由只有在 top1 相似度达到 `INTENT_EMBEDDING_THRESHOLD`，并且 top1 与第二名差值达到 `INTENT_EMBEDDING_MARGIN` 时，才会直接添加 capability；否则只记录 ambiguous 信号。classifier 可以补充 capability，但未知 capability 和 provider 名会被忽略；provider 仍然只能由 capability-first 注册表选择。
 
@@ -298,7 +299,9 @@ smart-search route-calibrate --models "Qwen/Qwen3-Embedding-8B" --format markdow
 
 - xAI 官方联网搜索路线是 Responses API `/responses`，只通过 `XAI_*` 配置。兼容中转/网关走 Chat Completions `/chat/completions`，只通过 `OPENAI_COMPATIBLE_*` 配置。
 - `OPENAI_COMPATIBLE_STREAM=true` 或 `smart-search search --stream` 只会给 OpenAI-compatible 的 `search` 和 provider 侧 `fetch` 设置 `stream=true`。它是中转长请求兼容开关，不改变 xAI Responses、URL 描述和来源排序行为。
-- `OPENAI_COMPATIBLE_FALLBACK_MODELS` 是失败后接力，不是时间片。主模型会用完剩余的 `--timeout`；只有硬失败（例如 `model_not_found`、鉴权失败、空结果、不可重试协议错误）才会换兜底模型。`doctor` 和 `diagnose openai-compatible` 会在兜底模型不在 `/models` 里时给出警告。
+- `SMART_SEARCH_TIMEOUT_SECONDS` 是持久化的 `search` 总时限；环境变量覆盖本机配置文件，单次 `search --timeout SECONDS` 覆盖两者，默认 `180` 秒。
+- service 以一个单调 deadline 协调 router、main search、extra sources 和 supplemental evidence。hybrid 远程路由共享一个上限，并为 main search 预留 `min(120 秒, 总时限的三分之二)`；可选工作超时只会产生部分成功，不会清空已有主答案。
+- `OPENAI_COMPATIBLE_FALLBACK_MODELS` 是失败后接力，不是时间片。主模型会使用剩余的共享 main-search 预算；只有硬失败（例如 `model_not_found`、鉴权失败、空结果、不可重试协议错误）才会换兜底模型。`doctor` 和 `diagnose openai-compatible` 会在兜底模型不在 `/models` 里时给出警告。
 - 旧的 `SMART_SEARCH_API_URL`、`SMART_SEARCH_API_KEY`、`SMART_SEARCH_API_MODE`、`SMART_SEARCH_MODEL`、`SMART_SEARCH_XAI_TOOLS` 不再是受支持配置项。请显式使用 `XAI_*` 或 `OPENAI_COMPATIBLE_*`。
 - 不要给 OpenAI-compatible Chat Completions 中转强塞 xAI 的 `web_search` / `x_search` 工具或旧 `search_parameters`。
 - `zhipu-search` 对应的是智谱 Web Search API，不是 Chat Completions `tools=[web_search]`，不是 Search Agent，也不是 MCP Server。
@@ -324,6 +327,7 @@ smart-search setup --non-interactive `
   --openai-compatible-model "gpt-4.1" `
   --openai-compatible-stream "false" `
   --validation-level "balanced" `
+  --search-timeout "180" `
   --fallback-mode "auto" `
   --minimum-profile "standard" `
   --intent-router "hybrid" `
@@ -383,6 +387,7 @@ smart-search sciverse-relations "unique-id-from-search" --relation CITATIONS --p
 - Windows 默认：`%LOCALAPPDATA%\smart-search\config.json`。
 - Linux/macOS 默认：`~/.config/smart-search/config.json`。
 - `SMART_SEARCH_CONFIG_DIR` 是高级覆盖项，适合 CI、容器、沙箱或便携安装。
+- `SMART_SEARCH_TIMEOUT_SECONDS` 保存默认 `search` 总时限；环境变量优先，单次 `search --timeout` 是最高优先级覆盖。
 - 更早的 Windows 源码默认路径曾是 `~\.config\smart-search\config.json`，但有些安装会通过 `SMART_SEARCH_CONFIG_DIR` 提前固定到 `%LOCALAPPDATA%\smart-search`。如果新版默认位置还没有配置，但旧 home 路径存在配置，Smart Search 会以 `legacy_windows_home` 方式继续读取旧配置，避免升级后配置丢失；`doctor` 会同时报告当前生效路径、默认路径、旧 home 路径、`SMART_SEARCH_CONFIG_DIR` 的值，以及这个覆盖项是不是只是等于当前默认路径。
 
 常用环境变量：
@@ -397,6 +402,7 @@ smart-search sciverse-relations "unique-id-from-search" --relation CITATIONS --p
 | `OPENAI_COMPATIBLE_API_KEY` | OpenAI-compatible key |
 | `OPENAI_COMPATIBLE_MODEL` | 兼容模型名 |
 | `OPENAI_COMPATIBLE_STREAM` | OpenAI-compatible 中转兼容开关，接受 `true/1/yes`，默认 `false` |
+| `SMART_SEARCH_TIMEOUT_SECONDS` | `search` 总时限，默认 `180`；环境变量覆盖配置文件，`search --timeout` 单次覆盖 |
 | `ANYSEARCH_API_URL` | AnySearch JSON-RPC endpoint，默认 `https://api.anysearch.com/mcp` |
 | `ANYSEARCH_API_KEY` | 可选 AnySearch key |
 | `ANYSEARCH_TIMEOUT_SECONDS` | AnySearch 请求超时，默认 `30` |
@@ -481,7 +487,7 @@ smart-search sciverse-relations "unique-id-from-search" --relation CITATIONS --p
 示例：
 
 ```powershell
-smart-search search "query" --validation balanced --extra-sources 3 --timeout 90 --format json --output result.json
+smart-search search "query" --validation balanced --extra-sources 3 --timeout 180 --format json --output result.json
 smart-search route "React useEffect API docs" --format markdown
 smart-search route-calibrate --models "Qwen/Qwen3-Embedding-8B" --format markdown
 smart-search research "query" --budget deep --fallback auto --format json --output research.json
@@ -533,6 +539,8 @@ smart-search doctor --format content
 ```
 
 `content` 刻意保持很短，只适合快速看结论。完整排障给人看用 `doctor --format markdown`，给脚本和 AI 解析用 `doctor --format json`。
+
+当主答案已经生成、但可选阶段到达 deadline 时，JSON 会保留主答案和已完成来源，并返回 `partial_success=true`；重试或扩展来源前先查看 `timeout_phase`、`timed_out_phases` 和 `phase_attempts`。
 
 多来源研究建议显式指定稳定目录保存证据文件。默认使用平台临时目录，以 Windows 显式路径为例：
 

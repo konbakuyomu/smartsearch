@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 
@@ -22,6 +23,7 @@ def _reset_config(monkeypatch, tmp_path):
         "OPENAI_COMPATIBLE_FALLBACK_MODELS",
         "OPENAI_COMPATIBLE_STREAM",
         "SMART_SEARCH_INTENT_ROUTER",
+        "SMART_SEARCH_TIMEOUT_SECONDS",
         "INTENT_EMBEDDING_API_URL",
         "INTENT_EMBEDDING_API_KEY",
         "INTENT_EMBEDDING_MODEL",
@@ -95,6 +97,18 @@ def test_config_set_list_unset_and_path(monkeypatch, tmp_path):
     unset_result = service.config_unset("XAI_API_KEY")
     assert unset_result["ok"] is True
     assert "XAI_API_KEY" not in service.config_list()["values"]
+
+
+def test_search_timeout_config_rejects_invalid_persisted_values(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+
+    for value in ("0", "-1", "nan", "inf", "not-a-number"):
+        result = service.config_set("SMART_SEARCH_TIMEOUT_SECONDS", value)
+        assert result["ok"] is False
+        assert result["error_type"] == "parameter_error"
+        assert "SMART_SEARCH_TIMEOUT_SECONDS" in result["error"]
+
+    assert "SMART_SEARCH_TIMEOUT_SECONDS" not in service.config.get_saved_config(masked=False)
 
 
 def test_config_file_supplies_explicit_main_settings(monkeypatch, tmp_path):
@@ -1342,7 +1356,7 @@ async def test_search_model_breaker_skips_primary_model(monkeypatch):
 
 
 def test_attempt_timeout_uses_remaining_budget_even_with_multiple_candidates():
-    start = time.time()
+    start = time.monotonic()
 
     timeout = service._attempt_timeout_seconds(start, 90.0, remaining_candidates=2)
 
@@ -2993,3 +3007,218 @@ async def test_extra_source_failures_are_recorded_without_hiding_them(monkeypatc
         ("tavily", "error", "rate_limited"),
         ("firecrawl", "empty", ""),
     ]
+
+
+@pytest.mark.asyncio
+async def test_search_timeout_config_precedence_and_default(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+
+    async def fake_primary_search(self, query, platform="", ctx=None):
+        return "Answer."
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_primary_search)
+
+    default_result = await service.search("default timeout", validation="fast")
+    service.config_set("SMART_SEARCH_TIMEOUT_SECONDS", "210")
+    configured_result = await service.search("configured timeout", validation="fast")
+    monkeypatch.setenv("SMART_SEARCH_TIMEOUT_SECONDS", "240")
+    environment_result = await service.search("environment timeout", validation="fast")
+    override_result = await service.search("override timeout", validation="fast", timeout_seconds=300)
+
+    assert default_result["timeout_seconds"] == 180
+    assert configured_result["timeout_seconds"] == 210
+    assert environment_result["timeout_seconds"] == 240
+    assert override_result["timeout_seconds"] == 300
+    assert all(result["ok"] is True for result in (default_result, configured_result, environment_result, override_result))
+
+
+@pytest.mark.asyncio
+async def test_search_rejects_non_positive_timeout_before_provider_work(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+
+    async def should_not_run(self, query, platform="", ctx=None):
+        raise AssertionError("provider should not run for an invalid timeout")
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", should_not_run)
+
+    result = await service.search("invalid timeout", timeout_seconds=0)
+
+    assert result["ok"] is False
+    assert result["error_type"] == "parameter_error"
+    assert "--timeout" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_router_shared_cap_preserves_main_search_reserve(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "hybrid")
+    monkeypatch.setenv("INTENT_EMBEDDING_API_URL", "https://embed.example.com/v1/embeddings")
+    monkeypatch.setenv("INTENT_EMBEDDING_API_KEY", "embed-test-secret")
+    monkeypatch.setenv("INTENT_EMBEDDING_MODEL", "embed-model")
+    monkeypatch.setenv("INTENT_ROUTER_TIMEOUT_SECONDS", "0.2")
+
+    async def slow_remote_route(self, query, *, validation_level="", mode="", allow_remote=True, plan_intent_signals=None):
+        if allow_remote:
+            await asyncio.sleep(1)
+        return service.build_rules_route(query, validation_level=validation_level, mode="rules")
+
+    async def fake_primary_search(self, query, platform="", ctx=None):
+        return "Main answer."
+
+    monkeypatch.setattr(service.IntentRouter, "route", slow_remote_route)
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_primary_search)
+
+    result = await service.search("router budget", validation="fast", timeout_seconds=0.6)
+
+    router_attempt = next(attempt for attempt in result["phase_attempts"] if attempt["phase"] == "router")
+    main_attempt = next(attempt for attempt in result["phase_attempts"] if attempt["phase"] == "main_search")
+    assert result["ok"] is True
+    assert result["timeout_phase"] == "router"
+    assert router_attempt["status"] == "timeout"
+    assert main_attempt["status"] == "ok"
+    assert result["routing_decision"]["main_search_reserve_seconds"] == 0.4
+
+
+@pytest.mark.asyncio
+async def test_optional_extra_timeout_keeps_primary_result_and_completed_sources(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-secret")
+    monkeypatch.setenv("FIRECRAWL_API_KEY", "firecrawl-test-secret")
+    cancelled = False
+
+    async def fake_primary_search(self, query, platform="", ctx=None):
+        return "Primary answer."
+
+    async def fast_tavily(query, max_results=6):
+        return [{"url": "https://tavily.example.com", "title": "Tavily", "content": "complete"}]
+
+    async def slow_firecrawl(query, limit=14):
+        nonlocal cancelled
+        try:
+            await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
+        return []
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_primary_search)
+    monkeypatch.setattr(service, "call_tavily_search", fast_tavily)
+    monkeypatch.setattr(service, "call_firecrawl_search", slow_firecrawl)
+
+    result = await service.search("optional budget", validation="fast", extra_sources=2, timeout_seconds=0.2)
+
+    extra_attempt = next(attempt for attempt in result["phase_attempts"] if attempt["phase"] == "extra_sources")
+    assert result["ok"] is True
+    assert result["content"] == "Primary answer."
+    assert result["partial_success"] is True
+    assert result["timeout_phase"] == "extra_sources"
+    assert extra_attempt["status"] == "timeout"
+    assert extra_attempt["pending_providers"] == ["firecrawl"]
+    assert [item["provider"] for item in result["extra_sources"]] == ["tavily"]
+    assert cancelled is True
+
+
+@pytest.mark.asyncio
+async def test_strict_optional_timeout_keeps_generated_content_and_evidence_error(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+
+    async def fake_primary_search(self, query, platform="", ctx=None):
+        return "Generated content without citations."
+
+    async def slow_web_search(query, count=5, providers="auto", fallback="auto"):
+        await asyncio.sleep(1)
+        return [], []
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_primary_search)
+    monkeypatch.setattr(service, "_run_web_search_fallback", slow_web_search)
+
+    result = await service.search("strict optional budget", validation="strict", timeout_seconds=0.2)
+
+    assert result["ok"] is False
+    assert result["error_type"] == "evidence_error"
+    assert result["content"] == "Generated content without citations."
+    assert result["partial_success"] is True
+    assert result["timeout_phase"] == "supplemental"
+    assert any(
+        attempt["phase"] == "supplemental"
+        and attempt["capability"] == "web_search"
+        and attempt["status"] == "timeout"
+        for attempt in result["phase_attempts"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_terminal_main_deadline_preserves_phase_telemetry(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+
+    async def slow_primary_search(self, query, platform="", ctx=None):
+        await asyncio.sleep(1)
+        return "late answer"
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", slow_primary_search)
+
+    result = await service.search("terminal timeout", validation="fast", timeout_seconds=0.2)
+
+    assert result["ok"] is False
+    assert result["error_type"] == "timeout"
+    assert result["timeout_phase"] == "main_search"
+    assert result["timed_out_phases"] == ["main_search"]
+    assert any(attempt["phase"] == "router" for attempt in result["phase_attempts"])
+    assert any(attempt["phase"] == "main_search" and attempt["status"] == "timeout" for attempt in result["phase_attempts"])
+
+
+@pytest.mark.asyncio
+async def test_main_provider_timeout_keeps_remaining_budget_for_peer_failover(monkeypatch):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+
+    async def timeout_xai(self, query, platform="", ctx=None):
+        raise asyncio.TimeoutError("xAI transport timeout")
+
+    async def recover_openai(self, query, platform="", ctx=None):
+        return "Peer fallback answer."
+
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", timeout_xai)
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", recover_openai)
+
+    result = await service.search("peer timeout failover", validation="fast", timeout_seconds=5)
+
+    assert result["ok"] is True
+    assert result["content"] == "Peer fallback answer."
+    assert [attempt["provider"] for attempt in result["provider_attempts"]] == ["xAI Responses", "OpenAI-compatible"]
+    assert result["provider_attempts"][0]["error_type"] == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_extra_source_collection_cancels_children_when_search_is_cancelled():
+    budget = service.SearchBudget(10)
+    execution = service.SearchExecutionState(budget)
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def hanging_source():
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    collection = asyncio.create_task(
+        service._collect_extra_source_calls([("tavily", hanging_source)], budget, execution)
+    )
+    await started.wait()
+    collection.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await collection
+
+    assert cancelled.is_set()

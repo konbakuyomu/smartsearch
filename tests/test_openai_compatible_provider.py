@@ -1,5 +1,7 @@
+import asyncio
 import httpx
 import pytest
+import time
 
 from smart_search.providers.openai_compatible import OpenAICompatibleSearchProvider, reset_openai_compatible_breakers
 
@@ -220,6 +222,40 @@ async def test_stream_breaker_opens_after_two_failures_and_skips_stream(monkeypa
     assert provider.last_transport_attempts[0]["transport"] == "stream"
     assert provider.last_transport_attempts[0]["status"] == "skipped"
     assert provider.last_transport_attempts[0]["breaker_state"]["state"] == "open"
+
+
+@pytest.mark.asyncio
+async def test_service_deadline_stops_openai_transport_before_a_request():
+    provider = OpenAICompatibleSearchProvider("https://api.example.com", "test-key", "test-model")
+    provider.set_search_deadline(time.monotonic() - 0.01)
+
+    with pytest.raises(asyncio.TimeoutError):
+        await provider.search("expired deadline")
+
+    assert provider.last_transport_attempts[0]["transport"] == "non_stream"
+    assert provider.last_transport_attempts[0]["error_type"] == "timeout"
+
+
+def test_retry_after_wait_is_capped_by_the_service_deadline():
+    from smart_search.providers.openai_compatible import _WaitWithRetryAfter
+
+    request = httpx.Request("POST", "https://api.example.com/v1/chat/completions")
+    response = httpx.Response(429, headers={"Retry-After": "3600"}, request=request)
+    error = httpx.HTTPStatusError("rate limited", request=request, response=response)
+
+    class FailedOutcome:
+        failed = True
+
+        @staticmethod
+        def exception():
+            return error
+
+    class RetryState:
+        outcome = FailedOutcome()
+
+    wait = _WaitWithRetryAfter(1, 60, deadline_monotonic=time.monotonic() + 5)
+
+    assert 0 <= wait(RetryState()) <= 5
 
 
 @pytest.mark.asyncio

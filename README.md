@@ -272,6 +272,7 @@ Intent router configuration:
 | `INTENT_CLASSIFIER_API_KEY` | Optional classifier API key; masked by `doctor` and config output |
 | `INTENT_CLASSIFIER_MODEL` | Classifier model name |
 | `INTENT_ROUTER_TIMEOUT_SECONDS` | Timeout for optional remote router calls, default `8` |
+| `SMART_SEARCH_TIMEOUT_SECONDS` | Total monotonic `search` budget, default `180`; `search --timeout` overrides it for one invocation |
 
 Default `hybrid` is fail-open: if embeddings or classifier settings are missing or fail, routing records `degraded_reason` and falls back to local rules. Semantic routing may add a capability only when the top similarity score is at least `INTENT_EMBEDDING_THRESHOLD` and the top-vs-second score gap is at least `INTENT_EMBEDDING_MARGIN`; otherwise it records an ambiguous signal without adding a capability. The classifier may add capabilities, but unknown capability names and provider names are ignored. Providers are still selected only by capability.
 
@@ -289,7 +290,9 @@ Important boundaries:
 
 - xAI official live search uses the Responses API `/responses` route through `XAI_*`. Compatible relays and gateways use Chat Completions `/chat/completions` through `OPENAI_COMPATIBLE_*`.
 - `OPENAI_COMPATIBLE_STREAM=true` or `smart-search search --stream` sets `stream=true` only for OpenAI-compatible `search` and provider-side `fetch` calls. It is a relay compatibility switch for long requests and does not change xAI Responses behavior, URL description, or source ranking.
-- `OPENAI_COMPATIBLE_FALLBACK_MODELS` is fail-over, not a time slice. The primary model keeps the remaining `--timeout` budget. A fallback model is tried only after a hard failure such as `model_not_found`, auth, empty content, or a non-retryable protocol error. `doctor` and `diagnose openai-compatible` warn when a configured fallback id is missing from `/models`.
+- `SMART_SEARCH_TIMEOUT_SECONDS` is the persistent total `search` budget. Environment values override the local config file; `search --timeout SECONDS` overrides both. The default is `180` seconds.
+- The service owns one monotonic deadline across router, main search, extra sources, and supplemental evidence. Hybrid remote routing shares a cap and reserves `min(120 seconds, two thirds of the total)` for main search; optional work may finish partially but cannot erase a primary answer.
+- `OPENAI_COMPATIBLE_FALLBACK_MODELS` is fail-over, not a time slice. The primary model keeps the remaining shared main-search budget. A fallback model is tried only after a hard failure such as `model_not_found`, auth, empty content, or a non-retryable protocol error. `doctor` and `diagnose openai-compatible` warn when a configured fallback id is missing from `/models`.
 - Legacy `SMART_SEARCH_API_URL`, `SMART_SEARCH_API_KEY`, `SMART_SEARCH_API_MODE`, `SMART_SEARCH_MODEL`, and `SMART_SEARCH_XAI_TOOLS` are not supported config keys. Use `XAI_*` or `OPENAI_COMPATIBLE_*` explicitly.
 - Do not force xAI `web_search` / `x_search` tools or legacy `search_parameters` into the OpenAI-compatible Chat Completions route.
 - `zhipu-search` support is the Web Search API route, not Zhipu Chat Completions `tools=[web_search]`, not Search Agent, and not the MCP Server.
@@ -315,6 +318,7 @@ smart-search setup --non-interactive `
   --openai-compatible-model "gpt-4.1" `
   --openai-compatible-stream "false" `
   --validation-level "balanced" `
+  --search-timeout "180" `
   --fallback-mode "auto" `
   --minimum-profile "standard" `
   --intent-router "hybrid" `
@@ -374,11 +378,13 @@ Local config path:
 - Windows default: `%LOCALAPPDATA%\smart-search\config.json`.
 - Linux/macOS default: `~/.config/smart-search/config.json`.
 - `SMART_SEARCH_CONFIG_DIR` is an advanced override for CI, containers, sandboxes, or portable installs.
+- `SMART_SEARCH_TIMEOUT_SECONDS` saves the default total `search` budget. Environment wins over this file; `search --timeout` is the one-call override.
 - `SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS` and `SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS` are advanced `research` routing overrides. They accept provider CSV values and can only reorder or disable providers inside existing capability boundaries.
 - Earlier Windows source builds defaulted to `~\.config\smart-search\config.json`, while some installs were already pinned to `%LOCALAPPDATA%\smart-search` through `SMART_SEARCH_CONFIG_DIR`. If the new Windows default file is missing but the old home config exists, Smart Search reads the old file as `legacy_windows_home` so upgrades do not lose configuration. `doctor` reports the active path, default path, old home path, `SMART_SEARCH_CONFIG_DIR`, and whether that override merely matches the current default.
 
 Provider timeouts:
 
+- `SMART_SEARCH_TIMEOUT_SECONDS` defaults to `180`. It is a shared service deadline, not a separate provider read timeout. JSON output adds `timeout_phase`, `phase_attempts`, elapsed/remaining deadline values, and `partial_success` when optional work is cut short after primary output succeeds.
 - `TAVILY_ENABLED` accepts `true`, `1`, or `yes` as enabled; any other value disables Tavily without making a Tavily network request.
 - `TAVILY_TIMEOUT_SECONDS` controls the Tavily `doctor` connectivity check timeout and defaults to `30`.
 - `ANYSEARCH_TIMEOUT_SECONDS` controls experimental AnySearch JSON-RPC calls and defaults to `30`.
@@ -428,7 +434,7 @@ Smoke output includes `status` (`healthy`, `degraded`, or `failed`) and explicit
 Useful examples:
 
 ```powershell
-smart-search search "query" --validation balanced --extra-sources 3 --timeout 90 --format json --output result.json
+smart-search search "query" --validation balanced --extra-sources 3 --timeout 180 --format json --output result.json
 smart-search route "React useEffect API docs" --format markdown
 smart-search route-calibrate --models "Qwen/Qwen3-Embedding-8B" --format markdown
 smart-search research "query" --budget deep --fallback auto --format json --output research.json
@@ -483,6 +489,8 @@ smart-search doctor --format content
 ```
 
 `content` is intentionally brief. Use `doctor --format markdown` for general human troubleshooting, `diagnose openai-compatible --format markdown` for OpenAI-compatible search hangs/timeouts, and JSON formats for complete machine-readable contracts.
+
+When `search` has primary content but an optional phase reaches the deadline, JSON keeps the content and completed sources with `partial_success=true`; inspect `timeout_phase`, `timed_out_phases`, and `phase_attempts` before retrying or broadening source work.
 
 Save multi-source evidence under an explicit stable folder. The default uses the platform temp directory; the commands below use a Windows explicit path example:
 

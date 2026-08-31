@@ -301,6 +301,194 @@ MAIN_SEARCH_PROVIDER_ALIASES = {
 MODEL_BREAKER_FAILURE_THRESHOLD = 2
 MODEL_BREAKER_COOLDOWN_SECONDS = 600.0
 _OPENAI_COMPATIBLE_MODEL_BREAKERS: dict[tuple[str, str], dict[str, Any]] = {}
+MAIN_SEARCH_RESERVE_CAP_SECONDS = 120.0
+
+
+class SearchBudget:
+    """Internal monotonic deadline shared by one fast-search execution."""
+
+    def __init__(self, total_seconds: float, started_at: float | None = None):
+        if not math.isfinite(total_seconds) or total_seconds <= 0:
+            raise ValueError("Search timeout must be a positive finite number.")
+        self.total_seconds = float(total_seconds)
+        self.started_at = time.monotonic() if started_at is None else float(started_at)
+        self.deadline = self.started_at + self.total_seconds
+
+    def elapsed_seconds(self) -> float:
+        return max(0.0, time.monotonic() - self.started_at)
+
+    def remaining_seconds(self) -> float:
+        return max(0.0, self.deadline - time.monotonic())
+
+    def main_reserve_seconds(self) -> float:
+        return min(MAIN_SEARCH_RESERVE_CAP_SECONDS, self.total_seconds * (2.0 / 3.0))
+
+    def router_cap_seconds(self, configured_timeout: float) -> float:
+        """Keep remote routing inside its shared cap and preserve main capacity."""
+        return max(
+            0.0,
+            min(
+                max(0.0, float(configured_timeout)),
+                max(0.0, self.remaining_seconds() - self.main_reserve_seconds()),
+            ),
+        )
+
+
+class SearchExecutionState:
+    """Collect additive scheduler telemetry without changing provider attempts."""
+
+    def __init__(self, budget: SearchBudget):
+        self.budget = budget
+        self.phase_attempts: list[dict[str, Any]] = []
+        self._timed_out_phases: list[str] = []
+
+    def record(
+        self,
+        phase: str,
+        status: str,
+        started_at: float,
+        budget_seconds: float,
+        reason: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        attempt: dict[str, Any] = {
+            "phase": phase,
+            "status": status,
+            "budget_ms": round(max(0.0, budget_seconds) * 1000, 2),
+            "elapsed_ms": round(max(0.0, time.monotonic() - started_at) * 1000, 2),
+            "remaining_ms": round(self.budget.remaining_seconds() * 1000, 2),
+        }
+        if reason:
+            attempt["reason"] = reason
+        if details:
+            attempt.update(details)
+        self.phase_attempts.append(attempt)
+        if status == "timeout" and phase not in self._timed_out_phases:
+            self._timed_out_phases.append(phase)
+        return attempt
+
+    @property
+    def timeout_phase(self) -> str:
+        return self._timed_out_phases[0] if self._timed_out_phases else ""
+
+    @property
+    def timed_out_phases(self) -> list[str]:
+        return list(self._timed_out_phases)
+
+    def telemetry(self, *, partial_success: bool = False) -> dict[str, Any]:
+        timed_out_phases = self.timed_out_phases
+        return {
+            "timeout_seconds": self.budget.total_seconds,
+            "timeout_phase": self.timeout_phase,
+            "timed_out_phases": timed_out_phases,
+            "phase_attempts": list(self.phase_attempts),
+            "deadline_elapsed_ms": round(self.budget.elapsed_seconds() * 1000, 2),
+            "deadline_remaining_ms": round(self.budget.remaining_seconds() * 1000, 2),
+            "partial_success": partial_success,
+            "timeout_warning": (
+                "Search deadline reached during: " + ", ".join(timed_out_phases)
+                if timed_out_phases
+                else ""
+            ),
+        }
+
+
+def _resolve_search_timeout(timeout_seconds: float | None) -> float:
+    if timeout_seconds is None:
+        return config.search_timeout
+    try:
+        value = float(timeout_seconds)
+    except (TypeError, ValueError):
+        raise ValueError(f"Invalid --timeout: {timeout_seconds}. Expected a positive finite number.")
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"Invalid --timeout: {timeout_seconds}. Expected a positive finite number.")
+    return value
+
+
+async def _run_budgeted_phase(
+    operation: Any,
+    budget: SearchBudget,
+    execution: SearchExecutionState,
+    phase: str,
+    *,
+    max_seconds: float | None = None,
+    timeout_reason: str,
+    details: dict[str, Any] | None = None,
+) -> tuple[bool, Any]:
+    """Run one scheduler phase without allowing it to outlive the shared deadline."""
+    phase_start = time.monotonic()
+    available = budget.remaining_seconds()
+    if max_seconds is not None:
+        available = min(available, max(0.0, max_seconds))
+    if available <= 0:
+        execution.record(phase, "skipped", phase_start, 0.0, timeout_reason, details)
+        return False, None
+    try:
+        result = await asyncio.wait_for(operation(), timeout=available)
+    except asyncio.TimeoutError:
+        execution.record(phase, "timeout", phase_start, available, timeout_reason, details)
+        return False, None
+    execution.record(phase, "ok", phase_start, available, details=details)
+    return True, result
+
+
+async def _collect_extra_source_calls(
+    calls: list[tuple[str, Any]],
+    budget: SearchBudget,
+    execution: SearchExecutionState,
+) -> list[tuple[str, float, Any]]:
+    """Collect completed optional calls and cancel only the work past its phase cap."""
+    if not calls:
+        return []
+    phase_start = time.monotonic()
+    phase_budget = budget.remaining_seconds()
+    providers = [provider for provider, _ in calls]
+    if phase_budget <= 0:
+        execution.record(
+            "extra_sources",
+            "skipped",
+            phase_start,
+            0.0,
+            "search deadline exhausted before optional extra sources",
+            {"providers": providers},
+        )
+        return []
+
+    tasks = [(provider, time.time(), asyncio.create_task(factory())) for provider, factory in calls]
+    try:
+        done, pending = await asyncio.wait([task for _, _, task in tasks], timeout=phase_budget)
+    except asyncio.CancelledError:
+        pending = [task for _, _, task in tasks if not task.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        raise
+    pending_providers = [provider for provider, _, task in tasks if task in pending]
+    if pending:
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        execution.record(
+            "extra_sources",
+            "timeout",
+            phase_start,
+            phase_budget,
+            "optional extra-source work reached the shared search deadline",
+            {"providers": providers, "pending_providers": pending_providers},
+        )
+    else:
+        execution.record("extra_sources", "ok", phase_start, phase_budget, details={"providers": providers})
+
+    outcomes: list[tuple[str, float, Any]] = []
+    for provider, attempt_start, task in tasks:
+        if task not in done:
+            continue
+        try:
+            outcomes.append((provider, attempt_start, task.result()))
+        except BaseException as exc:
+            outcomes.append((provider, attempt_start, exc))
+    return outcomes
 
 
 def _elapsed_ms(start: float) -> float:
@@ -347,6 +535,14 @@ def _empty_search_result(
         "provider_attempts": [],
         "fallback_used": False,
         "validation_level": "",
+        "timeout_seconds": None,
+        "timeout_phase": "",
+        "timed_out_phases": [],
+        "phase_attempts": [],
+        "deadline_elapsed_ms": 0.0,
+        "deadline_remaining_ms": None,
+        "partial_success": False,
+        "timeout_warning": "",
         "elapsed_ms": _elapsed_ms(start),
     }
     if extra:
@@ -462,7 +658,7 @@ def _openai_model_candidates(provider_config: dict[str, Any], *, fallback_mode: 
 def _remaining_budget_seconds(start: float, timeout_seconds: float | None) -> float | None:
     if timeout_seconds is None:
         return None
-    return max(0.0, float(timeout_seconds) - (time.time() - start))
+    return max(0.0, float(timeout_seconds) - (time.monotonic() - start))
 
 
 OPENAI_COMPATIBLE_TIMEOUT_POLICY = "remaining_budget"
@@ -503,7 +699,7 @@ def _openai_fallback_model_inventory(
             "unknown_fallback_models": [],
             "known_fallback_models": [],
             "timeout_policy": OPENAI_COMPATIBLE_TIMEOUT_POLICY,
-            "timeout_policy_message": "主模型使用剩余 --timeout 预算；只有硬失败后才接力兜底模型",
+            "timeout_policy_message": "主模型使用剩余共享 main-search 预算；只有硬失败后才接力兜底模型",
             "primary_model": primary_model,
         }
     if not available:
@@ -515,7 +711,7 @@ def _openai_fallback_model_inventory(
             "unknown_fallback_models": [],
             "known_fallback_models": configured,
             "timeout_policy": OPENAI_COMPATIBLE_TIMEOUT_POLICY,
-            "timeout_policy_message": "主模型使用剩余 --timeout 预算；只有硬失败后才接力兜底模型",
+            "timeout_policy_message": "主模型使用剩余共享 main-search 预算；只有硬失败后才接力兜底模型",
             "primary_model": primary_model,
         }
 
@@ -535,7 +731,7 @@ def _openai_fallback_model_inventory(
         "unknown_fallback_models": unknown,
         "known_fallback_models": known,
         "timeout_policy": OPENAI_COMPATIBLE_TIMEOUT_POLICY,
-        "timeout_policy_message": "主模型使用剩余 --timeout 预算；只有硬失败后才接力兜底模型",
+        "timeout_policy_message": "主模型使用剩余共享 main-search 预算；只有硬失败后才接力兜底模型",
         "primary_model": primary_model,
     }
 
@@ -2335,6 +2531,9 @@ async def search(
     start = time.time()
     session_id = new_session_id()
     try:
+        effective_timeout = _resolve_search_timeout(timeout_seconds)
+        budget = SearchBudget(effective_timeout)
+        execution = SearchExecutionState(budget)
         validation_level = (validation or config.validation_level).strip().lower()
         fallback_mode = (fallback or config.fallback_mode).strip().lower()
         if validation_level not in config._ALLOWED_VALIDATION_LEVELS:
@@ -2342,7 +2541,14 @@ async def search(
         if fallback_mode not in config._ALLOWED_FALLBACK_MODES:
             raise ValueError(f"Invalid fallback mode: {fallback_mode}")
     except ValueError as e:
-        return _empty_search_result(start, session_id, query, "parameter_error", str(e))
+        return _empty_search_result(
+            start,
+            session_id,
+            query,
+            "parameter_error",
+            str(e),
+            extra={"timeout_seconds": timeout_seconds},
+        )
 
     minimum = validate_minimum_profile()
     if not minimum.get("ok"):
@@ -2356,13 +2562,21 @@ async def search(
                 "capability_status": minimum.get("capability_status", {}),
                 "minimum_profile_ok": False,
                 "validation_level": validation_level,
+                **execution.telemetry(),
             },
         )
 
     try:
         main_provider_configs = _main_search_provider_configs(model_override=model, providers=providers)
     except ValueError as e:
-        return _empty_search_result(start, session_id, query, "parameter_error", str(e), extra={"validation_level": validation_level})
+        return _empty_search_result(
+            start,
+            session_id,
+            query,
+            "parameter_error",
+            str(e),
+            extra={"validation_level": validation_level, **execution.telemetry()},
+        )
 
     if not main_provider_configs:
         return _empty_search_result(
@@ -2375,6 +2589,7 @@ async def search(
                 "validation_level": validation_level,
                 "capability_status": minimum.get("capability_status", {}),
                 "minimum_profile_ok": minimum.get("ok", False),
+                **execution.telemetry(),
             },
         )
 
@@ -2398,10 +2613,55 @@ async def search(
             firecrawl_count = extra_sources
 
     selected_main_provider_configs = main_provider_configs if fallback_mode != "off" else main_provider_configs[:1]
+    router = IntentRouter(config)
     try:
-        route_result = await IntentRouter(config).route(query, validation_level=validation_level, allow_remote=True)
+        router_mode = config.intent_router_mode
+        router_has_remote = router_mode == "hybrid" and (
+            bool(config.intent_embedding_api_url and config.intent_embedding_api_key and config.intent_embedding_model)
+            or bool(config.intent_classifier_api_url and config.intent_classifier_api_key and config.intent_classifier_model)
+        )
+        if router_has_remote:
+            router_cap = budget.router_cap_seconds(config.intent_router_timeout)
+            route_ok, route_result = await _run_budgeted_phase(
+                lambda: router.route(query, validation_level=validation_level, allow_remote=True),
+                budget,
+                execution,
+                "router",
+                max_seconds=router_cap,
+                timeout_reason="router phase reached its shared cap; using local rules",
+                details={
+                    "main_search_reserve_ms": round(budget.main_reserve_seconds() * 1000, 2),
+                    "configured_timeout_ms": round(config.intent_router_timeout * 1000, 2),
+                },
+            )
+            if not route_ok:
+                route_result = await router.route(query, validation_level=validation_level, allow_remote=False)
+                route_result.intent_router_mode = router_mode
+                route_result.degraded = True
+                degraded_reason = "router phase reached its shared cap; using local rules"
+                route_result.degraded_reason = "; ".join(
+                    reason for reason in (route_result.degraded_reason, degraded_reason) if reason
+                )
+                route_result.reasons.append(degraded_reason)
+        else:
+            router_start = time.monotonic()
+            route_result = await router.route(query, validation_level=validation_level, allow_remote=True)
+            execution.record(
+                "router",
+                "ok",
+                router_start,
+                0.0,
+                details={"remote_components_configured": False},
+            )
     except ValueError as e:
-        return _empty_search_result(start, session_id, query, "parameter_error", str(e), extra={"validation_level": validation_level})
+        return _empty_search_result(
+            start,
+            session_id,
+            query,
+            "parameter_error",
+            str(e),
+            extra={"validation_level": validation_level, **execution.telemetry()},
+        )
     fetch_urls = _extract_urls(query)
     supplemental_paths = route_result.required_capabilities
     openai_candidate_models = next(
@@ -2422,22 +2682,20 @@ async def search(
         "openai_compatible_models": openai_candidate_models,
         "openai_compatible_model_fallback_enabled": len(openai_candidate_models) > 1,
         "openai_compatible_timeout_policy": OPENAI_COMPATIBLE_TIMEOUT_POLICY,
+        "search_timeout_seconds": effective_timeout,
+        "main_search_reserve_seconds": round(budget.main_reserve_seconds(), 3),
     }
 
     provider_attempts: list[dict] = []
     primary_start = time.time()
+    main_phase_start = time.monotonic()
+    main_phase_budget = budget.remaining_seconds()
     primary_result = None
     successful_main_config: dict[str, Any] | None = None
     last_primary_error: dict[str, Any] | None = None
     model_fallback_used = False
     transport_fallback_used = False
-    total_main_candidates = sum(
-        len(_openai_model_candidates(item, fallback_mode=fallback_mode, model_override=model))
-        if item["provider"] == "openai-compatible"
-        else 1
-        for item in selected_main_provider_configs
-    )
-    completed_main_candidates = 0
+    main_timed_out = False
     for provider_config in selected_main_provider_configs:
         provider_candidates = (
             _openai_model_candidates(provider_config, fallback_mode=fallback_mode, model_override=model)
@@ -2445,13 +2703,17 @@ async def search(
             else [provider_config]
         )
         for candidate_config in provider_candidates:
-            completed_main_candidates += 1
+            attempt_timeout = budget.remaining_seconds()
+            if attempt_timeout <= 0:
+                main_timed_out = True
+                break
             primary_start = time.time()
             search_provider = _main_search_providers([candidate_config], fallback="auto")[0]
             attempt_extra: dict[str, Any] = {}
             if candidate_config["provider"] == "openai-compatible":
                 attempt_extra["model"] = candidate_config["model"]
                 attempt_extra["model_role"] = candidate_config.get("model_role", "primary")
+                attempt_extra["stream"] = bool(candidate_config.get("stream", False))
                 if candidate_config.get("fallback_from_model"):
                     attempt_extra["fallback_from_model"] = candidate_config["fallback_from_model"]
                     model_fallback_used = True
@@ -2470,14 +2732,14 @@ async def search(
                         )
                     )
                     continue
-            attempt_timeout = _attempt_timeout_seconds(start, timeout_seconds)
-            if attempt_timeout is not None:
-                attempt_extra["attempt_timeout_seconds"] = round(attempt_timeout, 3)
+            attempt_timeout = max(0.001, attempt_timeout)
+            attempt_extra["attempt_timeout_seconds"] = round(attempt_timeout, 3)
+            set_deadline = getattr(search_provider, "set_search_deadline", None)
+            if callable(set_deadline):
+                set_deadline(budget.deadline)
+            candidate_task = asyncio.create_task(search_provider.search(query, platform))
             try:
-                if attempt_timeout is not None:
-                    candidate_result = await asyncio.wait_for(search_provider.search(query, platform), timeout=attempt_timeout)
-                else:
-                    candidate_result = await search_provider.search(query, platform)
+                candidate_result = await asyncio.wait_for(candidate_task, timeout=attempt_timeout)
                 transport_attempts = getattr(search_provider, "last_transport_attempts", [])
                 if _append_openai_transport_attempts(provider_attempts, search_provider, candidate_config, extra=attempt_extra):
                     transport_fallback_used = transport_fallback_used or any(
@@ -2536,10 +2798,47 @@ async def search(
                             extra=attempt_extra,
                         )
                     )
+                if isinstance(e, asyncio.TimeoutError) and (
+                    candidate_task.cancelled() or budget.remaining_seconds() <= 0
+                ):
+                    main_timed_out = True
+                    break
+        if main_timed_out:
+            break
         if primary_result is not None:
             break
     if primary_result is None:
-        result = last_primary_error or _primary_search_error_result(start, session_id, query, primary_api_mode, "network_error", "搜索失败或无结果")
+        terminal_timeout = main_timed_out or budget.remaining_seconds() <= 0
+        if terminal_timeout:
+            execution.record(
+                "main_search",
+                "timeout",
+                main_phase_start,
+                main_phase_budget,
+                "main_search phase exhausted the shared search deadline",
+                {"main_search_reserve_ms": round(budget.main_reserve_seconds() * 1000, 2)},
+            )
+            if last_primary_error and last_primary_error.get("error_type") == "timeout":
+                result = last_primary_error
+            else:
+                result = _primary_search_error_result(
+                    start,
+                    session_id,
+                    query,
+                    primary_api_mode,
+                    "timeout",
+                    "Search deadline exhausted during main_search.",
+                )
+        else:
+            execution.record("main_search", "error", main_phase_start, main_phase_budget)
+            result = last_primary_error or _primary_search_error_result(
+                start,
+                session_id,
+                query,
+                primary_api_mode,
+                "network_error",
+                "搜索失败或无结果",
+            )
         result["provider_attempts"] = provider_attempts
         result["providers_used"] = _provider_names_from_attempts(provider_attempts)
         result["fallback_used"] = _fallback_used(provider_attempts)
@@ -2549,23 +2848,31 @@ async def search(
         result["validation_level"] = validation_level
         result["minimum_profile_ok"] = minimum.get("ok", False)
         result["capability_status"] = minimum.get("capability_status", {})
+        result.update(execution.telemetry())
         return result
 
     successful_main_config = successful_main_config or selected_main_provider_configs[0]
+    execution.record(
+        "main_search",
+        "ok",
+        main_phase_start,
+        main_phase_budget,
+        details={"main_search_reserve_ms": round(budget.main_reserve_seconds() * 1000, 2)},
+    )
     primary_api_mode = successful_main_config["mode"]
     effective_model = successful_main_config["model"]
 
-    extra_calls: list[tuple[str, float, Any]] = []
+    extra_calls: list[tuple[str, Any]] = []
     if tavily_count:
-        extra_calls.append(("tavily", time.time(), call_tavily_search(query, tavily_count)))
+        extra_calls.append(("tavily", lambda: call_tavily_search(query, tavily_count)))
     if firecrawl_count:
-        extra_calls.append(("firecrawl", time.time(), call_firecrawl_search(query, firecrawl_count)))
+        extra_calls.append(("firecrawl", lambda: call_firecrawl_search(query, firecrawl_count)))
 
-    gathered = await asyncio.gather(*(call[2] for call in extra_calls), return_exceptions=True)
+    gathered = await _collect_extra_source_calls(extra_calls, budget, execution)
     primary_result = primary_result or ""
     tavily_results: list[dict] | None = None
     firecrawl_results: list[dict] | None = None
-    for (provider, attempt_start, _), result in zip(extra_calls, gathered):
+    for provider, attempt_start, result in gathered:
         if isinstance(result, BaseException):
             provider_attempts.append(_attempt_from_exception("web_search", provider, attempt_start, result))
             continue
@@ -2584,29 +2891,75 @@ async def search(
     supplemental_sources: list[dict] = []
     if validation_level in {"balanced", "strict"}:
         if "docs_search" in supplemental_paths:
-            docs_sources, docs_attempts = await _run_docs_search_fallback(query, providers=providers, fallback=fallback_mode)
-            provider_attempts.extend(docs_attempts)
-            supplemental_sources.extend(docs_sources)
+            docs_ok, docs_result = await _run_budgeted_phase(
+                lambda: _run_docs_search_fallback(query, providers=providers, fallback=fallback_mode),
+                budget,
+                execution,
+                "supplemental",
+                timeout_reason="optional docs_search reached the shared search deadline",
+                details={"capability": "docs_search"},
+            )
+            if docs_ok and docs_result:
+                docs_sources, docs_attempts = docs_result
+                provider_attempts.extend(docs_attempts)
+                supplemental_sources.extend(docs_sources)
         if "web_search" in supplemental_paths:
-            web_sources, web_attempts = await _run_web_search_fallback(query, count=max(1, extra_sources or 3), providers=providers, fallback=fallback_mode)
-            provider_attempts.extend(web_attempts)
-            supplemental_sources.extend(web_sources)
+            web_ok, web_result = await _run_budgeted_phase(
+                lambda: _run_web_search_fallback(
+                    query,
+                    count=max(1, extra_sources or 3),
+                    providers=providers,
+                    fallback=fallback_mode,
+                ),
+                budget,
+                execution,
+                "supplemental",
+                timeout_reason="optional web_search reached the shared search deadline",
+                details={"capability": "web_search"},
+            )
+            if web_ok and web_result:
+                web_sources, web_attempts = web_result
+                provider_attempts.extend(web_attempts)
+                supplemental_sources.extend(web_sources)
         if "web_fetch" in supplemental_paths:
             fetch_url = fetch_urls[0] if fetch_urls else query.strip()
-            fetch_result, fetch_attempts = await _run_web_fetch_fallback(fetch_url, fallback=fallback_mode)
-            provider_attempts.extend(fetch_attempts)
-            if fetch_result:
-                supplemental_sources.append({"url": fetch_result["url"], "provider": fetch_result["provider"], "description": fetch_result["content"][:300]})
+            fetch_ok, fetch_phase_result = await _run_budgeted_phase(
+                lambda: _run_web_fetch_fallback(fetch_url, fallback=fallback_mode),
+                budget,
+                execution,
+                "supplemental",
+                timeout_reason="optional web_fetch reached the shared search deadline",
+                details={"capability": "web_fetch"},
+            )
+            if fetch_ok and fetch_phase_result:
+                fetch_result, fetch_attempts = fetch_phase_result
+                provider_attempts.extend(fetch_attempts)
+                if fetch_result:
+                    supplemental_sources.append({"url": fetch_result["url"], "provider": fetch_result["provider"], "description": fetch_result["content"][:300]})
         if "vertical_search" in supplemental_paths:
-            vertical_sources, vertical_attempts = await _run_vertical_search_fallback(query, providers=providers, fallback=fallback_mode)
-            provider_attempts.extend(vertical_attempts)
-            supplemental_sources.extend(vertical_sources)
+            vertical_ok, vertical_result = await _run_budgeted_phase(
+                lambda: _run_vertical_search_fallback(query, providers=providers, fallback=fallback_mode),
+                budget,
+                execution,
+                "supplemental",
+                timeout_reason="optional vertical_search reached the shared search deadline",
+                details={"capability": "vertical_search"},
+            )
+            if vertical_ok and vertical_result:
+                vertical_sources, vertical_attempts = vertical_result
+                provider_attempts.extend(vertical_attempts)
+                supplemental_sources.extend(vertical_sources)
 
     extra_source_items = merge_sources(extra_source_items, supplemental_sources)
     sources = merge_sources(primary_sources, extra_source_items)
     ok = bool(answer or sources)
     if validation_level == "strict" and not sources:
         ok = False
+    optional_phase_limited = any(
+        attempt.get("phase") in {"extra_sources", "supplemental"}
+        and attempt.get("status") in {"timeout", "skipped"}
+        for attempt in execution.phase_attempts
+    )
     return {
         "ok": ok,
         "error_type": "" if ok else ("evidence_error" if validation_level == "strict" else "network_error"),
@@ -2634,6 +2987,7 @@ async def search(
         "minimum_profile_ok": minimum.get("ok", False),
         "capability_status": minimum.get("capability_status", {}),
         "elapsed_ms": _elapsed_ms(start),
+        **execution.telemetry(partial_success=bool(primary_result and optional_phase_limited)),
     }
 
 

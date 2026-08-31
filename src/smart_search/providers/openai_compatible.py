@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 import json
 import logging
@@ -6,6 +7,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Any, List, Optional
 from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, wait_random_exponential
+from tenacity.stop import stop_base
 from tenacity.wait import wait_base
 from .base import BaseSearchProvider, SearchResult
 from ..utils import search_prompt, fetch_prompt, url_describe_prompt, rank_sources_prompt
@@ -42,7 +44,7 @@ RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 
 
 def _is_retryable_exception(exc) -> bool:
-    if isinstance(exc, (httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError, httpx.RemoteProtocolError)):
+    if isinstance(exc, (asyncio.TimeoutError, httpx.TimeoutException, httpx.NetworkError, httpx.ConnectError, httpx.RemoteProtocolError)):
         return True
     if isinstance(exc, httpx.HTTPStatusError):
         return exc.response.status_code in RETRYABLE_STATUS_CODES
@@ -69,11 +71,21 @@ def reset_openai_compatible_breakers() -> None:
     _STREAM_BREAKERS.clear()
 
 
+class _StopAtDeadline(stop_base):
+    def __init__(self, deadline_monotonic: float):
+        self._deadline_monotonic = deadline_monotonic
+
+    def __call__(self, retry_state) -> bool:
+        del retry_state
+        return time.monotonic() >= self._deadline_monotonic
+
+
 class _WaitWithRetryAfter(wait_base):
 
-    def __init__(self, multiplier: float, max_wait: int):
+    def __init__(self, multiplier: float, max_wait: int, deadline_monotonic: float | None = None):
         self._base_wait = wait_random_exponential(multiplier=multiplier, max=max_wait)
         self._protocol_error_base = 3.0
+        self._deadline_monotonic = deadline_monotonic
 
     def __call__(self, retry_state):
         if retry_state.outcome and retry_state.outcome.failed:
@@ -81,10 +93,15 @@ class _WaitWithRetryAfter(wait_base):
             if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429:
                 retry_after = self._parse_retry_after(exc.response)
                 if retry_after is not None:
-                    return retry_after
+                    return self._bounded_wait(retry_after)
             if isinstance(exc, httpx.RemoteProtocolError):
-                return self._base_wait(retry_state) + self._protocol_error_base
-        return self._base_wait(retry_state)
+                return self._bounded_wait(self._base_wait(retry_state) + self._protocol_error_base)
+        return self._bounded_wait(self._base_wait(retry_state))
+
+    def _bounded_wait(self, value: float) -> float:
+        if self._deadline_monotonic is None:
+            return value
+        return max(0.0, min(value, self._deadline_monotonic - time.monotonic()))
 
     def _parse_retry_after(self, response: httpx.Response) -> Optional[float]:
         header = response.headers.get("Retry-After")
@@ -111,6 +128,43 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
         self.model = model
         self.stream = stream
         self.last_transport_attempts: list[dict[str, Any]] = []
+        self._search_deadline_monotonic: float | None = None
+
+    def set_search_deadline(self, deadline_monotonic: float | None) -> None:
+        """Set by the service for one main-search candidate; standalone calls stay unchanged."""
+        self._search_deadline_monotonic = deadline_monotonic
+
+    def _remaining_search_deadline(self) -> float | None:
+        if self._search_deadline_monotonic is None:
+            return None
+        return self._search_deadline_monotonic - time.monotonic()
+
+    def _request_timeout(self) -> httpx.Timeout:
+        remaining = self._remaining_search_deadline()
+        if remaining is None:
+            return httpx.Timeout(connect=6.0, read=120.0, write=10.0, pool=None)
+        if remaining <= 0:
+            raise asyncio.TimeoutError("main_search deadline exhausted")
+        bounded = max(0.001, remaining)
+        return httpx.Timeout(
+            connect=min(6.0, bounded),
+            read=min(120.0, bounded),
+            write=min(10.0, bounded),
+            pool=bounded,
+        )
+
+    def _retry_stop(self):
+        stop = stop_after_attempt(config.retry_max_attempts + 1)
+        if self._search_deadline_monotonic is not None:
+            return stop | _StopAtDeadline(self._search_deadline_monotonic)
+        return stop
+
+    def _retry_wait(self) -> _WaitWithRetryAfter:
+        return _WaitWithRetryAfter(
+            config.retry_multiplier,
+            config.retry_max_wait,
+            deadline_monotonic=self._search_deadline_monotonic,
+        )
 
     def get_provider_name(self) -> str:
         return "OpenAI-compatible"
@@ -231,6 +285,17 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                 content = await self._execute_completion_with_retry(headers, payload, ctx)
                 self.last_transport_attempts.append(self._transport_attempt("non_stream", "ok" if content else "empty", start))
                 return content
+            except asyncio.CancelledError:
+                self.last_transport_attempts.append(
+                    self._transport_attempt(
+                        "non_stream",
+                        "error",
+                        start,
+                        error_type="timeout",
+                        error="main_search deadline cancelled the non-stream transport",
+                    )
+                )
+                raise
             except Exception as e:
                 self.last_transport_attempts.append(
                     self._transport_attempt(
@@ -270,6 +335,18 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                         breaker_state=breaker_state,
                     )
                 )
+            except asyncio.CancelledError:
+                self.last_transport_attempts.append(
+                    self._transport_attempt(
+                        "stream",
+                        "error",
+                        stream_start,
+                        error_type="timeout",
+                        error="main_search deadline cancelled the stream transport",
+                        breaker_state=breaker_state,
+                    )
+                )
+                raise
             except Exception as e:
                 breaker_state = self._record_stream_failure()
                 self.last_transport_attempts.append(
@@ -300,6 +377,18 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                 )
             )
             return content
+        except asyncio.CancelledError:
+            self.last_transport_attempts.append(
+                self._transport_attempt(
+                    "non_stream",
+                    "error",
+                    completion_start,
+                    error_type="timeout",
+                    error="main_search deadline cancelled the non-stream transport",
+                    fallback_from_transport="stream",
+                )
+            )
+            raise
         except Exception as e:
             self.last_transport_attempts.append(
                 self._transport_attempt(
@@ -353,21 +442,23 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
         return content
 
     async def _execute_stream_with_retry(self, headers: dict, payload: dict, ctx=None) -> str:
-        timeout = httpx.Timeout(connect=6.0, read=120.0, write=10.0, pool=None)
+        timeout = self._request_timeout()
 
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, verify=self._get_ssl_verify()) as client:
             async for attempt in AsyncRetrying(
-                stop=stop_after_attempt(config.retry_max_attempts + 1),
-                wait=_WaitWithRetryAfter(config.retry_multiplier, config.retry_max_wait),
+                stop=self._retry_stop(),
+                wait=self._retry_wait(),
                 retry=retry_if_exception(_is_retryable_exception),
                 reraise=True,
             ):
                 with attempt:
+                    request_timeout = self._request_timeout()
                     async with client.stream(
                         "POST",
                         f"{self.api_url}/chat/completions",
                         headers=headers,
                         json=payload,
+                        timeout=request_timeout,
                     ) as response:
                         response.raise_for_status()
                         return await self._parse_streaming_response(response, ctx)
@@ -469,20 +560,22 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
 
     async def _execute_completion_with_retry(self, headers: dict, payload: dict, ctx=None) -> str:
         """执行带重试机制的非流式 HTTP 请求，兼容上游返回 JSON 或 SSE 文本"""
-        timeout = httpx.Timeout(connect=6.0, read=120.0, write=10.0, pool=None)
+        timeout = self._request_timeout()
 
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, verify=self._get_ssl_verify()) as client:
             async for attempt in AsyncRetrying(
-                stop=stop_after_attempt(config.retry_max_attempts + 1),
-                wait=_WaitWithRetryAfter(config.retry_multiplier, config.retry_max_wait),
+                stop=self._retry_stop(),
+                wait=self._retry_wait(),
                 retry=retry_if_exception(_is_retryable_exception),
                 reraise=True,
             ):
                 with attempt:
+                    request_timeout = self._request_timeout()
                     response = await client.post(
                         f"{self.api_url}/chat/completions",
                         headers=headers,
                         json=payload,
+                        timeout=request_timeout,
                     )
                     response.raise_for_status()
                     return await self._parse_completion_response(response, ctx)

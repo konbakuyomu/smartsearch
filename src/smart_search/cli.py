@@ -166,40 +166,6 @@ def _format_seconds(seconds: float) -> str:
     return f"{seconds:g}"
 
 
-def _search_timeout_result(query: str, timeout: float, search_kwargs: dict[str, Any] | None = None) -> dict[str, Any]:
-    seconds = _format_seconds(timeout)
-    search_kwargs = search_kwargs or {}
-    stream = search_kwargs.get("stream")
-    if stream is None:
-        stream = service.config.openai_compatible_stream
-    model = search_kwargs.get("model") or service.config.openai_compatible_model
-    return {
-        "ok": False,
-        "error_type": "network_error",
-        "error": f"Search timed out after {seconds} seconds",
-        "query": query,
-        "content": "",
-        "sources": [],
-        "sources_count": 0,
-        "primary_sources": [],
-        "primary_sources_count": 0,
-        "extra_sources": [],
-        "extra_sources_count": 0,
-        "source_warning": "",
-        "routing_decision": {},
-        "providers_used": [],
-        "provider_attempts": [],
-        "fallback_used": False,
-        "validation_level": "",
-        "timeout_seconds": timeout,
-        "provider": search_kwargs.get("providers", "auto"),
-        "model": model,
-        "stream": stream,
-        "diagnose_command": "smart-search diagnose openai-compatible --format markdown",
-        "recommendation": "Run `smart-search diagnose openai-compatible --format markdown` to check whether OpenAI-compatible stream/no-stream search requests are hanging upstream.",
-    }
-
-
 def _one_line(value: Any, limit: int = 160) -> str:
     text = "" if value is None else str(value)
     text = " ".join(text.replace("\r", " ").replace("\n", " ").split())
@@ -344,6 +310,23 @@ def _result_rows(results: list[Any]) -> list[list[Any]]:
     for index, item in enumerate(results, 1):
         rows.append([index, _result_title(item, index), _result_target(item), _result_summary(item)])
     return rows
+
+
+def _search_timeout_lines(data: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    timeout_seconds = data.get("timeout_seconds")
+    if timeout_seconds is not None:
+        try:
+            lines.append(f"Search budget: {_format_seconds(float(timeout_seconds))} seconds")
+        except (TypeError, ValueError):
+            pass
+    if data.get("timeout_phase"):
+        lines.append(f"Timeout phase: `{data.get('timeout_phase')}`")
+    if data.get("partial_success"):
+        lines.append("Partial success: YES")
+    if data.get("timeout_warning"):
+        lines.append(f"Timeout warning: {data.get('timeout_warning')}")
+    return lines
 
 
 def _format_result_markdown(command: str, data: dict[str, Any], title: str) -> str:
@@ -866,6 +849,10 @@ def _format_markdown(command: str, data: dict[str, Any]) -> str:
                 lines.append(f"Model: `{data.get('model')}`")
             if data.get("stream") is not None:
                 lines.append(f"Stream: {_yes_no(data.get('stream'))}")
+            lines.extend(_search_timeout_lines(data))
+            if data.get("content"):
+                lines.extend(["", "## Content"])
+                lines.extend(_markdown_code_block(data.get("content")))
             if data.get("recommendation"):
                 lines.extend(["", "## Recommendation", str(data.get("recommendation"))])
             if data.get("diagnose_command"):
@@ -874,6 +861,7 @@ def _format_markdown(command: str, data: dict[str, Any]) -> str:
             lines.extend(_error_lines(data))
             return "\n".join(lines).strip() + "\n"
         lines = [data.get("content", "")]
+        lines.extend(_search_timeout_lines(data))
         primary_sources = data.get("primary_sources") or []
         extra_sources = data.get("extra_sources") or []
         if primary_sources or extra_sources:
@@ -2472,16 +2460,9 @@ async def _run_async(args: argparse.Namespace) -> int:
         }
         if args.stream is not None:
             search_kwargs["stream"] = args.stream
-        if "timeout_seconds" in inspect.signature(service.search).parameters:
+        if args.timeout is not None and "timeout_seconds" in inspect.signature(service.search).parameters:
             search_kwargs["timeout_seconds"] = args.timeout
-        try:
-            data = await asyncio.wait_for(
-                service.search(args.query, **search_kwargs),
-                timeout=args.timeout,
-            )
-        except asyncio.TimeoutError:
-            data = _search_timeout_result(args.query, args.timeout, search_kwargs)
-            return _print_result("search", data, args.format, args.output)
+        data = await service.search(args.query, **search_kwargs)
         return _print_result("search", data, args.format, args.output)
     if args.command == "route":
         data = await service.route(args.query, validation=args.validation, mode=args.router_mode)
@@ -2726,6 +2707,7 @@ def _run_setup(args: argparse.Namespace) -> int:
         return _print_result("setup", data, args.format, args.output)
 
     values = {
+        "SMART_SEARCH_TIMEOUT_SECONDS": args.search_timeout,
         "XAI_API_URL": args.xai_api_url,
         "XAI_API_KEY": args.xai_api_key,
         "XAI_MODEL": args.xai_model,
@@ -2799,6 +2781,15 @@ def _run_setup(args: argparse.Namespace) -> int:
     for key, value in values.items():
         if value:
             result = service.config_set(key, value)
+            if not result.get("ok", False):
+                data = {
+                    "ok": False,
+                    "error_type": result.get("error_type", "parameter_error"),
+                    "error": result.get("error", f"Unable to save {key}."),
+                    "config_file": result.get("config_file", service.config_path()["config_file"]),
+                    "saved": saved,
+                }
+                return _print_result("setup", data, args.format, args.output)
             saved[key] = result.get("value", "")
 
     skill_result = None
@@ -2892,7 +2883,13 @@ def build_parser() -> argparse.ArgumentParser:
     stream_group = search_parser.add_mutually_exclusive_group()
     stream_group.add_argument("--stream", dest="stream", action="store_true", default=None, help="Use stream=true for OpenAI-compatible main search.")
     stream_group.add_argument("--no-stream", dest="stream", action="store_false", help="Force stream=false for OpenAI-compatible main search.")
-    search_parser.add_argument("--timeout", type=float, default=90, metavar="SECONDS", help="Hard timeout in seconds.")
+    search_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="Total search budget in seconds; overrides SMART_SEARCH_TIMEOUT_SECONDS.",
+    )
     _add_format_args(search_parser)
 
     route_parser = sub.add_parser(
@@ -3293,6 +3290,13 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--fallback-mode", default="", help="Save SMART_SEARCH_FALLBACK_MODE.")
     setup_parser.add_argument("--minimum-profile", default="", help="Save SMART_SEARCH_MINIMUM_PROFILE.")
     setup_parser.add_argument("--intent-router", default="", help="Save SMART_SEARCH_INTENT_ROUTER.")
+    setup_parser.add_argument(
+        "--search-timeout",
+        "--search-timeout-seconds",
+        dest="search_timeout",
+        default="",
+        help="Save SMART_SEARCH_TIMEOUT_SECONDS.",
+    )
     setup_parser.add_argument("--intent-embedding-api-url", default="", help="Save INTENT_EMBEDDING_API_URL.")
     setup_parser.add_argument("--intent-embedding-api-key", default="", help="Save INTENT_EMBEDDING_API_KEY.")
     setup_parser.add_argument("--intent-embedding-model", default="", help="Save INTENT_EMBEDDING_MODEL.")

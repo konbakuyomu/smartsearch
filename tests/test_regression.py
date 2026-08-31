@@ -182,10 +182,10 @@ def test_search_timeout_retry_policy_is_distributable():
 
     skill_markers = [
         "Timeout Retry Policy",
-        "error_type: \"network_error\"",
+        "error_type: \"timeout\"",
         "Retry up to 3 total attempts with `--timeout 180`",
         "`--extra-sources 1` during retry attempts",
-        "Always use the CLI's `--timeout` option",
+        "`--timeout` only for an explicit one-call override",
         "Do not wrap `smart-search` in a shell-level `timeout` command",
         "Do not rely on `SMART_SEARCH_RETRY_*` settings",
         "fall back to source-first evidence",
@@ -486,7 +486,7 @@ def test_openai_compatible_fallback_is_fail_over_not_time_slice():
     readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
     markers = [
         "fail-over after a hard primary-model failure, not a time slice",
-        "remaining `--timeout` budget",
+        "remaining shared main-search budget",
     ]
     for marker in markers:
         assert marker in public_contract
