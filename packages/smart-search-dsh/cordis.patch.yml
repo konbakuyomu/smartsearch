@@ -1,0 +1,8 @@
+- insert:
+    - id: smart-search-dsh
+      name: '@konbakuyomu/smart-search-dsh'
+      config:
+        executable: smart-search
+        executableArgs: []
+        timeoutMs: 181000
+        maxOutputBytes: 262144

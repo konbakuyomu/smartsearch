@@ -1,0 +1,64 @@
+{
+  "name": "@konbakuyomu/smart-search-dsh",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness bundle exposing bounded Smart Search CLI tools.",
+  "license": "MIT",
+  "homepage": "https://github.com/konbakuyomu/smartsearch/tree/main/packages/smart-search-dsh#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/konbakuyomu/smartsearch.git",
+    "directory": "packages/smart-search-dsh"
+  },
+  "bugs": {
+    "url": "https://github.com/konbakuyomu/smartsearch/issues"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "cordis",
+    "smart-search"
+  ],
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "src/**/*.js",
+    "scripts/*.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check:package": "node scripts/check-package.mjs",
+    "pack:dry": "npm pack --dry-run",
+    "lifecycle:isolated": "node scripts/isolated-profile-lifecycle.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-tools": "0.1.1-rc.2"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    }
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
