@@ -627,6 +627,11 @@ Output contracts:
 
 - Keep legacy search fields stable: `content`, `sources`, `primary_sources`,
   and `extra_sources`.
+- For xAI Responses, valid structured `url_citation` annotations are the
+  authoritative primary sources. Only when no structured source is available
+  may `output_text` recover ordered, unique HTTP(S) URLs from Markdown or bare
+  text; trim terminal ASCII/CJK punctuation, reject malformed candidates, and
+  preserve a terminal `sources(...)` block for the common source renderer.
 - `--format json` is the stable machine-readable contract and must stay
   parseable with readable non-ASCII text when the terminal encoding supports
   it.

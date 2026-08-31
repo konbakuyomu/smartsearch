@@ -5,6 +5,7 @@ import time
 import httpx
 import pytest
 
+from smart_search import cli
 from smart_search import service
 
 
@@ -1106,6 +1107,54 @@ async def test_search_uses_xai_responses_for_explicit_xai_config(monkeypatch):
     assert captured["provider"] == "XAIResponsesSearchProvider"
     assert captured["tools"] == ["web_search", "x_search"]
     assert result["sources"][0]["url"] == "https://example.com"
+
+
+@pytest.mark.asyncio
+async def test_xai_inline_sources_flow_to_primary_source_rendering(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("SMART_SEARCH_MINIMUM_PROFILE", "off")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
+
+    class InlineResponse:
+        def json(self):
+            return {
+                "output": [
+                    {
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": (
+                                    "Read [the docs](https://docs.example.com/guide), then "
+                                    "https://news.example.com/latest."
+                                ),
+                                "annotations": [],
+                            }
+                        ]
+                    }
+                ]
+            }
+
+    async def fake_search(self, query, platform="", ctx=None):
+        return await self._parse_response(InlineResponse())
+
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", fake_search)
+
+    result = await service.search("what is new")
+    rendered = cli._format_markdown("search", result)
+
+    assert result["content"] == (
+        "Read [the docs](https://docs.example.com/guide), then "
+        "https://news.example.com/latest."
+    )
+    assert result["primary_sources"] == [
+        {"url": "https://docs.example.com/guide"},
+        {"url": "https://news.example.com/latest"},
+    ]
+    assert result["sources"] == result["primary_sources"]
+    assert "## Primary Sources" in rendered
+    assert "- [https://docs.example.com/guide](https://docs.example.com/guide)" in rendered
+    assert "- [https://news.example.com/latest](https://news.example.com/latest)" in rendered
+    assert rendered.index("https://docs.example.com/guide") < rendered.index("https://news.example.com/latest")
 
 
 @pytest.mark.asyncio
