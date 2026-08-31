@@ -182,10 +182,10 @@ def test_search_timeout_retry_policy_is_distributable():
 
     skill_markers = [
         "Timeout Retry Policy",
-        "error_type: \"network_error\"",
+        "error_type: \"timeout\"",
         "Retry up to 3 total attempts with `--timeout 180`",
         "`--extra-sources 1` during retry attempts",
-        "Always use the CLI's `--timeout` option",
+        "`--timeout` only for an explicit one-call override",
         "Do not wrap `smart-search` in a shell-level `timeout` command",
         "Do not rely on `SMART_SEARCH_RETRY_*` settings",
         "fall back to source-first evidence",
@@ -297,6 +297,31 @@ def test_readme_language_split_and_provider_links_are_documented():
 
 def test_deep_research_shared_skill_files_are_synchronized():
     assert _skill_text_files(PUBLIC_SKILL_DIR) == _skill_text_files(PACKAGED_SKILL_DIR)
+
+
+def test_opencode_skill_path_contract_is_synchronized():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    public_contract = _read_reference_tree(PUBLIC_SKILL_DIR)
+    packaged_contract = _read_reference_tree(PACKAGED_SKILL_DIR)
+    required_markers = [
+        "~/.config/opencode/skills/smart-search-cli",
+        "~/.opencode/skills/smart-search-cli",
+        "legacy_locations",
+        "synthetic home",
+    ]
+
+    for marker in required_markers:
+        assert marker in readme
+        assert marker in public_contract
+        assert marker in packaged_contract
+
+    for marker in [
+        "~/.config/opencode/skills/smart-search-cli",
+        "~/.opencode/skills/smart-search-cli",
+        "legacy_locations",
+    ]:
+        assert marker in readme_zh
 
 
 def test_zhipu_setup_contract_public_and_packaged_assets_match():
@@ -434,6 +459,10 @@ def test_streaming_and_anysearch_contract_public_and_packaged_assets_match():
         "sciverse-semantic",
         "sciverse-read",
         "sciverse-relations",
+        "--retrieval",
+        "--mode",
+        "FILTER_OP_GTE",
+        "no `collection` selector",
         "vertical_search",
         "not part of the `web_search` fallback",
         "not `docs_search`",
@@ -450,6 +479,9 @@ def test_streaming_and_anysearch_contract_public_and_packaged_assets_match():
         "SCIVERSE_API_TOKEN",
         "sciverse-catalog",
         "sciverse-relations",
+        "--retrieval",
+        "deprecated bridge",
+        "no `collection` selector",
         "explicit-only",
         "Do not insert Sciverse into `docs_search`",
         "not required by and must not satisfy the `standard` minimum",
@@ -470,6 +502,8 @@ def test_streaming_and_anysearch_contract_public_and_packaged_assets_match():
         "sciverse-catalog",
         "sciverse-search",
         "sciverse-relations",
+        "--retrieval",
+        "--mode",
         "vertical_search",
         "不进入 `web_search` 兜底链",
         "不是 `docs_search`",
@@ -486,10 +520,38 @@ def test_openai_compatible_fallback_is_fail_over_not_time_slice():
     readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
     markers = [
         "fail-over after a hard primary-model failure, not a time slice",
-        "remaining `--timeout` budget",
+        "remaining shared main-search budget",
     ]
     for marker in markers:
         assert marker in public_contract
         assert marker in packaged_contract
     assert "fail-over, not a time slice" in readme
     assert "失败后接力，不是时间片" in readme_zh
+
+
+def test_openai_compatible_responses_mode_contract_is_documented_and_packaged():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    provider_contract = (ROOT / ".trellis/spec/backend/provider-capability-contract.md").read_text(encoding="utf-8")
+    public_text = _read_skill_tree(PUBLIC_SKILL_DIR)
+    packaged_text = _read_skill_tree(PACKAGED_SKILL_DIR)
+
+    for marker in [
+        "OPENAI_COMPATIBLE_API_MODE",
+        "chat-completions",
+        "responses",
+        "named relay",
+        "official",
+    ]:
+        assert marker in public_text
+        assert marker in packaged_text
+        assert marker in provider_contract
+
+    assert "does not promise `/responses` support" in public_text
+    assert "does not promise `/responses` support" in packaged_text
+    assert "official protocol subset plus named relay acceptance" in provider_contract
+
+    assert "OPENAI_COMPATIBLE_API_MODE=responses" in readme
+    assert "official `model` + `instructions`/`input` request subset" in readme
+    assert "OPENAI_COMPATIBLE_API_MODE=responses" in readme_zh
+    assert "官方 `model` + `instructions`/`input` 请求子集" in readme_zh

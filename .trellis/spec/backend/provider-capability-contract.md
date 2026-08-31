@@ -28,6 +28,7 @@ smart-search search QUERY
   [--fallback auto|off]
   [--providers auto|CSV]
   [--stream | --no-stream]
+  [--timeout SECONDS]
   [--format json|markdown|content]
 smart-search research QUERY
   [--budget quick|standard|deep]
@@ -83,12 +84,12 @@ smart-search anysearch-batch QUERY...
   [--max-results N]
   [--format json|markdown|content]
 smart-search sciverse-catalog
-  [--collection papers|authors|sources]
+  [--collection papers]
   [--include-sample-values]
   [--include-field-stats]
   [--format json|markdown|content]
 smart-search sciverse-search [QUERY]
-  [--collection papers|authors|sources]
+  [--collection papers]
   [--title-contains TEXT]
   [--abstract-contains TEXT]
   [--authors CSV]
@@ -105,8 +106,9 @@ smart-search sciverse-search [QUERY]
   [--format json|markdown|content]
 smart-search sciverse-semantic QUERY
   [--top-k N]
-  [--mode fast|balanced|quality]
-  [--source-types CSV]
+  [--retrieval hybrid|milvus|es]
+  [--mode fast|balanced|quality] # deprecated compatibility alias for hybrid
+  [--source-types web|pdf CSV]
   [--format json|markdown|content]
 smart-search sciverse-read DOC_ID
   [--offset N]
@@ -127,7 +129,7 @@ Service-level contracts:
 get_capability_status() -> dict[str, Any]
 validate_minimum_profile() -> dict[str, Any]
 search(query, platform="", model="", extra_sources=0,
-       validation="", fallback="", providers="auto") -> dict[str, Any]
+       validation="", fallback="", providers="auto", timeout_seconds=None) -> dict[str, Any]
 research(query, budget="deep", evidence_dir="", fallback="auto") -> dict[str, Any]
 route_calibrate(models="") -> dict[str, Any]
 doctor() -> dict[str, Any]
@@ -252,18 +254,25 @@ Minimum profile:
 
 Provider configuration:
 
+- `SMART_SEARCH_TIMEOUT_SECONDS` configures the total monotonic `search`
+  budget and defaults to `180`. Environment values override the local config
+  file; explicit `search --timeout` overrides both for one invocation. Values
+  must be positive finite numbers and invalid values fail before provider work.
 - `XAI_API_KEY` registers `xai-responses`.
 - `XAI_API_URL` defaults to `https://api.x.ai/v1`.
 - `XAI_MODEL` and `XAI_TOOLS` configure the xAI Responses route.
 - `OPENAI_COMPATIBLE_API_URL` plus `OPENAI_COMPATIBLE_API_KEY` registers
   `openai-compatible`.
 - `OPENAI_COMPATIBLE_MODEL` configures the compatible route.
+- `OPENAI_COMPATIBLE_API_MODE` accepts only `chat-completions` or `responses`
+  and defaults to `chat-completions`. Invalid values fail locally before an
+  OpenAI-compatible request or setup persistence.
 - `OPENAI_COMPATIBLE_FALLBACK_MODELS` optionally configures comma-separated
   backup model ids for the same OpenAI-compatible route. The list is ordered,
   empty entries are ignored, duplicates and the primary model are skipped, and
   the same model suffix normalization as `OPENAI_COMPATIBLE_MODEL` applies.
   Model fallback is fail-over after a hard failure, not a time slice. The
-  current candidate must receive the remaining `--timeout` budget even when
+  current candidate must receive the remaining main-search budget even when
   later fallback models are configured. `doctor` and `diagnose openai-compatible`
   must warn when a configured fallback id is absent from `/models`, without
   turning a healthy primary chat path into `ok: false`.
@@ -274,8 +283,21 @@ Provider configuration:
   stream failures must fall back to the same provider/model with
   `stream=false`.
 - Official xAI calls use the Responses API `/responses` route through `XAI_*`.
-- Compatible relays/gateways use Chat Completions `/chat/completions` through
-  `OPENAI_COMPATIBLE_*`.
+- Compatible relays/gateways use `/chat/completions` by default. They use
+  `/responses` only when `OPENAI_COMPATIBLE_API_MODE=responses` is explicit;
+  neither compatible mode sends xAI-only search tools.
+- Responses mode sends the official compatible subset: `model`, `instructions`,
+  `input`, and optional `stream`. Non-stream parsing must iterate every
+  heterogeneous `output` item and `output_text` part, retain URL-citation
+  annotations as structured sources, and never duplicate an SDK-style
+  `output_text` helper with the authoritative `output` parts.
+- Responses streaming accepts typed `response.output_text.delta`, text-part,
+  output-item, annotation, and terminal events. Unknown typed events are safe
+  to ignore, while failed, cancelled, incomplete, malformed, or empty terminal
+  streams are not successful answers. The final `response.completed` payload is
+  authoritative when it includes output/citations.
+- This is an official protocol subset plus named relay acceptance, not a claim
+  that every service marketed as OpenAI-compatible implements `/responses`.
 - `ANYSEARCH_API_URL` configures the experimental AnySearch JSON-RPC endpoint
   and defaults to `https://api.anysearch.com/mcp`.
 - `ANYSEARCH_API_KEY` is optional. When present, AnySearch requests send
@@ -362,7 +384,7 @@ Main-search peer rule:
   OpenAI-compatible `search()` and provider-side `fetch()`. It must not affect
   xAI Responses, URL description, source ranking, or capability routing.
 - OpenAI-compatible stream failures are guarded by a process-local breaker keyed
-  by `api_url + model`; two consecutive stream failures open the breaker for
+  by `api_url + model + api_mode`; two consecutive stream failures open the breaker for
   10 minutes and skip stream attempts for that model. Non-stream success does
   not reset the stream breaker; a later stream success resets it.
 - OpenAI-compatible model fallback is same-provider fallback, not provider
@@ -373,7 +395,7 @@ Main-search peer rule:
   Configuring fallback models must not cap the primary attempt at 30 seconds
   or half of the remaining budget.
 - OpenAI-compatible primary model instability is guarded by a process-local
-  model breaker keyed by `api_url + model`; two consecutive whole-model
+  model breaker keyed by `api_url + model + api_mode`; two consecutive whole-model
   failures open the breaker for 10 minutes and skip that model in favor of
   configured fallback models without writing config.
 
@@ -429,6 +451,11 @@ Intent router contract:
   embeddings/classifier calls must set `degraded=true` and `degraded_reason`;
   ordinary `search` must not fail because optional intent router components are
   unavailable.
+- A `search` execution applies one service-owned monotonic deadline. Hybrid
+  router engines share one cap no greater than
+  `INTENT_ROUTER_TIMEOUT_SECONDS` or the time remaining after reserving
+  `min(120 seconds, two thirds of the total budget)` for `main_search`.
+  Router expiry must degrade to local rules rather than starve the main model.
 - `deep` is an offline planner and must use local rules/signals only. It must
   not call remote embeddings or classifier components.
 - The classifier must not broaden generic explanation or docs-like queries into
@@ -481,12 +508,34 @@ Sciverse boundary:
 - Relation direction must stay explicit: `CITATIONS` means papers citing the
   target paper, `REFERENCES` means papers cited by the target paper, and
   `RELATED_WORKS` means related work suggestions.
-- Local parameter limits: search `page_size <= 50`, semantic `top_k <= 30`,
-  read `limit <= 16384`, relations `page_size <= 200`; violations return
-  `error_type=parameter_error` before network.
+- Current schema for `GET /meta-catalog` and `POST /meta-search` has no `collection` selector.
+  Keep legacy `collection=papers` as a local
+  compatibility value without forwarding it; reject `authors` and `sources`
+  with `parameter_error` before a request. Current `POST /meta-search`
+  payloads contain only `query`, `filters`, `sort`, `freshness_boost`, `page`,
+  and `page_size`. Do not send legacy flat fields or `collection`.
+- `title_contains` and `abstract_contains` fold into full-text `query`.
+  Authors, journals, subjects, and year bounds normalize to current
+  `FieldFilterItem` entries. Advanced filter items require `field` and
+  `value`; `operator` uses current `FILTER_OP_*` values, while legacy `op` is
+  accepted only when it maps unambiguously. Advanced sort items require
+  `field` and normalize `order` to `SORT_ORDER_ASC` or `SORT_ORDER_DESC`.
+- Current MetaSearch forbids a non-empty full-text `query` together with
+  `sort`. `--sort-by-year` therefore defaults to `none`; sorting is for
+  filter-only requests.
+- `--retrieval hybrid|milvus|es` is the current semantic interface. Legacy
+  `--mode fast|balanced|quality` remains a deprecated bridge that maps to
+  `retrieval=hybrid`. An explicit `--retrieval milvus|es` conflicts with
+  legacy `--mode` and returns `parameter_error`; `--source-types` accepts
+  only `web,pdf`.
+- Local parameter limits: search `page_size <= 200` and
+  `page * page_size <= 10000`, semantic `top_k <= 100`, read `limit <= 16384`,
+  relations `page_size <= 200`; violations return `error_type=parameter_error`
+  before network.
 - HTTP errors map as: 400 `parameter_error`, 401/403 `auth_error`, 404
   `provider_error`, 429 `rate_limited`, 502/503/network `network_error`,
-  timeout `timeout`, and invalid JSON `parse_error`.
+  Sciverse's documented HTTP 504 deadline response `timeout`, and invalid JSON
+  `parse_error`.
 
 Interactive setup contract:
 
@@ -500,11 +549,17 @@ Interactive setup contract:
   `antigravity`, `windsurf`, and `hermes`.
 - Skill install targets are relative to the user's home directory by default:
   Codex `~/.codex/skills/`, Claude Code `~/.claude/skills/`, Cursor
-  `~/.cursor/skills/`, GitHub Copilot `~/.copilot/skills/`, Hermes Agent
-  `~/.hermes/skills/`, and the remaining targets under their listed user-level
-  dot-directories. The npm wrapper must preserve the caller cwd for CLI
-  execution; package assets are passed separately via package-root metadata and
-  must not become the default skill installation root.
+  `~/.cursor/skills/`, OpenCode `~/.config/opencode/skills/`, GitHub Copilot
+  `~/.copilot/skills/`, Hermes Agent `~/.hermes/skills/`, and the remaining
+  targets under their listed user-level dot-directories. The npm wrapper must
+  preserve the caller cwd for CLI execution; package assets are passed
+  separately via package-root metadata and must not become the default skill
+  installation root.
+- OpenCode's canonical global target is
+  `~/.config/opencode/skills/smart-search-cli`. A discovered legacy
+  `~/.opencode/skills/smart-search-cli` tree is reported only as read-only
+  `legacy_locations` status metadata; setup and update must not move, delete,
+  or overwrite it.
 - Pi Agent installs to `~/.pi/agent/skills/smart-search-cli`, not the older
   `~/.pi/skills/smart-search-cli` path.
 - Runtime skill injection must load bundled package assets, not a developer's
@@ -514,13 +569,14 @@ Interactive setup contract:
   `src/smart_search/assets/skills/smart-search-cli/**`. A source-only skill
   update leaves installed npm users with stale setup/install guidance.
 - `--skip-skills` disables skill install. `--install-skills CSV` explicitly
-  chooses targets. `--skills-root PATH` is an advanced override for the
-  user-level install root used in portable installs or tests. Normal users
-  should omit it.
+  chooses targets. `--skills-root PATH` is an advanced synthetic home-root
+  override used in portable installs or tests. For OpenCode, a root `T` writes
+  to `T/.config/opencode/skills/smart-search-cli`. Normal users should omit it.
 - `smart-search skills status` is the routine stale-skill check. It compares
   bundled assets with installed user-level `smart-search-cli` directories and
   reports per-target `missing`, `up_to_date`, `stale`, `extra_files`, or
-  `error` without writing or deleting files.
+  `error` without writing or deleting files. OpenCode legacy metadata does not
+  change the canonical target status.
 - `smart-search skills update` is the routine skill sync path after CLI
   upgrades. It reuses the same bundled-file overwrite behavior as setup skill
   installation, supports `--targets CSV`, `--all`, and `--skills-root PATH`,
@@ -567,6 +623,9 @@ Interactive setup contract:
   `INTENT_EMBEDDING_THRESHOLD` and `INTENT_EMBEDDING_MARGIN`. The default
   grouped wizard may avoid asking for these values directly; the preferred user
   path is to run `route-calibrate` and then set the recommended values.
+- Non-interactive setup exposes `--search-timeout` (alias
+  `--search-timeout-seconds`) for `SMART_SEARCH_TIMEOUT_SECONDS`; `config set`
+  and `config list` must support the same persisted key without migration.
 - `--non-interactive` must remain script-stable: it only saves flags passed on
   the command line and must not prompt, inspect local developer-only state, or
   call providers.
@@ -584,6 +643,11 @@ Output contracts:
 
 - Keep legacy search fields stable: `content`, `sources`, `primary_sources`,
   and `extra_sources`.
+- For xAI Responses, valid structured `url_citation` annotations are the
+  authoritative primary sources. Only when no structured source is available
+  may `output_text` recover ordered, unique HTTP(S) URLs from Markdown or bare
+  text; trim terminal ASCII/CJK punctuation, reject malformed candidates, and
+  preserve a terminal `sources(...)` block for the common source renderer.
 - `--format json` is the stable machine-readable contract and must stay
   parseable with readable non-ASCII text when the terminal encoding supports
   it.
@@ -601,6 +665,17 @@ Output contracts:
 - Include observability fields: `routing_decision`, `providers_used`,
   `provider_attempts`, `fallback_used`, `validation_level`,
   `minimum_profile_ok`, and `capability_status`.
+- `search` must also expose the effective `timeout_seconds`, `timeout_phase`,
+  `timed_out_phases`, scheduler-level `phase_attempts`,
+  `deadline_elapsed_ms`, `deadline_remaining_ms`, `partial_success`, and a
+  secret-safe `timeout_warning`. These are additive to provider attempts; a
+  scheduler deadline must not fabricate an unstarted provider attempt.
+- `main_search` provider/model/transport retries and peer fallback are bounded
+  by the active main phase. Extra-source and supplemental phases consume only
+  post-primary remaining time; cancelling those optional phases must retain
+  primary content and completed sources. `strict` may still return
+  `evidence_error` when sources are insufficient, while retaining content and
+  deadline telemetry.
 - `research` JSON must include `final_answer`, `content`, `citations`,
   `evidence_items`, `gap_check`, `provider_attempts`, `fallback_used`,
   `degraded`, `route_policy_version`, and `evidence_dir`.
@@ -631,10 +706,11 @@ Output contracts:
 - `doctor().primary_connection_test` is a backward-compatible alias for the
   first configured main provider only.
 - `diagnose openai-compatible` is the beginner-facing focused report for
-  OpenAI-compatible Chat Completions search hangs/timeouts. It must default to
-  Markdown, support JSON, mask API keys, report base URL/model/stream/config
-  path, run a lightweight chat check, then probe real Smart Search search-shape
-  requests with `stream=false` and `stream=true`.
+  OpenAI-compatible search hangs/timeouts. It must default to Markdown, support
+  JSON, mask API keys, report the selected API mode and endpoint plus base
+  URL/model/stream/config path, run a lightweight selected-endpoint check, then
+  probe real Smart Search search-shape requests with `stream=false` and
+  `stream=true`.
 - Each `diagnose openai-compatible` check must report status, elapsed time,
   HTTP status when available, content type when available, and whether response
   content was observed. The summary must be plain language: missing config,
@@ -649,10 +725,10 @@ Output contracts:
   source is `legacy_windows_home` so upgrades do not silently lose
   configuration. Diagnostics must report the override value and whether it
   matches the current default path.
-- OpenAI-compatible doctor checks must use `/chat/completions` as the health
-  gate. `/models` may be probed for supplementary model metadata, but a
-  `/models` failure must not mark `openai-compatible` unhealthy when
-  `/chat/completions` succeeds.
+- OpenAI-compatible doctor checks must use the endpoint selected by
+  `OPENAI_COMPATIBLE_API_MODE` as the health gate. `/models` may be probed for
+  supplementary model metadata, but a `/models` failure must not mark
+  `openai-compatible` unhealthy when the selected completion endpoint succeeds.
 - Exa domain filters accept both comma-separated and whitespace-separated
   domains. The service must normalize strings and list/tuple argv values with
   commas or whitespace into the same list before calling Exa. This protects
@@ -832,6 +908,8 @@ smart-search doctor --format json
 | --- | --- |
 | Missing required capability under `standard` | Return `ok: false`, `error_type: "config_error"`, and missing capability ids |
 | Invalid validation/fallback/minimum enum | Return `error_type: "parameter_error"` |
+| Invalid `OPENAI_COMPATIBLE_API_MODE` | `config set`, non-interactive setup, search, doctor, and diagnose return `parameter_error` before an OpenAI-compatible request |
+| `SMART_SEARCH_TIMEOUT_SECONDS` is non-positive, non-finite, or not numeric | `config set` and non-interactive setup return `parameter_error` without persisting it; `search` returns `parameter_error` before provider work |
 | Provider filter excludes all configured main providers | Return config error; do not silently choose another capability |
 | `OPENAI_COMPATIBLE_STREAM` is missing | Treat as `false`; do not send `stream: true` |
 | `OPENAI_COMPATIBLE_STREAM` or `--stream` is true | Send `stream: true` only to OpenAI-compatible `search()` / `fetch()` and parse SSE deltas, ignoring `[DONE]` |
@@ -987,6 +1065,12 @@ When this contract changes, add or update tests that assert:
 - xAI Responses and OpenAI-compatible use separate explicit config families;
 - `XAI_API_KEY` alone does not fabricate an OpenAI-compatible fallback;
 - OpenAI-compatible alone satisfies `main_search`;
+- OpenAI-compatible API mode defaults to `chat-completions`; explicit
+  `responses` consistently selects `/responses` for search, provider fetch,
+  description, ranking, doctor, and diagnose without adding xAI-only tools;
+- Responses fixtures cover heterogeneous output, URL citations, typed deltas,
+  terminal failures, malformed/unknown events, empty streams, and API-mode
+  breaker isolation;
 - OpenAI-compatible stream defaults to false, accepts `true`/`1`/`yes`, applies
   only to `search()` and provider-side `fetch()`, and CLI `--stream` /
   `--no-stream` overrides config for one search invocation;
@@ -1014,8 +1098,10 @@ When this contract changes, add or update tests that assert:
   `explicit_only`, route-disabled for default routing, and does not change
   required minimum capabilities;
 - Sciverse mock calls cover catalog, search, semantic, read, relations, missing
-  token no-network behavior, Bearer auth, local bounds, relation enum, HTTP
-  error mapping, timeout, invalid JSON, and CLI advanced JSON validation;
+  token no-network behavior, Bearer auth, current query/filter/sort/retrieval
+  payload fixtures, deprecated `--mode` compatibility/conflict behavior,
+  legacy collection rejection/no-upstream selector, local bounds, every relation enum/page combination, HTTP error mapping,
+  timeout, invalid JSON, and CLI advanced JSON validation;
 - default `search` / `research` provider attempts never contain `sciverse`
   unless a future routing task explicitly changes this contract;
 - `doctor()` tests configured main providers independently;

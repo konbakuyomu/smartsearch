@@ -1,6 +1,8 @@
 import json
 import logging
+import re
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt
@@ -14,6 +16,20 @@ from ..utils import search_prompt
 
 _logger = logging.getLogger(__name__)
 _ssl_warning_emitted = False
+_INLINE_URL_PATTERN = re.compile(r"(?<![A-Za-z0-9+.\-])https?://[^\s<>'\"\x60]+", re.IGNORECASE)
+_SERIALIZED_SOURCES_PATTERN = re.compile(r"(?ims)(?:^|\n)\s*sources\s*\(\s*\[.*\]\s*\)\s*\Z")
+_INLINE_URL_TRAILING_PUNCTUATION = ".,;:!?，。；：！？、…．"
+_INLINE_URL_BRACKET_PAIRS = (
+    ("(", ")"),
+    ("[", "]"),
+    ("{", "}"),
+    ("（", "）"),
+    ("【", "】"),
+    ("《", "》"),
+    ("〈", "〉"),
+    ("「", "」"),
+    ("『", "』"),
+)
 
 
 class XAIResponsesSearchProvider(BaseSearchProvider):
@@ -110,8 +126,58 @@ class XAIResponsesSearchProvider(BaseSearchProvider):
                     sources.append(source)
 
         answer = "\n\n".join(part.strip() for part in text_parts if part.strip()).strip()
+        if not sources and answer and not _SERIALIZED_SOURCES_PATTERN.search(answer):
+            sources = self._extract_inline_urls(answer)
         if sources:
             answer = f"{answer}\n\nsources({json.dumps(sources, ensure_ascii=False)})".strip()
 
         await log_info(ctx, f"content: {answer}", config.debug_enabled)
         return answer
+
+    @staticmethod
+    def _extract_inline_urls(text: str) -> list[dict[str, str]]:
+        sources: list[dict[str, str]] = []
+        seen: set[str] = set()
+
+        for match in _INLINE_URL_PATTERN.finditer(text):
+            url = XAIResponsesSearchProvider._trim_inline_url_terminal_punctuation(match.group())
+            if not XAIResponsesSearchProvider._is_valid_inline_http_url(url):
+                continue
+            scheme, separator, remainder = url.partition(":")
+            url = f"{scheme.lower()}{separator}{remainder}"
+            if url in seen:
+                continue
+            seen.add(url)
+            sources.append({"url": url})
+
+        return sources
+
+    @staticmethod
+    def _trim_inline_url_terminal_punctuation(url: str) -> str:
+        trimmed = url
+        while trimmed:
+            candidate = trimmed.rstrip(_INLINE_URL_TRAILING_PUNCTUATION)
+            for opening, closing in _INLINE_URL_BRACKET_PAIRS:
+                while candidate.endswith(closing) and candidate.count(closing) > candidate.count(opening):
+                    candidate = candidate[:-1]
+            if candidate == trimmed:
+                return candidate
+            trimmed = candidate
+        return trimmed
+
+    @staticmethod
+    def _is_valid_inline_http_url(url: str) -> bool:
+        try:
+            parsed = urlsplit(url)
+            hostname = parsed.hostname
+            _ = parsed.port
+        except ValueError:
+            return False
+
+        return (
+            parsed.scheme.lower() in {"http", "https"}
+            and bool(parsed.netloc)
+            and bool(hostname)
+            and not any(char.isspace() for char in url)
+            and "\\" not in url
+        )

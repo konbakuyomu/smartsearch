@@ -204,6 +204,8 @@ def test_diagnose_openai_compatible_defaults_to_markdown(monkeypatch, capsys):
             "api_url": "https://relay.example.com/v1",
             "api_key": "sk-T********cret",
             "model": "relay-model",
+            "configured_api_mode": "responses",
+            "endpoint": "https://relay.example.com/v1/responses",
             "configured_stream": True,
             "timeout_seconds": timeout_seconds,
             "config_file": "C:/tmp/config.json",
@@ -232,6 +234,8 @@ def test_diagnose_openai_compatible_defaults_to_markdown(monkeypatch, capsys):
     assert out.startswith("# Smart Search Diagnose")
     assert "小请求能通" in out
     assert "真实 search 请求" in out
+    assert "Configured API mode: `responses`" in out
+    assert "Endpoint: `https://relay.example.com/v1/responses`" in out
     assert "smart-search diagnose openai-compatible --format markdown" in out
 
 
@@ -398,6 +402,7 @@ def test_doctor_markdown_outputs_human_health_report(monkeypatch, capsys):
             "resolved_log_dir": "C:/tmp/logs",
             "file_logging_enabled": False,
             "config_status": "ok: complete",
+            "openai_compatible_endpoint": "https://relay.example.com/v1/responses",
             "XAI_API_KEY": "未配置",
             "SMART_SEARCH_LOG_DIR": "logs",
             "config_sources": {
@@ -418,6 +423,7 @@ def test_doctor_markdown_outputs_human_health_report(monkeypatch, capsys):
                     "response_time_ms": 123.45,
                     "available_models": ["relay-model"],
                     "chat_completion_test": {"status": "ok", "message": "chat ok", "response_time_ms": 100.0},
+                    "responses_test": {"status": "ok", "message": "responses ok", "response_time_ms": 100.0},
                     "models_endpoint_test": {"status": "ok", "message": "models ok", "response_time_ms": 23.45},
                 }
             },
@@ -472,6 +478,7 @@ def test_doctor_markdown_outputs_human_health_report(monkeypatch, capsys):
     assert "Log dir config value: `logs`" in out
     assert "Resolved log dir: `C:/tmp/logs`" in out
     assert "File logging enabled: NO" in out
+    assert "OpenAI-compatible endpoint: `https://relay.example.com/v1/responses`" in out
     assert "## Configuration Values" in out
     assert "| XAI_API_KEY | default | 未配置 |" in out
     assert "## Capabilities" in out
@@ -480,6 +487,7 @@ def test_doctor_markdown_outputs_human_health_report(monkeypatch, capsys):
     assert "## Provider Details" in out
     assert long_message in out
     assert "relay-model" in out
+    assert "responses ok" in out
     assert "Tavily ok" in out
     assert "## Intent Router" in out
     assert "| classifier_configured | YES |" in out
@@ -749,17 +757,33 @@ def test_search_timeout_respects_requested_format_and_exit_4(monkeypatch, capsys
     monkeypatch.setenv("OPENAI_COMPATIBLE_MODEL", "relay-timeout-model")
     monkeypatch.setenv("OPENAI_COMPATIBLE_STREAM", "true")
 
-    async def slow_search(query, **kwargs):
-        await asyncio.sleep(1)
+    async def structured_timeout(query, timeout_seconds=None, **kwargs):
         return {
-            "ok": True,
+            "ok": False,
+            "error_type": "timeout",
+            "error": f"Search deadline exhausted after {timeout_seconds} seconds",
             "query": query,
-            "content": "late answer",
-            "sources": [{"url": "https://example.com"}],
-            "sources_count": 1,
+            "content": "",
+            "sources": [],
+            "sources_count": 0,
+            "primary_sources": [],
+            "primary_sources_count": 0,
+            "extra_sources": [],
+            "extra_sources_count": 0,
+            "source_warning": "",
+            "provider_attempts": [],
+            "timeout_seconds": timeout_seconds,
+            "timeout_phase": "main_search",
+            "phase_attempts": [{"phase": "main_search", "status": "timeout"}],
+            "deadline_elapsed_ms": 10,
+            "deadline_remaining_ms": 0,
+            "partial_success": False,
+            "timeout_warning": "Search deadline reached during: main_search",
+            "model": "relay-timeout-model",
+            "stream": True,
         }
 
-    monkeypatch.setattr(cli.service, "search", slow_search)
+    monkeypatch.setattr(cli.service, "search", structured_timeout)
 
     code = cli.main(["search", "slow query", "--timeout", "0.01", "--format", "markdown"])
 
@@ -767,18 +791,18 @@ def test_search_timeout_respects_requested_format_and_exit_4(monkeypatch, capsys
     out = capsys.readouterr()
     assert out.err == ""
     assert out.out.startswith("\n## Errors") or "## Errors" in out.out
-    assert "network_error" in out.out
+    assert "timeout" in out.out
     assert "0.01" in out.out
     assert "seconds" in out.out
     assert "relay-timeout-model" in out.out
     assert "Stream: YES" in out.out
-    assert "smart-search diagnose openai-compatible --format markdown" in out.out
+    assert "Timeout phase: `main_search`" in out.out
 
     code = cli.main(["search", "slow query", "--timeout", "0.01", "--format", "content"])
     assert code == cli.EXIT_NETWORK_ERROR
     content_out = capsys.readouterr().out
-    assert "network_error" in content_out
-    assert "Search timed out after 0.01 seconds" in content_out
+    assert "timeout" in content_out
+    assert "Search deadline exhausted after 0.01 seconds" in content_out
 
     code = cli.main(["search", "slow query", "--timeout", "0.01", "--format", "json"])
     assert code == cli.EXIT_NETWORK_ERROR
@@ -789,10 +813,76 @@ def test_search_timeout_respects_requested_format_and_exit_4(monkeypatch, capsys
     assert data["extra_sources"] == []
     assert data["extra_sources_count"] == 0
     assert data["source_warning"] == ""
-    assert data["diagnose_command"] == "smart-search diagnose openai-compatible --format markdown"
     assert data["model"] == "relay-timeout-model"
     assert data["stream"] is True
-    assert data["recommendation"]
+    assert data["timeout_phase"] == "main_search"
+    assert data["timeout_seconds"] == 0.01
+
+
+def test_setup_rejects_invalid_search_timeout_before_saving_other_values(monkeypatch, capsys):
+    saved = {}
+
+    def fake_config_set(key, value):
+        if key == "SMART_SEARCH_TIMEOUT_SECONDS":
+            return {
+                "ok": False,
+                "error_type": "parameter_error",
+                "error": "Invalid SMART_SEARCH_TIMEOUT_SECONDS: 0. Expected a positive finite number.",
+                "config_file": "C:/tmp/config.json",
+            }
+        saved[key] = value
+        return {"ok": True, "key": key, "value": value, "config_file": "C:/tmp/config.json"}
+
+    monkeypatch.setattr(cli.service, "config_set", fake_config_set)
+    monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
+
+    code = cli.main(
+        [
+            "setup",
+            "--non-interactive",
+            "--skip-skills",
+            "--search-timeout",
+            "0",
+            "--xai-api-key",
+            "xai-test-secret",
+        ]
+    )
+    data = json.loads(capsys.readouterr().out)
+
+    assert code == cli.EXIT_PARAMETER_ERROR
+    assert data["error_type"] == "parameter_error"
+    assert data["saved"] == {}
+    assert saved == {}
+
+
+def test_setup_rejects_invalid_openai_compatible_api_mode_before_saving(monkeypatch, capsys):
+    saved = {}
+
+    def fake_config_set(key, value):
+        saved[key] = value
+        return {"ok": True, "key": key, "value": value, "config_file": "C:/tmp/config.json"}
+
+    monkeypatch.setattr(cli.service, "config_set", fake_config_set)
+    monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
+
+    code = cli.main(
+        [
+            "setup",
+            "--non-interactive",
+            "--skip-skills",
+            "--openai-compatible-api-mode",
+            "legacy-completions",
+            "--xai-api-key",
+            "xai-test-secret",
+        ]
+    )
+    data = json.loads(capsys.readouterr().out)
+
+    assert code == cli.EXIT_PARAMETER_ERROR
+    assert data["error_type"] == "parameter_error"
+    assert "Invalid OPENAI_COMPATIBLE_API_MODE" in data["error"]
+    assert data["saved"] == {}
+    assert saved == {}
 
 
 def test_markdown_search_includes_sources(monkeypatch, capsys):
@@ -1426,28 +1516,46 @@ def test_non_content_commands_have_non_empty_content_fallback():
         assert not rendered.lstrip().startswith("{"), command
 
 
-def test_skills_status_reports_missing_and_update_writes_target(tmp_path, capsys):
-    status_code = cli.main(["skills", "status", "--targets", "codex", "--skills-root", str(tmp_path), "--format", "json"])
+def test_skills_status_reports_missing_and_update_writes_opencode_config_target(tmp_path, capsys):
+    status_code = cli.main(["skills", "status", "--targets", "opencode", "--skills-root", str(tmp_path), "--format", "json"])
     status = json.loads(capsys.readouterr().out)
 
     assert status_code == cli.EXIT_OK
-    assert status["selected"] == ["codex"]
+    assert status["selected"] == ["opencode"]
     assert status["targets"][0]["status"] == "missing"
     assert status["targets"][0]["hash_match"] is False
+    assert status["targets"][0].get("legacy_locations", []) == []
 
-    update_code = cli.main(["skills", "update", "--targets", "codex", "--skills-root", str(tmp_path), "--format", "json"])
+    update_code = cli.main(["skills", "update", "--targets", "opencode", "--skills-root", str(tmp_path), "--format", "json"])
     update = json.loads(capsys.readouterr().out)
 
     assert update_code == cli.EXIT_OK
     assert update["installed_count"] == 1
-    assert (tmp_path / ".codex" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
+    assert (tmp_path / ".config" / "opencode" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
+    assert not (tmp_path / ".opencode" / "skills" / "smart-search-cli").exists()
 
-    status_code = cli.main(["skills", "status", "--targets", "codex", "--skills-root", str(tmp_path), "--format", "json"])
+    status_code = cli.main(["skills", "status", "--targets", "opencode", "--skills-root", str(tmp_path), "--format", "json"])
     status = json.loads(capsys.readouterr().out)
 
     assert status_code == cli.EXIT_OK
     assert status["targets"][0]["status"] == "up_to_date"
     assert status["targets"][0]["hash_match"] is True
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["skills", "status", "--help"],
+        ["skills", "update", "--help"],
+        ["setup", "--help"],
+    ],
+)
+def test_skills_root_help_describes_a_synthetic_home_override(argv, capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(argv)
+
+    assert exc_info.value.code == 0
+    assert "synthetic home-directory override" in capsys.readouterr().out
 
 
 def test_skills_update_all_selects_every_target(tmp_path, capsys):
@@ -1496,6 +1604,8 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
         "relay-model",
         "--openai-compatible-fallback-models",
         "fallback-a,fallback-b",
+        "--openai-compatible-api-mode",
+        "responses",
         "--openai-compatible-stream",
         "true",
         "--validation-level",
@@ -1506,6 +1616,8 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
         "standard",
         "--intent-router",
         "hybrid",
+        "--search-timeout",
+        "240",
         "--intent-embedding-api-url",
         "api.example.com/v1/embeddings",
         "--intent-embedding-api-key",
@@ -1577,11 +1689,13 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
     assert saved["OPENAI_COMPATIBLE_API_KEY"] == "relay-test-secret"
     assert saved["OPENAI_COMPATIBLE_MODEL"] == "relay-model"
     assert saved["OPENAI_COMPATIBLE_FALLBACK_MODELS"] == "fallback-a,fallback-b"
+    assert saved["OPENAI_COMPATIBLE_API_MODE"] == "responses"
     assert saved["OPENAI_COMPATIBLE_STREAM"] == "true"
     assert saved["SMART_SEARCH_VALIDATION_LEVEL"] == "balanced"
     assert saved["SMART_SEARCH_FALLBACK_MODE"] == "auto"
     assert saved["SMART_SEARCH_MINIMUM_PROFILE"] == "standard"
     assert saved["SMART_SEARCH_INTENT_ROUTER"] == "hybrid"
+    assert saved["SMART_SEARCH_TIMEOUT_SECONDS"] == "240"
     assert saved["INTENT_EMBEDDING_API_URL"] == "https://api.example.com/v1/embeddings"
     assert saved["INTENT_EMBEDDING_API_KEY"] == "embed-test-secret"
     assert saved["INTENT_EMBEDDING_MODEL"] == "embed-model"
@@ -1821,7 +1935,7 @@ def test_setup_non_interactive_installs_selected_skills_under_user_root_override
         "setup",
         "--non-interactive",
         "--install-skills",
-        "codex,claude,cursor",
+        "codex,claude,cursor,opencode",
         "--skills-root",
         str(tmp_path),
     ])
@@ -1829,10 +1943,12 @@ def test_setup_non_interactive_installs_selected_skills_under_user_root_override
 
     assert code == cli.EXIT_OK
     assert saved == {}
-    assert data["skills"]["installed_count"] == 3
+    assert data["skills"]["installed_count"] == 4
     assert (tmp_path / ".codex" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
     assert (tmp_path / ".claude" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
     assert (tmp_path / ".cursor" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
+    assert (tmp_path / ".config" / "opencode" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
+    assert not (tmp_path / ".opencode" / "skills" / "smart-search-cli").exists()
 
 
 def test_setup_non_interactive_installs_skill_under_home_by_default(monkeypatch, tmp_path, capsys):
@@ -1981,6 +2097,119 @@ def test_skill_installer_pi_target_uses_agent_skill_root(tmp_path):
     assert Path(result["installed"][0]["path"]).as_posix().endswith(".pi/agent/skills/smart-search-cli")
     assert (tmp_path / "project" / ".pi" / "agent" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
     assert not (tmp_path / "project" / ".pi" / "skills" / "smart-search-cli").exists()
+
+
+def test_opencode_status_reports_legacy_tree_without_migrating_or_overwriting_extras(tmp_path, capsys):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "SKILL.md").write_text("new", encoding="utf-8")
+    root = tmp_path / "portable-home"
+    canonical = root / ".config" / "opencode" / "skills" / "smart-search-cli"
+    legacy = root / ".opencode" / "skills" / "smart-search-cli"
+
+    missing = skill_installer.status_skill_targets(["opencode"], project_root=root, source_root=source)["targets"][0]
+    assert missing["status"] == "missing"
+    assert Path(missing["path"]).as_posix().endswith(".config/opencode/skills/smart-search-cli")
+    assert missing.get("legacy_locations", []) == []
+
+    legacy.mkdir(parents=True)
+    (legacy / "SKILL.md").write_text("new", encoding="utf-8")
+    legacy_only = skill_installer.status_skill_targets(["opencode"], project_root=root, source_root=source)["targets"][0]
+    assert legacy_only["status"] == "missing"
+    assert legacy_only["legacy_locations"][0]["status"] == "up_to_date"
+    assert legacy_only["legacy_locations"][0]["managed_hash_match"] is True
+    assert legacy_only["legacy_locations"][0]["hash_match"] is True
+    assert Path(legacy_only["legacy_locations"][0]["path"]).as_posix().endswith(".opencode/skills/smart-search-cli")
+
+    legacy_skill_before_status = (legacy / "SKILL.md").read_bytes()
+    json_status_code = cli.main(["skills", "status", "--targets", "opencode", "--skills-root", str(root), "--format", "json"])
+    json_status = json.loads(capsys.readouterr().out)
+    assert json_status_code == cli.EXIT_OK
+    assert json_status["targets"][0]["status"] == "missing"
+    assert json_status["targets"][0]["legacy_locations"][0]["path"] == str(legacy)
+    assert (legacy / "SKILL.md").read_bytes() == legacy_skill_before_status
+
+    markdown_code = cli.main(["skills", "status", "--targets", "opencode", "--skills-root", str(root), "--format", "markdown"])
+    markdown = capsys.readouterr().out
+    assert markdown_code == cli.EXIT_OK
+    assert "## Legacy Locations" in markdown
+    assert str(legacy) in markdown
+    assert (legacy / "SKILL.md").read_bytes() == legacy_skill_before_status
+
+    canonical.mkdir(parents=True)
+    (canonical / "SKILL.md").write_text("old", encoding="utf-8")
+    stale = skill_installer.status_skill_targets(["opencode"], project_root=root, source_root=source)["targets"][0]
+    assert stale["status"] == "stale"
+    assert stale["stale_files"] == ["SKILL.md"]
+
+    (canonical / "SKILL.md").write_text("new", encoding="utf-8")
+    both = skill_installer.status_skill_targets(["opencode"], project_root=root, source_root=source)["targets"][0]
+    assert both["status"] == "up_to_date"
+    assert both["legacy_locations"][0]["status"] == "up_to_date"
+
+    canonical_extra = canonical / "user-extra.md"
+    canonical_extra.write_bytes(b"keep canonical extra")
+    extra = skill_installer.status_skill_targets(["opencode"], project_root=root, source_root=source)["targets"][0]
+    assert extra["status"] == "extra_files"
+    assert extra["extra_files"] == ["user-extra.md"]
+
+    legacy_extra = legacy / "legacy-extra.md"
+    legacy_extra.write_bytes(b"keep legacy extra")
+    legacy_extra_status = skill_installer.status_skill_targets(["opencode"], project_root=root, source_root=source)["targets"][0]
+    assert legacy_extra_status["legacy_locations"][0]["status"] == "extra_files"
+    assert legacy_extra_status["legacy_locations"][0]["extra_files"] == ["legacy-extra.md"]
+    assert legacy_extra_status["legacy_locations"][0]["managed_hash_match"] is True
+    assert legacy_extra_status["legacy_locations"][0]["hash_match"] is False
+    legacy_skill_before = (legacy / "SKILL.md").read_bytes()
+    legacy_extra_before = legacy_extra.read_bytes()
+    canonical_extra_before = canonical_extra.read_bytes()
+    (canonical / "SKILL.md").write_text("old", encoding="utf-8")
+
+    update_code = cli.main(["skills", "update", "--targets", "opencode", "--skills-root", str(root), "--format", "json"])
+    update = json.loads(capsys.readouterr().out)
+
+    assert update_code == cli.EXIT_OK
+    assert update["installed_count"] == 1
+    assert (canonical / "SKILL.md").read_text(encoding="utf-8") != "old"
+    assert canonical_extra.read_bytes() == canonical_extra_before
+    assert (legacy / "SKILL.md").read_bytes() == legacy_skill_before
+    assert legacy_extra.read_bytes() == legacy_extra_before
+
+
+def test_setup_opencode_preserves_legacy_skill_tree(monkeypatch, tmp_path, capsys):
+    root = tmp_path / "portable-home"
+    canonical = root / ".config" / "opencode" / "skills" / "smart-search-cli"
+    canonical.mkdir(parents=True)
+    canonical_extra = canonical / "canonical-extra.md"
+    canonical_extra.write_bytes(b"canonical user extra")
+    canonical_extra_before = canonical_extra.read_bytes()
+    legacy = root / ".opencode" / "skills" / "smart-search-cli"
+    legacy.mkdir(parents=True)
+    (legacy / "SKILL.md").write_bytes(b"legacy managed file")
+    legacy_extra = legacy / "legacy-extra.md"
+    legacy_extra.write_bytes(b"legacy user extra")
+    legacy_skill_before = (legacy / "SKILL.md").read_bytes()
+    legacy_extra_before = legacy_extra.read_bytes()
+
+    monkeypatch.setattr(cli.service, "config_set", lambda key, value: {"ok": True, "key": key, "value": "***"})
+    monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
+
+    code = cli.main([
+        "setup",
+        "--non-interactive",
+        "--install-skills",
+        "opencode",
+        "--skills-root",
+        str(root),
+    ])
+    data = json.loads(capsys.readouterr().out)
+
+    assert code == cli.EXIT_OK
+    assert data["skills"]["installed_count"] == 1
+    assert (root / ".config" / "opencode" / "skills" / "smart-search-cli" / "SKILL.md").is_file()
+    assert canonical_extra.read_bytes() == canonical_extra_before
+    assert (legacy / "SKILL.md").read_bytes() == legacy_skill_before
+    assert legacy_extra.read_bytes() == legacy_extra_before
 
 
 def test_skill_installer_status_detects_stale_and_extra_files(tmp_path):
@@ -2719,8 +2948,8 @@ def test_sciverse_commands_use_service_wrappers(monkeypatch, capsys):
         calls.append(("search", kwargs))
         return {"ok": True, "provider": "sciverse", "tool": "search_papers", "query": kwargs.get("query"), "results": []}
 
-    async def fake_semantic(query, top_k=10, mode="balanced", source_types=""):
-        calls.append(("semantic", query, top_k, mode, source_types))
+    async def fake_semantic(query, top_k=10, retrieval="hybrid", source_types=""):
+        calls.append(("semantic", query, top_k, retrieval, source_types))
         return {"ok": True, "provider": "sciverse", "tool": "semantic_search", "query": query, "hits": []}
 
     async def fake_read(doc_id, offset=0, limit=4096):
@@ -2757,8 +2986,15 @@ def test_sciverse_commands_use_service_wrappers(monkeypatch, capsys):
         == cli.EXIT_OK
     )
     assert json.loads(capsys.readouterr().out)["query"] == "transformer retrieval"
-    assert cli.main(["sv-semantic", "attention mechanism", "--top-k", "3", "--mode", "balanced", "--source-types", "paper,abstract"]) == cli.EXIT_OK
-    assert json.loads(capsys.readouterr().out)["tool"] == "semantic_search"
+    assert (
+        cli.main(
+            ["sv-semantic", "attention mechanism", "--top-k", "3", "--mode", "balanced", "--source-types", "web,pdf"]
+        )
+        == cli.EXIT_OK
+    )
+    semantic_output = capsys.readouterr()
+    assert json.loads(semantic_output.out)["tool"] == "semantic_search"
+    assert "--mode is deprecated" in semantic_output.err
     assert cli.main(["sv-read", "doc-1", "--offset", "10", "--limit", "100"]) == cli.EXIT_OK
     assert json.loads(capsys.readouterr().out)["doc_id"] == "doc-1"
     assert cli.main(["sv-relations", "paper-1", "--relation", "REFERENCES", "--page", "2", "--page-size", "25"]) == cli.EXIT_OK
@@ -2778,15 +3014,15 @@ def test_sciverse_commands_use_service_wrappers(monkeypatch, capsys):
                 "subjects": "",
                 "year_from": 2020,
                 "year_to": None,
-                "filters_advanced": [{"field": "year", "op": ">=", "value": 2020}],
-                "sort_advanced": None,
-                "sort_by_year": "desc",
+                "filters_advanced": [{"field": "year", "operator": "FILTER_OP_GTE", "value": 2020}],
+                "sort_advanced": [],
+                "sort_by_year": "none",
                 "freshness_boost": "NONE",
                 "page": 1,
                 "page_size": 5,
             },
         ),
-        ("semantic", "attention mechanism", 3, "balanced", "paper,abstract"),
+        ("semantic", "attention mechanism", 3, "hybrid", "web,pdf"),
         ("read", "doc-1", 10, 100),
         ("relations", "paper-1", "REFERENCES", 2, 25),
     ]
@@ -2806,6 +3042,21 @@ def test_sciverse_search_rejects_invalid_json_before_service(monkeypatch, capsys
     assert "--filters-advanced must be a JSON array" in data["error"]
 
 
+def test_sciverse_catalog_rejects_legacy_collection_before_provider(monkeypatch, capsys):
+    class FakeSciverseProvider:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("invalid Sciverse catalog requests must not construct a provider")
+
+    monkeypatch.setattr(cli.service, "SciverseProvider", FakeSciverseProvider)
+
+    code = cli.main(["sv-catalog", "--collection", "authors", "--format", "json"])
+
+    data = json.loads(capsys.readouterr().out)
+    assert code == cli.EXIT_PARAMETER_ERROR
+    assert data["error_type"] == "parameter_error"
+    assert "collection=papers only" in data["error"]
+
+
 def test_sciverse_search_rejects_non_array_advanced_json(monkeypatch, capsys):
     async def should_not_search(*args, **kwargs):
         raise AssertionError("invalid advanced JSON must fail before service call")
@@ -2818,6 +3069,51 @@ def test_sciverse_search_rejects_non_array_advanced_json(monkeypatch, capsys):
     assert code == cli.EXIT_PARAMETER_ERROR
     assert data["error_type"] == "parameter_error"
     assert data["error"] == "--sort-advanced must be a JSON array"
+
+
+def test_sciverse_search_rejects_malformed_advanced_items_before_service(monkeypatch, capsys):
+    async def should_not_search(*args, **kwargs):
+        raise AssertionError("malformed advanced JSON must fail before service call")
+
+    monkeypatch.setattr(cli.service, "sciverse_search", should_not_search)
+
+    cases = [
+        (["--filters-advanced", "[{}]"], "field must be a non-empty string"),
+        (["--filters-advanced", '[{"field":"year","value":null}]'], "must not be null"),
+        (["--filters-advanced", '[{"field":"year","value":2020,"unknown":true}]'], "unsupported keys"),
+        (["--sort-advanced", '[{"field":"year","order":"up"}]'], "must be one of"),
+    ]
+    for args, expected in cases:
+        code = cli.main(["sv", "query", *args, "--format", "json"])
+        data = json.loads(capsys.readouterr().out)
+        assert code == cli.EXIT_PARAMETER_ERROR
+        assert data["error_type"] == "parameter_error"
+        assert expected in data["error"]
+
+
+def test_sciverse_semantic_prefers_retrieval_and_rejects_conflicting_legacy_mode(monkeypatch, capsys):
+    calls = []
+
+    async def fake_semantic(query, top_k=10, retrieval="hybrid", source_types=""):
+        calls.append((query, top_k, retrieval, source_types))
+        return {"ok": True, "provider": "sciverse", "tool": "semantic_search", "query": query, "hits": []}
+
+    monkeypatch.setattr(cli.service, "sciverse_semantic", fake_semantic)
+
+    assert cli.main(["sv-semantic", "attention mechanism", "--retrieval", "milvus", "--format", "json"]) == cli.EXIT_OK
+    output = capsys.readouterr()
+    assert json.loads(output.out)["ok"] is True
+    assert output.err == ""
+    assert calls == [("attention mechanism", 10, "milvus", "")]
+
+    code = cli.main(
+        ["sv-semantic", "attention mechanism", "--mode", "quality", "--retrieval", "es", "--format", "json"]
+    )
+    data = json.loads(capsys.readouterr().out)
+    assert code == cli.EXIT_PARAMETER_ERROR
+    assert data["error_type"] == "parameter_error"
+    assert "conflicts" in data["error"]
+    assert len(calls) == 1
 
 
 def test_zhipu_mcp_commands_use_service_wrappers(monkeypatch, capsys):

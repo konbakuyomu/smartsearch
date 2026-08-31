@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -12,14 +13,17 @@ class Config:
     )
     _DEFAULT_MODEL = "grok-4-fast"
     _DEFAULT_XAI_TOOLS = "web_search,x_search"
+    _DEFAULT_OPENAI_COMPATIBLE_API_MODE = "chat-completions"
     _DEFAULT_VALIDATION_LEVEL = "balanced"
     _DEFAULT_FALLBACK_MODE = "auto"
     _DEFAULT_MINIMUM_PROFILE = "standard"
     _DEFAULT_INTENT_ROUTER_MODE = "hybrid"
     _DEFAULT_INTENT_ROUTER_TIMEOUT_SECONDS = "8"
+    _DEFAULT_SEARCH_TIMEOUT_SECONDS = "180"
     _DEFAULT_INTENT_EMBEDDING_THRESHOLD = "0.74"
     _DEFAULT_INTENT_EMBEDDING_MARGIN = "0.05"
     _ALLOWED_XAI_TOOLS = {"web_search", "x_search"}
+    _ALLOWED_OPENAI_COMPATIBLE_API_MODES = {"chat-completions", "responses"}
     _ALLOWED_VALIDATION_LEVELS = {"fast", "balanced", "strict"}
     _ALLOWED_FALLBACK_MODES = {"auto", "off"}
     _ALLOWED_MINIMUM_PROFILES = {"standard", "off"}
@@ -33,6 +37,7 @@ class Config:
         "OPENAI_COMPATIBLE_API_KEY",
         "OPENAI_COMPATIBLE_MODEL",
         "OPENAI_COMPATIBLE_FALLBACK_MODELS",
+        "OPENAI_COMPATIBLE_API_MODE",
         "OPENAI_COMPATIBLE_STREAM",
         "SMART_SEARCH_VALIDATION_LEVEL",
         "SMART_SEARCH_FALLBACK_MODE",
@@ -40,6 +45,7 @@ class Config:
         "SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS",
         "SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS",
         "SMART_SEARCH_INTENT_ROUTER",
+        "SMART_SEARCH_TIMEOUT_SECONDS",
         "INTENT_EMBEDDING_API_URL",
         "INTENT_EMBEDDING_API_KEY",
         "INTENT_EMBEDDING_MODEL",
@@ -237,6 +243,7 @@ class Config:
         key = key.strip().upper()
         if key not in self._CONFIG_KEYS:
             raise ValueError(f"Unsupported config key: {key}")
+        self._validate_config_value(key, value)
         config_data = self._load_config_file()
         config_data[key] = value
         self._save_config_file(config_data)
@@ -249,6 +256,7 @@ class Config:
             "OPENAI_COMPATIBLE_API_KEY",
             "OPENAI_COMPATIBLE_MODEL",
             "OPENAI_COMPATIBLE_FALLBACK_MODELS",
+            "OPENAI_COMPATIBLE_API_MODE",
             "OPENAI_COMPATIBLE_STREAM",
             "SMART_SEARCH_VALIDATION_LEVEL",
             "SMART_SEARCH_FALLBACK_MODE",
@@ -276,6 +284,7 @@ class Config:
             "OPENAI_COMPATIBLE_API_KEY",
             "OPENAI_COMPATIBLE_MODEL",
             "OPENAI_COMPATIBLE_FALLBACK_MODELS",
+            "OPENAI_COMPATIBLE_API_MODE",
             "OPENAI_COMPATIBLE_STREAM",
             "SMART_SEARCH_VALIDATION_LEVEL",
             "SMART_SEARCH_FALLBACK_MODE",
@@ -362,6 +371,14 @@ class Config:
         return models
 
     @property
+    def openai_compatible_api_mode(self) -> str:
+        return self._validated_enum(
+            "OPENAI_COMPATIBLE_API_MODE",
+            self._DEFAULT_OPENAI_COMPATIBLE_API_MODE,
+            self._ALLOWED_OPENAI_COMPATIBLE_API_MODES,
+        )
+
+    @property
     def openai_compatible_stream(self) -> bool:
         return (self._get_config_value("OPENAI_COMPATIBLE_STREAM", "false") or "false").lower() in ("true", "1", "yes")
 
@@ -387,7 +404,11 @@ class Config:
         return tools
 
     def _validated_enum(self, key: str, default: str, allowed: set[str]) -> str:
-        value = (self._get_config_value(key, default) or default).strip().lower()
+        return self._validate_enum_value(key, self._get_config_value(key, default) or default, allowed)
+
+    @staticmethod
+    def _validate_enum_value(key: str, raw_value: object, allowed: set[str]) -> str:
+        value = str(raw_value or "").strip().lower()
         if value not in allowed:
             allowed_text = ", ".join(sorted(allowed))
             raise ValueError(f"Invalid {key}: {value}. Supported values: {allowed_text}")
@@ -418,6 +439,32 @@ class Config:
         if value < minimum or value > maximum:
             raise ValueError(f"Invalid {key}: {value}. Expected a number between {minimum:g} and {maximum:g}.")
         return value
+
+    def _positive_float_value(self, key: str, default: str) -> float:
+        value = self._get_config_value(key, default) or default
+        return self._parse_positive_float_value(key, value)
+
+    @staticmethod
+    def _parse_positive_float_value(key: str, raw_value: object) -> float:
+        try:
+            value = float(raw_value)
+        except (TypeError, ValueError):
+            raise ValueError(f"Invalid {key}: {raw_value}. Expected a positive finite number.")
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(f"Invalid {key}: {raw_value}. Expected a positive finite number.")
+        return value
+
+    def _validate_config_value(self, key: str, value: str) -> None:
+        if key == "SMART_SEARCH_TIMEOUT_SECONDS":
+            self._parse_positive_float_value(key, value)
+        elif key == "OPENAI_COMPATIBLE_API_MODE":
+            self._validate_enum_value(key, value, self._ALLOWED_OPENAI_COMPATIBLE_API_MODES)
+
+    def _positive_float_info(self, key: str, default: str) -> tuple[float, str]:
+        try:
+            return self._positive_float_value(key, default), ""
+        except ValueError as e:
+            return float(default), str(e)
 
     def _bounded_float_info(self, key: str, default: str, minimum: float, maximum: float) -> tuple[float, str]:
         try:
@@ -492,6 +539,10 @@ class Config:
     @property
     def intent_router_timeout(self) -> float:
         return self._float_value("INTENT_ROUTER_TIMEOUT_SECONDS", self._DEFAULT_INTENT_ROUTER_TIMEOUT_SECONDS)
+
+    @property
+    def search_timeout(self) -> float:
+        return self._positive_float_value("SMART_SEARCH_TIMEOUT_SECONDS", self._DEFAULT_SEARCH_TIMEOUT_SECONDS)
 
     def _csv_values(self, key: str) -> list[str]:
         raw = self._get_config_value(key, "") or ""
@@ -726,9 +777,18 @@ class Config:
             self._DEFAULT_INTENT_ROUTER_MODE,
             self._ALLOWED_INTENT_ROUTER_MODES,
         )
+        openai_compatible_api_mode, openai_compatible_api_mode_error = self._enum_info(
+            "OPENAI_COMPATIBLE_API_MODE",
+            self._DEFAULT_OPENAI_COMPATIBLE_API_MODE,
+            self._ALLOWED_OPENAI_COMPATIBLE_API_MODES,
+        )
         intent_router_timeout, intent_router_timeout_error = self._float_info(
             "INTENT_ROUTER_TIMEOUT_SECONDS",
             self._DEFAULT_INTENT_ROUTER_TIMEOUT_SECONDS,
+        )
+        search_timeout, search_timeout_error = self._positive_float_info(
+            "SMART_SEARCH_TIMEOUT_SECONDS",
+            self._DEFAULT_SEARCH_TIMEOUT_SECONDS,
         )
         intent_embedding_threshold, intent_embedding_threshold_error = self._bounded_float_info(
             "INTENT_EMBEDDING_THRESHOLD",
@@ -749,7 +809,9 @@ class Config:
                 fallback_error,
                 minimum_error,
                 intent_router_error,
+                openai_compatible_api_mode_error,
                 intent_router_timeout_error,
+                search_timeout_error,
                 intent_embedding_threshold_error,
                 intent_embedding_margin_error,
             )
@@ -767,6 +829,7 @@ class Config:
             "OPENAI_COMPATIBLE_API_KEY": self._mask_api_key(self.openai_compatible_api_key) if self.openai_compatible_api_key else "未配置",
             "OPENAI_COMPATIBLE_MODEL": self.openai_compatible_model,
             "OPENAI_COMPATIBLE_FALLBACK_MODELS": ",".join(self.openai_compatible_fallback_models),
+            "OPENAI_COMPATIBLE_API_MODE": openai_compatible_api_mode,
             "OPENAI_COMPATIBLE_STREAM": self.openai_compatible_stream,
             "SMART_SEARCH_VALIDATION_LEVEL": validation_level,
             "SMART_SEARCH_FALLBACK_MODE": fallback_mode,
@@ -783,6 +846,7 @@ class Config:
             "INTENT_CLASSIFIER_API_KEY": self._mask_api_key(self.intent_classifier_api_key) if self.intent_classifier_api_key else "未配置",
             "INTENT_CLASSIFIER_MODEL": self.intent_classifier_model or "未配置",
             "INTENT_ROUTER_TIMEOUT_SECONDS": intent_router_timeout,
+            "SMART_SEARCH_TIMEOUT_SECONDS": search_timeout,
             "SMART_SEARCH_DEBUG": self.debug_enabled,
             "SMART_SEARCH_LOG_LEVEL": self.log_level,
             "SMART_SEARCH_LOG_DIR": self.log_dir_config_value,
@@ -823,7 +887,7 @@ class Config:
             "JINA_READER_API_URL": self.jina_reader_api_url,
             "JINA_RESPOND_WITH": self.jina_respond_with,
             "JINA_TIMEOUT_SECONDS": self.jina_timeout,
-            "primary_api_mode": "xai-responses" if self.xai_api_key else ("chat-completions" if self.openai_compatible_api_url and self.openai_compatible_api_key else "未配置"),
+            "primary_api_mode": "xai-responses" if self.xai_api_key else (openai_compatible_api_mode if self.openai_compatible_api_url and self.openai_compatible_api_key else "未配置"),
             "primary_api_mode_source": "config_file" if explicit_main_configured else "default",
             "config_file": str(self.config_file),
             "config_dir": str(self.config_file.parent),

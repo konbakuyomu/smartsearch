@@ -40,15 +40,15 @@ Intent router rules:
 
 ## Provider Boundaries
 
-- `search` builds `main_search` from configured peer providers: `XAI_API_KEY` for xAI Responses and `OPENAI_COMPATIBLE_API_URL` + `OPENAI_COMPATIBLE_API_KEY` for OpenAI-compatible Chat Completions.
+- `search` builds `main_search` from configured peer providers: `XAI_API_KEY` for xAI Responses and `OPENAI_COMPATIBLE_API_URL` + `OPENAI_COMPATIBLE_API_KEY` for an OpenAI-compatible route.
 - `search` uses unified `IntentRouter` output to populate `required_capabilities` and `supplemental_paths`; provider execution still follows capability-first fallback.
 - `research` reuses the same `IntentRouter` before provider-advantage ordering.
 - `deep` uses offline rules/local signals only and must not call remote embeddings or classifier components.
-- Official xAI uses the Responses API `/responses` route through `XAI_*`. Compatible relays/gateways use Chat Completions `/chat/completions` through `OPENAI_COMPATIBLE_*`.
+- Official xAI uses `/responses` through `XAI_*`. OpenAI-compatible relays default to `/chat/completions`; `OPENAI_COMPATIBLE_API_MODE=responses` explicitly selects `/responses` for a relay that supports the documented subset.
 - `OPENAI_COMPATIBLE_STREAM=true` or `search --stream` sets `stream=true` only for OpenAI-compatible `search` and provider-side `fetch`; it is a relay compatibility switch and does not affect xAI Responses, URL description, or source ranking.
 - Legacy `SMART_SEARCH_API_URL`, `SMART_SEARCH_API_KEY`, `SMART_SEARCH_API_MODE`, `SMART_SEARCH_MODEL`, and `SMART_SEARCH_XAI_TOOLS` are unsupported config keys.
 - xAI Responses mode may use only `XAI_TOOLS=web_search,x_search` and a subset of those tools.
-- Chat Completions mode must not send xAI `web_search` / `x_search` tools or legacy `search_parameters`; xAI Chat Completions Live Search is deprecated.
+- Neither OpenAI-compatible API mode sends xAI `web_search` / `x_search` tools or legacy `search_parameters`; xAI Chat Completions Live Search is deprecated.
 - The standard minimum profile requires one configured provider in each of `main_search`, `docs_search`, and fetch capability. Missing required capabilities should be treated as a hard configuration failure.
 - AnySearch is reported only as optional experimental `vertical_search`; it is not part of the `web_search` fallback and is not required by the `standard` minimum profile.
 - Sciverse is reported only as optional experimental explicit-only `vertical_search`; it is not `docs_search`, not part of default `search` / `research` fallback, and not required by the `standard` minimum profile.
@@ -125,17 +125,25 @@ Sciverse:
 - `SCIVERSE_API_URL` defaults to `https://api.sciverse.space`; `SCIVERSE_TIMEOUT_SECONDS` defaults to `30`.
 - `SCIVERSE_API_TOKEN` is required. Missing token returns `error_type=config_error` without a network request; configured requests send `Authorization: Bearer ...` and must never expose the token.
 - Commands map directly to Sciverse OpenAPI: catalog -> `GET /meta-catalog`, search -> `POST /meta-search`, semantic -> `POST /agentic-search`, read -> `GET /content`, relations -> `POST /meta-paper-relations`.
+- Current `meta-catalog` and `meta-search` schemas have no `collection` selector. Legacy `--collection papers` is accepted without being sent upstream; `authors` and `sources` return `parameter_error` before a request. `meta-search` sends only `query`, `filters`, `sort`, `freshness_boost`, `page`, and `page_size`. `--title-contains` / `--abstract-contains` fold into `query`; author, journal, subject, and year conveniences become current filter items.
+- Advanced filters and sorts are structured local contracts: filters require `field` and `value` with a current `operator` such as `FILTER_OP_GTE`; legacy `op` is accepted only when it maps unambiguously. Sort items require `field` and normalize `order` to `SORT_ORDER_ASC` or `SORT_ORDER_DESC`. Full-text `query` and any `sort` conflict, so `--sort-by-year` defaults to `none` and sorting is filter-only.
+- `sciverse-semantic --retrieval hybrid|milvus|es` is the current semantic contract. Deprecated `--mode fast|balanced|quality` maps to `retrieval=hybrid` with a warning; it conflicts with explicit `milvus` or `es`. Semantic `--source-types` accepts only `web,pdf`.
 - `sciverse-read` uses `doc_id`; `sciverse-relations` uses `unique_id`.
 - Relation direction must stay explicit: `CITATIONS` means papers citing the target paper, `REFERENCES` means papers cited by the target paper, and `RELATED_WORKS` means related work suggestions.
-- Local limits reject before network: search `page_size <= 50`, semantic `top_k <= 30`, read `limit <= 16384`, relations `page_size <= 200`.
-- `--filters-advanced` and `--sort-advanced` must be JSON arrays and fail with `parameter_error` before service/provider calls when invalid.
+- Sciverse's documented HTTP `504` deadline response is `timeout`; other `5xx` responses remain `network_error`.
+- Local limits reject before network: search `page_size <= 200` and `page * page_size <= 10000`, semantic `top_k <= 100`, read `limit <= 16384`, relations `page_size <= 200`.
+- `--filters-advanced` and `--sort-advanced` must be JSON arrays of valid objects and fail with `parameter_error` before service/provider calls when malformed.
 
 OpenAI-compatible streaming:
 
+- `OPENAI_COMPATIBLE_API_MODE` defaults to `chat-completions` and accepts only `chat-completions` or `responses`. The selected protocol applies consistently to `search()`, provider-side `fetch()`, `describe_url()`, `rank_sources()`, `doctor`, and `diagnose openai-compatible`.
+- Responses mode handles the official `model` + `instructions`/`input` subset, heterogeneous `output` text parts, URL citations, typed stream deltas, and terminal failures. It does not promise `/responses` support from every relay marketed as OpenAI-compatible; accept each named relay with both diagnose stream probes.
 - `OPENAI_COMPATIBLE_STREAM` defaults to `false` and accepts `true`, `1`, or `yes` as true.
 - `search --stream` means "prefer stream first"; stream empty/timeout/retryable protocol failures fall back to the same provider/model with `stream=false`.
 - `search --no-stream` forces `stream=false` for the current invocation.
-- `OPENAI_COMPATIBLE_FALLBACK_MODELS` is an optional comma-separated ordered list. It is fail-over after a hard primary-model failure, not a time slice. The current candidate keeps the remaining `--timeout` budget; extra fallback models must not shrink that budget. `--fallback off` or `--model MODEL` disables this model fallback for the invocation.
+- `SMART_SEARCH_TIMEOUT_SECONDS` defines one 180-second default monotonic `search` budget. Hybrid remote routing shares a cap while reserving main-model capacity; explicit `search --timeout` overrides the saved value for one invocation.
+- `OPENAI_COMPATIBLE_FALLBACK_MODELS` is an optional comma-separated ordered list. It is fail-over after a hard primary-model failure, not a time slice. The current candidate keeps the remaining shared main-search budget; extra fallback models must not shrink that budget. `--fallback off` or `--model MODEL` disables this model fallback for the invocation.
+- `timeout_phase`, `phase_attempts`, elapsed/remaining deadline values, and `partial_success` are scheduler telemetry. Optional extra/supplemental timeout retains primary content and completed sources; strict evidence validation still reports insufficient evidence when no sources remain.
 - OpenAI-compatible attempts may include `model`, `transport`, `fallback_from_transport`, `fallback_from_model`, and `breaker_state`. `transport_fallback_used` records stream-to-non-stream recovery separately from provider/model `fallback_used`.
 - Streaming applies only to OpenAI-compatible `search()` and provider-side `fetch()` calls. `describe_url()` and `rank_sources()` stay non-streaming. xAI Responses behavior is unchanged.
 

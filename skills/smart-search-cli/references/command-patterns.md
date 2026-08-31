@@ -23,10 +23,10 @@ Deep Research planner output uses an explicit `--evidence-dir` when supplied, ot
 ## Common Commands
 
 ```powershell
-smart-search search "query" --extra-sources 5 --timeout 90 --format json --output result.json
+smart-search search "query" --extra-sources 5 --timeout 180 --format json --output result.json
 smart-search search "query" --stream --format json
 smart-search diagnose openai-compatible --format markdown
-smart-search search "query" --platform "Reuters" --model "model-id" --extra-sources 3 --timeout 90 --format json
+smart-search search "query" --platform "Reuters" --model "model-id" --extra-sources 3 --timeout 180 --format json
 smart-search search "nba战报" --format content
 smart-search search "query" --validation strict --fallback auto --providers auto --format json
 smart-search exa-search "query" --num-results 5 --search-type neural --include-text --include-highlights --include-domains docs.example.com developer.mozilla.org --format json
@@ -41,7 +41,7 @@ smart-search anysearch-extract "https://example.com/source" --max-length 12000 -
 smart-search anysearch-batch "AAPL" "RAG papers" --max-results 2 --format json
 smart-search sciverse-catalog --collection papers --format json
 smart-search sciverse-search "transformer retrieval" --year-from 2020 --page-size 5 --format json
-smart-search sciverse-semantic "attention mechanism" --top-k 3 --mode balanced --format json
+smart-search sciverse-semantic "attention mechanism" --top-k 3 --retrieval hybrid --source-types web,pdf --format json
 smart-search sciverse-read "doc-id-from-search" --offset 0 --limit 4096 --format json
 smart-search sciverse-relations "unique-id-from-search" --relation CITATIONS --page-size 25 --format json
 smart-search fetch "https://example.com" --format markdown --output page.md
@@ -57,6 +57,7 @@ smart-search skills update --targets codex --format json
 smart-search skills update --all --format json
 smart-search route "React useEffect API docs" --format markdown
 smart-search setup --non-interactive --zhipu-api-url "https://open.bigmodel.cn/api" --zhipu-search-engine "search_std"
+smart-search setup --non-interactive --openai-compatible-api-mode responses
 smart-search setup --non-interactive --openai-compatible-stream true
 smart-search setup --non-interactive --openai-compatible-fallback-models "model-a,model-b"
 smart-search setup --non-interactive --anysearch-api-url "https://api.anysearch.com/mcp" --anysearch-key "key"
@@ -72,8 +73,10 @@ smart-search config set XAI_TOOLS "web_search,x_search" --format json
 smart-search config set OPENAI_COMPATIBLE_API_URL "https://api.openai.com/v1" --format json
 smart-search config set OPENAI_COMPATIBLE_API_KEY "key" --format json
 smart-search config set OPENAI_COMPATIBLE_MODEL "model-id" --format json
+smart-search config set OPENAI_COMPATIBLE_API_MODE "responses" --format json
 smart-search config set OPENAI_COMPATIBLE_FALLBACK_MODELS "model-a,model-b" --format json
 smart-search config set OPENAI_COMPATIBLE_STREAM "true" --format json
+smart-search config set SMART_SEARCH_TIMEOUT_SECONDS "180" --format json
 smart-search config set ANYSEARCH_API_URL "https://api.anysearch.com/mcp" --format json
 smart-search config set SCIVERSE_API_TOKEN "key" --format json
 smart-search config set ANYSEARCH_API_KEY "key" --format json
@@ -131,12 +134,12 @@ smart-search reg
 
 ## Timeout Retry Policy
 
-When `smart-search search` returns `ok: false` with `error_type: "network_error"` and an error message containing `timed out`, treat it as a retryable CLI-level timeout, not as a terminal research failure.
+When `smart-search search` returns `ok: false` with `error_type: "timeout"`, treat it as a retryable terminal main-search deadline, not as a terminal research failure. Inspect `timeout_phase` and `phase_attempts` first: optional-phase timeout with `partial_success=true` already retains usable primary content.
 
 1. Retry up to 3 total attempts with `--timeout 180`, waiting about 5 seconds between attempts.
 2. Use `--format json` and `--output PATH` for each attempt; after each attempt, inspect the saved JSON and stop on the first `"ok": true`.
 3. Use `--extra-sources 1` during retry attempts to keep Tavily/Firecrawl overhead small.
-4. Always use the CLI's `--timeout` option. Do not wrap `smart-search` in a shell-level `timeout` command because shell termination can prevent structured failure JSON.
+4. `SMART_SEARCH_TIMEOUT_SECONDS` supplies the persistent 180-second default; use the CLI's `--timeout` only for an explicit one-call override. Do not wrap `smart-search` in a shell-level `timeout` command because shell termination can prevent structured failure JSON.
 5. Do not rely on `SMART_SEARCH_RETRY_*` settings; search command timeouts are surfaced by the CLI result contract and should be handled by the agent workflow.
 6. If all attempts time out, fall back to source-first evidence:
    - Run `exa-search` with the original query.
@@ -144,7 +147,7 @@ When `smart-search search` returns `ok: false` with `error_type: "network_error"
    - `fetch` the top 1-2 relevant URLs before making claim-level statements.
    - Mark the final answer as `source_mode: "fallback"` or clearly state that the answer was assembled from fetched sources rather than generated by `search`.
 
-Agent timeout handling contract: `smart-search search ... --timeout 180 --extra-sources 1 --format json --output PATH` is the retry shape; it is not a shell-level `timeout` wrapper. `SMART_SEARCH_RETRY_*` settings are not the contract for this path. After repeated timeout failures, switch to source-first fallback with `exa-search`, `exa-search --include-domains`, and fetched evidence. Final answers assembled through that fallback should explicitly label the evidence mode, for example `source_mode: "fallback"` or equivalent prose.
+Agent timeout handling contract: `smart-search search ... --timeout 180 --extra-sources 1 --format json --output PATH` is the retry shape; it is not a shell-level `timeout` wrapper. `SMART_SEARCH_RETRY_*` settings are not the contract for this path. After repeated main-search timeout failures, switch to source-first fallback with `exa-search`, `exa-search --include-domains`, and fetched evidence. Final answers assembled through that fallback should explicitly label the evidence mode, for example `source_mode: "fallback"` or equivalent prose.
 
 ## Guardrails
 

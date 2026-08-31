@@ -6,10 +6,16 @@ import httpx
 
 from .base import BaseSearchProvider
 from ..provider_errors import classify_provider_exception, sanitize_provider_error_message
+from ..sciverse_schema import (
+    SciverseParameterError,
+    normalize_sciverse_catalog_params,
+    normalize_sciverse_meta_search_payload,
+    normalize_sciverse_relations_payload,
+    normalize_sciverse_semantic_payload,
+)
 
 
 SCIVERSE_DEFAULT_API_URL = "https://api.sciverse.space"
-SCIVERSE_RELATIONS = {"CITATIONS", "REFERENCES", "RELATED_WORKS"}
 
 
 class SciverseSchemaError(ValueError):
@@ -28,6 +34,8 @@ def _error_payload(exc: Exception, token: str = "") -> dict[str, str]:
     if isinstance(exc, SciverseSchemaError):
         return {"error_type": "parse_error", "error": _sanitize_message(str(exc), token)}
     error_type, error = classify_provider_exception(exc)
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None and exc.response.status_code == 504:
+        error_type = "timeout"
     return {"error_type": error_type, "error": _sanitize_message(error, token)}
 
 
@@ -55,18 +63,6 @@ def _parameter_error(tool: str, message: str, **extra: Any) -> str:
     }
     payload.update(extra)
     return json.dumps(payload, ensure_ascii=False, indent=2)
-
-
-def _split_csv(values: list[str] | str | None) -> list[str]:
-    if values is None:
-        return []
-    if isinstance(values, str):
-        return [item.strip() for item in values.split(",") if item.strip()]
-    return [str(item).strip() for item in values if str(item).strip()]
-
-
-def _compact_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in payload.items() if value not in (None, "", [], {})}
 
 
 def _expect_response_object(data: Any, tool: str) -> dict[str, Any]:
@@ -128,81 +124,63 @@ class SciverseProvider(BaseSearchProvider):
     ) -> str:
         if not self.api_key:
             return _config_error("list_catalog")
+        try:
+            params = normalize_sciverse_catalog_params(
+                collection=collection,
+                include_sample_values=include_sample_values,
+                include_field_stats=include_field_stats,
+            )
+        except SciverseParameterError as exc:
+            return _parameter_error("list_catalog", str(exc))
         return await self._request(
             "list_catalog",
             "GET",
             "/meta-catalog",
-            params={
-                "collection": collection or "papers",
-                "include_sample_values": include_sample_values,
-                "include_field_stats": include_field_stats,
-            },
+            params=params,
         )
 
     async def search_papers(
         self,
         query: str = "",
-        collection: str = "papers",
-        title_contains: str = "",
-        abstract_contains: str = "",
-        authors: list[str] | str | None = None,
-        journals: list[str] | str | None = None,
-        subjects: list[str] | str | None = None,
-        year_from: int | None = None,
-        year_to: int | None = None,
-        filters_advanced: list[dict[str, Any]] | None = None,
-        sort_advanced: list[dict[str, Any]] | None = None,
-        sort_by_year: str = "desc",
+        filters: list[dict[str, Any]] | None = None,
+        sort: list[dict[str, Any]] | None = None,
         freshness_boost: str = "NONE",
         page: int = 1,
         page_size: int = 10,
     ) -> str:
         if not self.api_key:
             return _config_error("search_papers", query=query)
-        if page < 1:
-            return _parameter_error("search_papers", "page must be >= 1", query=query)
-        if page_size < 1 or page_size > 50:
-            return _parameter_error("search_papers", f"page_size must be between 1 and 50, got {page_size}", query=query)
-        payload = _compact_payload(
-            {
-                "collection": collection or "papers",
-                "query": query,
-                "title_contains": title_contains,
-                "abstract_contains": abstract_contains,
-                "authors": _split_csv(authors),
-                "journals": _split_csv(journals),
-                "subjects": _split_csv(subjects),
-                "year_from": year_from,
-                "year_to": year_to,
-                "filters_advanced": filters_advanced or [],
-                "sort_advanced": sort_advanced or [],
-                "sort_by_year": sort_by_year,
-                "freshness_boost": freshness_boost,
-                "page": page,
-                "page_size": page_size,
-            }
-        )
+        try:
+            payload = normalize_sciverse_meta_search_payload(
+                query=query,
+                filters=filters,
+                sort=sort,
+                freshness_boost=freshness_boost,
+                page=page,
+                page_size=page_size,
+            )
+        except SciverseParameterError as exc:
+            return _parameter_error("search_papers", str(exc), query=query)
         return await self._request("search_papers", "POST", "/meta-search", json_body=payload, query=query)
 
     async def semantic_search(
         self,
         query: str,
         top_k: int = 10,
-        mode: str = "balanced",
+        retrieval: str = "hybrid",
         source_types: list[str] | str | None = None,
     ) -> str:
         if not self.api_key:
             return _config_error("semantic_search", query=query)
-        if top_k < 1 or top_k > 30:
-            return _parameter_error("semantic_search", f"top_k must be between 1 and 30, got {top_k}", query=query)
-        payload = _compact_payload(
-            {
-                "query": query,
-                "top_k": top_k,
-                "mode": mode or "balanced",
-                "source_types": _split_csv(source_types),
-            }
-        )
+        try:
+            payload = normalize_sciverse_semantic_payload(
+                query=query,
+                top_k=top_k,
+                retrieval=retrieval,
+                source_types=source_types,
+            )
+        except SciverseParameterError as exc:
+            return _parameter_error("semantic_search", str(exc), query=query)
         return await self._request("semantic_search", "POST", "/agentic-search", json_body=payload, query=query)
 
     async def read_content(self, doc_id: str, offset: int = 0, limit: int = 4096) -> str:
@@ -227,33 +205,24 @@ class SciverseProvider(BaseSearchProvider):
         page: int = 1,
         page_size: int = 25,
     ) -> str:
-        relation_value = (relation or "CITATIONS").upper()
         if not self.api_key:
-            return _config_error("list_paper_relations", unique_id=unique_id, relation=relation_value)
-        if relation_value not in SCIVERSE_RELATIONS:
-            return _parameter_error(
-                "list_paper_relations",
-                f"relation must be one of {', '.join(sorted(SCIVERSE_RELATIONS))}",
+            return _config_error("list_paper_relations", unique_id=unique_id, relation=(relation or "CITATIONS").upper())
+        try:
+            payload = normalize_sciverse_relations_payload(
                 unique_id=unique_id,
                 relation=relation,
+                page=page,
+                page_size=page_size,
             )
-        if page < 1:
-            return _parameter_error("list_paper_relations", "page must be >= 1", unique_id=unique_id, relation=relation_value)
-        if page_size < 1 or page_size > 200:
-            return _parameter_error(
-                "list_paper_relations",
-                f"page_size must be between 1 and 200, got {page_size}",
-                unique_id=unique_id,
-                relation=relation_value,
-            )
-        payload = {"unique_id": unique_id, "relation": relation_value, "page": page, "page_size": page_size}
+        except SciverseParameterError as exc:
+            return _parameter_error("list_paper_relations", str(exc), unique_id=unique_id, relation=relation)
         return await self._request(
             "list_paper_relations",
             "POST",
             "/meta-paper-relations",
             json_body=payload,
-            unique_id=unique_id,
-            relation=relation_value,
+            unique_id=payload["unique_id"],
+            relation=payload["relation"],
         )
 
     async def _request(

@@ -1,9 +1,11 @@
+import asyncio
 import json
 import time
 
 import httpx
 import pytest
 
+from smart_search import cli
 from smart_search import service
 
 
@@ -20,8 +22,10 @@ def _reset_config(monkeypatch, tmp_path):
         "OPENAI_COMPATIBLE_API_KEY",
         "OPENAI_COMPATIBLE_MODEL",
         "OPENAI_COMPATIBLE_FALLBACK_MODELS",
+        "OPENAI_COMPATIBLE_API_MODE",
         "OPENAI_COMPATIBLE_STREAM",
         "SMART_SEARCH_INTENT_ROUTER",
+        "SMART_SEARCH_TIMEOUT_SECONDS",
         "INTENT_EMBEDDING_API_URL",
         "INTENT_EMBEDDING_API_KEY",
         "INTENT_EMBEDDING_MODEL",
@@ -97,6 +101,18 @@ def test_config_set_list_unset_and_path(monkeypatch, tmp_path):
     assert "XAI_API_KEY" not in service.config_list()["values"]
 
 
+def test_search_timeout_config_rejects_invalid_persisted_values(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+
+    for value in ("0", "-1", "nan", "inf", "not-a-number"):
+        result = service.config_set("SMART_SEARCH_TIMEOUT_SECONDS", value)
+        assert result["ok"] is False
+        assert result["error_type"] == "parameter_error"
+        assert "SMART_SEARCH_TIMEOUT_SECONDS" in result["error"]
+
+    assert "SMART_SEARCH_TIMEOUT_SECONDS" not in service.config.get_saved_config(masked=False)
+
+
 def test_config_file_supplies_explicit_main_settings(monkeypatch, tmp_path):
     _reset_config(monkeypatch, tmp_path)
 
@@ -139,6 +155,32 @@ def test_openai_compatible_stream_config_defaults_and_boolean_styles(monkeypatch
 
     monkeypatch.setenv("OPENAI_COMPATIBLE_STREAM", "false")
     assert service.config.openai_compatible_stream is False
+
+
+def test_openai_compatible_api_mode_defaults_validates_and_reports(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+
+    assert service.config.openai_compatible_api_mode == "chat-completions"
+    assert service.config_set("OPENAI_COMPATIBLE_API_MODE", "responses")["ok"] is True
+    assert service.config.openai_compatible_api_mode == "responses"
+    assert service.config.get_config_info()["OPENAI_COMPATIBLE_API_MODE"] == "responses"
+
+    invalid = service.config_set("OPENAI_COMPATIBLE_API_MODE", "legacy-completions")
+    assert invalid["ok"] is False
+    assert invalid["error_type"] == "parameter_error"
+    assert "Invalid OPENAI_COMPATIBLE_API_MODE" in invalid["error"]
+    assert service.config.openai_compatible_api_mode == "responses"
+
+
+def test_current_model_rejects_invalid_openai_compatible_api_mode(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_MODE", "invalid")
+
+    result = service.current_model()
+
+    assert result["ok"] is False
+    assert result["error_type"] == "parameter_error"
+    assert "Invalid OPENAI_COMPATIBLE_API_MODE" in result["error"]
 
 
 def test_intent_router_config_defaults_and_saved_values(monkeypatch, tmp_path):
@@ -1095,6 +1137,54 @@ async def test_search_uses_xai_responses_for_explicit_xai_config(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_xai_inline_sources_flow_to_primary_source_rendering(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("SMART_SEARCH_MINIMUM_PROFILE", "off")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
+
+    class InlineResponse:
+        def json(self):
+            return {
+                "output": [
+                    {
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": (
+                                    "Read [the docs](https://docs.example.com/guide), then "
+                                    "https://news.example.com/latest."
+                                ),
+                                "annotations": [],
+                            }
+                        ]
+                    }
+                ]
+            }
+
+    async def fake_search(self, query, platform="", ctx=None):
+        return await self._parse_response(InlineResponse())
+
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", fake_search)
+
+    result = await service.search("what is new")
+    rendered = cli._format_markdown("search", result)
+
+    assert result["content"] == (
+        "Read [the docs](https://docs.example.com/guide), then "
+        "https://news.example.com/latest."
+    )
+    assert result["primary_sources"] == [
+        {"url": "https://docs.example.com/guide"},
+        {"url": "https://news.example.com/latest"},
+    ]
+    assert result["sources"] == result["primary_sources"]
+    assert "## Primary Sources" in rendered
+    assert "- [https://docs.example.com/guide](https://docs.example.com/guide)" in rendered
+    assert "- [https://news.example.com/latest](https://news.example.com/latest)" in rendered
+    assert rendered.index("https://docs.example.com/guide") < rendered.index("https://news.example.com/latest")
+
+
+@pytest.mark.asyncio
 async def test_search_fallbacks_from_xai_responses_to_openai_compatible(monkeypatch):
     monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
     monkeypatch.setenv("XAI_MODEL", "xai-model")
@@ -1174,6 +1264,48 @@ async def test_search_accepts_only_openai_compatible_as_main_provider(monkeypatc
     assert result["primary_api_mode"] == "chat-completions"
     assert result["routing_decision"]["main_search_chain"] == ["openai-compatible"]
     assert result["capability_status"]["main_search"]["configured"] == ["openai-compatible"]
+
+
+@pytest.mark.asyncio
+async def test_search_passes_openai_compatible_responses_mode_and_mode_telemetry(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_MODE", "responses")
+    captured = {}
+
+    async def fake_search(self, query, platform="", ctx=None):
+        captured["api_mode"] = self.api_mode
+        captured["endpoint"] = self._api_endpoint()
+        return "Relay answer."
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_search)
+
+    result = await service.search("what is example", providers="openai-compatible")
+
+    assert result["ok"] is True
+    assert result["primary_api_mode"] == "responses"
+    assert captured == {"api_mode": "responses", "endpoint": "https://relay.example.com/v1/responses"}
+    assert result["routing_decision"]["openai_compatible_api_mode"] == "responses"
+    assert result["provider_attempts"][0]["api_mode"] == "responses"
+    assert result["provider_attempts"][0]["endpoint"] == "https://relay.example.com/v1/responses"
+
+
+@pytest.mark.asyncio
+async def test_search_rejects_invalid_openai_compatible_mode_before_provider_work(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_MODE", "not-a-mode")
+
+    async def should_not_run(self, query, platform="", ctx=None):
+        raise AssertionError("provider should not run for an invalid API mode")
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", should_not_run)
+
+    result = await service.search("what is example", providers="openai-compatible")
+
+    assert result["ok"] is False
+    assert result["error_type"] == "parameter_error"
+    assert "Invalid OPENAI_COMPATIBLE_API_MODE" in result["error"]
 
 
 @pytest.mark.asyncio
@@ -1341,8 +1473,20 @@ async def test_search_model_breaker_skips_primary_model(monkeypatch):
     assert result["provider_attempts"][0]["breaker_state"]["state"] == "open"
 
 
+def test_openai_model_breakers_are_isolated_by_api_mode():
+    service.reset_runtime_breakers()
+    api_url = "https://relay.example.com/v1"
+    model = "primary-model"
+
+    service._record_openai_model_failure(api_url, model, "chat-completions")
+    service._record_openai_model_failure(api_url, model, "chat-completions")
+
+    assert service._openai_model_breaker_state(api_url, model, "chat-completions")["state"] == "open"
+    assert service._openai_model_breaker_state(api_url, model, "responses")["state"] == "closed"
+
+
 def test_attempt_timeout_uses_remaining_budget_even_with_multiple_candidates():
-    start = time.time()
+    start = time.monotonic()
 
     timeout = service._attempt_timeout_seconds(start, 90.0, remaining_candidates=2)
 
@@ -2319,8 +2463,8 @@ async def test_sciverse_service_wrappers_decode_provider_json(monkeypatch):
             calls.append(("search", kwargs))
             return json.dumps({"ok": True, "provider": "sciverse", "tool": "search_papers", "query": kwargs.get("query")})
 
-        async def semantic_search(self, query, top_k=10, mode="balanced", source_types=None):
-            calls.append(("semantic", query, top_k, mode, source_types))
+        async def semantic_search(self, query, top_k=10, retrieval="hybrid", source_types=None):
+            calls.append(("semantic", query, top_k, retrieval, source_types))
             return json.dumps({"ok": True, "provider": "sciverse", "tool": "semantic_search", "query": query})
 
         async def read_content(self, doc_id, offset=0, limit=4096):
@@ -2343,7 +2487,7 @@ async def test_sciverse_service_wrappers_decode_provider_json(monkeypatch):
         filters_advanced=[{"field": "year", "op": ">=", "value": 2020}],
         page_size=5,
     )
-    semantic = await service.sciverse_semantic("attention mechanism", top_k=3, mode="balanced", source_types=["paper"])
+    semantic = await service.sciverse_semantic("attention mechanism", top_k=3, mode="balanced", source_types=["web"])
     read = await service.sciverse_read("doc-1", offset=10, limit=100)
     relations = await service.sciverse_relations("paper-1", relation="REFERENCES", page=2, page_size=25)
 
@@ -2360,29 +2504,47 @@ async def test_sciverse_service_wrappers_decode_provider_json(monkeypatch):
             "search",
             {
                 "query": "transformer retrieval",
-                "collection": "papers",
-                "title_contains": "",
-                "abstract_contains": "",
-                "authors": None,
-                "journals": None,
-                "subjects": None,
-                "year_from": 2020,
-                "year_to": None,
-                "filters_advanced": [{"field": "year", "op": ">=", "value": 2020}],
-                "sort_advanced": None,
-                "sort_by_year": "desc",
+                "filters": [
+                    {"field": "publication_published_year", "operator": "FILTER_OP_GTE", "value": 2020},
+                    {"field": "year", "operator": "FILTER_OP_GTE", "value": 2020},
+                ],
+                "sort": [],
                 "freshness_boost": "NONE",
                 "page": 1,
                 "page_size": 5,
             },
         ),
         ("init", "https://sciverse.example.com", "sciverse-test-secret", 7.0),
-        ("semantic", "attention mechanism", 3, "balanced", ["paper"]),
+        ("semantic", "attention mechanism", 3, "hybrid", ["web"]),
         ("init", "https://sciverse.example.com", "sciverse-test-secret", 7.0),
         ("read", "doc-1", 10, 100),
         ("init", "https://sciverse.example.com", "sciverse-test-secret", 7.0),
         ("relations", "paper-1", "REFERENCES", 2, 25),
     ]
+    assert semantic["warnings"] == ["--mode is deprecated and maps to --retrieval hybrid; use --retrieval hybrid|milvus|es."]
+
+
+@pytest.mark.asyncio
+async def test_sciverse_service_rejects_current_schema_conflicts_before_provider(monkeypatch):
+    class FakeSciverseProvider:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("invalid Sciverse requests must not construct a provider")
+
+    monkeypatch.setattr(service, "SciverseProvider", FakeSciverseProvider)
+
+    unsupported_catalog_collection = await service.sciverse_catalog(collection="authors")
+    query_and_sort = await service.sciverse_search("query", sort_by_year="desc")
+    unsupported_collection = await service.sciverse_search("", collection="authors")
+    incompatible_retrieval = await service.sciverse_semantic("query", retrieval="milvus", mode="balanced")
+
+    assert unsupported_catalog_collection["error_type"] == "parameter_error"
+    assert "collection=papers only" in unsupported_catalog_collection["error"]
+    assert query_and_sort["error_type"] == "parameter_error"
+    assert "query together with sort" in query_and_sort["error"]
+    assert unsupported_collection["error_type"] == "parameter_error"
+    assert "collection=papers only" in unsupported_collection["error"]
+    assert incompatible_retrieval["error_type"] == "parameter_error"
+    assert "conflicts" in incompatible_retrieval["error"]
 
 
 @pytest.mark.asyncio
@@ -2538,6 +2700,61 @@ async def test_diagnose_openai_compatible_reports_ok_when_both_search_shapes_wor
     assert result["ok"] is True
     assert result["error_type"] == ""
     assert "主链路正常" in result["summary"]
+
+
+@pytest.mark.asyncio
+async def test_diagnose_openai_compatible_uses_responses_mode_for_every_probe(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1/responses/")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_MODE", "responses")
+    probed_modes = []
+
+    async def fake_quick(api_url, api_key, model, *, api_mode):
+        assert api_mode == "responses"
+        return {"status": "ok", "message": "responses ok", "response_time_ms": 1.0, "has_content": True}
+
+    async def fake_probe(api_url, api_key, model, *, stream, timeout_seconds, api_mode="chat-completions"):
+        probed_modes.append(api_mode)
+        return {
+            "name": "probe",
+            "status": "ok",
+            "message": "ok",
+            "response_time_ms": 1.0,
+            "has_content": True,
+            "stream": stream,
+        }
+
+    async def fake_models(*args):
+        return []
+
+    monkeypatch.setattr(service, "_test_openai_compatible_primary", fake_quick)
+    monkeypatch.setattr(service, "_probe_openai_compatible_search_shape", fake_probe)
+    monkeypatch.setattr(service, "fetch_available_models", fake_models)
+
+    result = await service.diagnose_openai_compatible(timeout_seconds=3)
+
+    assert result["ok"] is True
+    assert result["configured_api_mode"] == "responses"
+    assert result["endpoint"] == "https://relay.example.com/v1/responses"
+    assert probed_modes == ["responses", "responses"]
+
+
+@pytest.mark.asyncio
+async def test_diagnose_rejects_invalid_api_mode_without_probe(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_MODE", "invalid")
+
+    async def should_not_probe(*args, **kwargs):
+        raise AssertionError("diagnose should reject invalid mode locally")
+
+    monkeypatch.setattr(service, "_probe_openai_compatible_search_shape", should_not_probe)
+
+    result = await service.diagnose_openai_compatible()
+
+    assert result["ok"] is False
+    assert result["error_type"] == "parameter_error"
+    assert "Invalid OPENAI_COMPATIBLE_API_MODE" in result["error"]
 
 
 @pytest.mark.asyncio
@@ -2712,6 +2929,56 @@ async def test_doctor_uses_chat_completions_for_only_openai_compatible_config(mo
     assert result["capability_status"]["main_search"]["configured"] == ["openai-compatible"]
     assert calls[0][0] == "post"
     assert calls[0][1] == "https://relay.example.com/v1/chat/completions"
+    assert calls[1] == ("get", "https://relay.example.com/v1/models")
+
+
+@pytest.mark.asyncio
+async def test_doctor_uses_responses_for_explicit_openai_compatible_mode(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1/responses/")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_MODE", "responses")
+    calls = []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def get(self, url, headers):
+            calls.append(("get", url))
+            return httpx.Response(
+                200,
+                json={"data": [{"id": "relay-model"}]},
+                request=httpx.Request("GET", url),
+            )
+
+        async def post(self, url, headers, json):
+            calls.append(("post", url, json))
+            return httpx.Response(
+                200,
+                json={"status": "completed", "output": [{"type": "message", "content": [{"type": "output_text", "text": "ok"}]}]},
+                request=httpx.Request("POST", url),
+            )
+
+    monkeypatch.setattr(service.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = await service.doctor()
+
+    assert result["primary_api_mode"] == "responses"
+    assert result["OPENAI_COMPATIBLE_API_MODE"] == "responses"
+    assert result["openai_compatible_endpoint"] == "https://relay.example.com/v1/responses"
+    assert result["primary_connection_test"]["status"] == "ok"
+    assert result["primary_connection_test"]["api_mode"] == "responses"
+    assert calls[0][0] == "post"
+    assert calls[0][1] == "https://relay.example.com/v1/responses"
+    assert "input" in calls[0][2]
+    assert "messages" not in calls[0][2]
+    assert "tools" not in calls[0][2]
     assert calls[1] == ("get", "https://relay.example.com/v1/models")
 
 
@@ -2993,3 +3260,218 @@ async def test_extra_source_failures_are_recorded_without_hiding_them(monkeypatc
         ("tavily", "error", "rate_limited"),
         ("firecrawl", "empty", ""),
     ]
+
+
+@pytest.mark.asyncio
+async def test_search_timeout_config_precedence_and_default(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+
+    async def fake_primary_search(self, query, platform="", ctx=None):
+        return "Answer."
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_primary_search)
+
+    default_result = await service.search("default timeout", validation="fast")
+    service.config_set("SMART_SEARCH_TIMEOUT_SECONDS", "210")
+    configured_result = await service.search("configured timeout", validation="fast")
+    monkeypatch.setenv("SMART_SEARCH_TIMEOUT_SECONDS", "240")
+    environment_result = await service.search("environment timeout", validation="fast")
+    override_result = await service.search("override timeout", validation="fast", timeout_seconds=300)
+
+    assert default_result["timeout_seconds"] == 180
+    assert configured_result["timeout_seconds"] == 210
+    assert environment_result["timeout_seconds"] == 240
+    assert override_result["timeout_seconds"] == 300
+    assert all(result["ok"] is True for result in (default_result, configured_result, environment_result, override_result))
+
+
+@pytest.mark.asyncio
+async def test_search_rejects_non_positive_timeout_before_provider_work(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+
+    async def should_not_run(self, query, platform="", ctx=None):
+        raise AssertionError("provider should not run for an invalid timeout")
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", should_not_run)
+
+    result = await service.search("invalid timeout", timeout_seconds=0)
+
+    assert result["ok"] is False
+    assert result["error_type"] == "parameter_error"
+    assert "--timeout" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_router_shared_cap_preserves_main_search_reserve(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "hybrid")
+    monkeypatch.setenv("INTENT_EMBEDDING_API_URL", "https://embed.example.com/v1/embeddings")
+    monkeypatch.setenv("INTENT_EMBEDDING_API_KEY", "embed-test-secret")
+    monkeypatch.setenv("INTENT_EMBEDDING_MODEL", "embed-model")
+    monkeypatch.setenv("INTENT_ROUTER_TIMEOUT_SECONDS", "0.2")
+
+    async def slow_remote_route(self, query, *, validation_level="", mode="", allow_remote=True, plan_intent_signals=None):
+        if allow_remote:
+            await asyncio.sleep(1)
+        return service.build_rules_route(query, validation_level=validation_level, mode="rules")
+
+    async def fake_primary_search(self, query, platform="", ctx=None):
+        return "Main answer."
+
+    monkeypatch.setattr(service.IntentRouter, "route", slow_remote_route)
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_primary_search)
+
+    result = await service.search("router budget", validation="fast", timeout_seconds=0.6)
+
+    router_attempt = next(attempt for attempt in result["phase_attempts"] if attempt["phase"] == "router")
+    main_attempt = next(attempt for attempt in result["phase_attempts"] if attempt["phase"] == "main_search")
+    assert result["ok"] is True
+    assert result["timeout_phase"] == "router"
+    assert router_attempt["status"] == "timeout"
+    assert main_attempt["status"] == "ok"
+    assert result["routing_decision"]["main_search_reserve_seconds"] == 0.4
+
+
+@pytest.mark.asyncio
+async def test_optional_extra_timeout_keeps_primary_result_and_completed_sources(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-secret")
+    monkeypatch.setenv("FIRECRAWL_API_KEY", "firecrawl-test-secret")
+    cancelled = False
+
+    async def fake_primary_search(self, query, platform="", ctx=None):
+        return "Primary answer."
+
+    async def fast_tavily(query, max_results=6):
+        return [{"url": "https://tavily.example.com", "title": "Tavily", "content": "complete"}]
+
+    async def slow_firecrawl(query, limit=14):
+        nonlocal cancelled
+        try:
+            await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
+        return []
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_primary_search)
+    monkeypatch.setattr(service, "call_tavily_search", fast_tavily)
+    monkeypatch.setattr(service, "call_firecrawl_search", slow_firecrawl)
+
+    result = await service.search("optional budget", validation="fast", extra_sources=2, timeout_seconds=0.2)
+
+    extra_attempt = next(attempt for attempt in result["phase_attempts"] if attempt["phase"] == "extra_sources")
+    assert result["ok"] is True
+    assert result["content"] == "Primary answer."
+    assert result["partial_success"] is True
+    assert result["timeout_phase"] == "extra_sources"
+    assert extra_attempt["status"] == "timeout"
+    assert extra_attempt["pending_providers"] == ["firecrawl"]
+    assert [item["provider"] for item in result["extra_sources"]] == ["tavily"]
+    assert cancelled is True
+
+
+@pytest.mark.asyncio
+async def test_strict_optional_timeout_keeps_generated_content_and_evidence_error(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+
+    async def fake_primary_search(self, query, platform="", ctx=None):
+        return "Generated content without citations."
+
+    async def slow_web_search(query, count=5, providers="auto", fallback="auto"):
+        await asyncio.sleep(1)
+        return [], []
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", fake_primary_search)
+    monkeypatch.setattr(service, "_run_web_search_fallback", slow_web_search)
+
+    result = await service.search("strict optional budget", validation="strict", timeout_seconds=0.2)
+
+    assert result["ok"] is False
+    assert result["error_type"] == "evidence_error"
+    assert result["content"] == "Generated content without citations."
+    assert result["partial_success"] is True
+    assert result["timeout_phase"] == "supplemental"
+    assert any(
+        attempt["phase"] == "supplemental"
+        and attempt["capability"] == "web_search"
+        and attempt["status"] == "timeout"
+        for attempt in result["phase_attempts"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_terminal_main_deadline_preserves_phase_telemetry(monkeypatch):
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+
+    async def slow_primary_search(self, query, platform="", ctx=None):
+        await asyncio.sleep(1)
+        return "late answer"
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", slow_primary_search)
+
+    result = await service.search("terminal timeout", validation="fast", timeout_seconds=0.2)
+
+    assert result["ok"] is False
+    assert result["error_type"] == "timeout"
+    assert result["timeout_phase"] == "main_search"
+    assert result["timed_out_phases"] == ["main_search"]
+    assert any(attempt["phase"] == "router" for attempt in result["phase_attempts"])
+    assert any(attempt["phase"] == "main_search" and attempt["status"] == "timeout" for attempt in result["phase_attempts"])
+
+
+@pytest.mark.asyncio
+async def test_main_provider_timeout_keeps_remaining_budget_for_peer_failover(monkeypatch):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "relay-test-secret")
+
+    async def timeout_xai(self, query, platform="", ctx=None):
+        raise asyncio.TimeoutError("xAI transport timeout")
+
+    async def recover_openai(self, query, platform="", ctx=None):
+        return "Peer fallback answer."
+
+    monkeypatch.setattr(service.XAIResponsesSearchProvider, "search", timeout_xai)
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", recover_openai)
+
+    result = await service.search("peer timeout failover", validation="fast", timeout_seconds=5)
+
+    assert result["ok"] is True
+    assert result["content"] == "Peer fallback answer."
+    assert [attempt["provider"] for attempt in result["provider_attempts"]] == ["xAI Responses", "OpenAI-compatible"]
+    assert result["provider_attempts"][0]["error_type"] == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_extra_source_collection_cancels_children_when_search_is_cancelled():
+    budget = service.SearchBudget(10)
+    execution = service.SearchExecutionState(budget)
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def hanging_source():
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    collection = asyncio.create_task(
+        service._collect_extra_source_calls([("tavily", hanging_source)], budget, execution)
+    )
+    await started.wait()
+    collection.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await collection
+
+    assert cancelled.is_set()
