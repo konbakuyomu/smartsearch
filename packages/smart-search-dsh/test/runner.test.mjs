@@ -48,6 +48,105 @@ test('uses the fetch public CLI shape without exposing a configurable shell', as
   assert.deepEqual(result.result.args, ['--format', 'json'])
 })
 
+test('runs the route command without calling providers', async () => {
+  const result = await runSmartSearchCli({
+    command: 'route',
+    input: 'React useEffect docs',
+    config: mockConfig(),
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.command, 'route')
+  assert.equal(result.result.input, 'React useEffect docs')
+  assert.deepEqual(result.result.args, ['--format', 'json'])
+})
+
+test('runs the deep command with --budget extra args', async () => {
+  const result = await runSmartSearchCli({
+    command: 'deep',
+    input: 'bitcoin market',
+    config: mockConfig(),
+    extraArgs: ['--budget', 'standard'],
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.command, 'deep')
+  assert.deepEqual(result.result.args, ['--budget', 'standard', '--format', 'json'])
+})
+
+test('runs the research command with --budget extra args', async () => {
+  const result = await runSmartSearchCli({
+    command: 'research',
+    input: 'AI news',
+    config: mockConfig(),
+    extraArgs: ['--budget', 'deep'],
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.command, 'research')
+  assert.deepEqual(result.result.args, ['--budget', 'deep', '--format', 'json'])
+})
+
+test('runs the map command with a valid URL', async () => {
+  const result = await runSmartSearchCli({
+    command: 'map',
+    input: 'https://example.com/docs',
+    config: mockConfig(),
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.command, 'map')
+  assert.equal(result.result.input, 'https://example.com/docs')
+})
+
+test('runs the doctor command without positional input', async () => {
+  const result = await runSmartSearchCli({
+    command: 'doctor',
+    input: '',
+    config: mockConfig(),
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.command, 'doctor')
+  assert.equal(result.result.input, '')
+  assert.deepEqual(result.result.args, ['--format', 'json'])
+})
+
+test('runs the exa-search command', async () => {
+  const result = await runSmartSearchCli({
+    command: 'exa-search',
+    input: 'OpenAI Responses API',
+    config: mockConfig(),
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.command, 'exa-search')
+})
+
+test('runs the zhipu-search command', async () => {
+  const result = await runSmartSearchCli({
+    command: 'zhipu-search',
+    input: '中国AI政策',
+    config: mockConfig(),
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.command, 'zhipu-search')
+  assert.equal(result.result.input, '中国AI政策')
+})
+
+test('runs the context7-docs command', async () => {
+  const result = await runSmartSearchCli({
+    command: 'context7-docs',
+    input: '/facebook/react',
+    extraArgs: ['React hooks'],
+    config: mockConfig(),
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.command, 'context7-docs')
+})
+
 test('runs a Windows PowerShell npm shim without treating model input as shell syntax', async (context) => {
   if (process.platform !== 'win32') {
     context.skip('Windows-only PowerShell shim coverage')
@@ -91,7 +190,7 @@ test('rejects command-processor metacharacters when only a cmd shim is available
   assert.equal(result.error.code, 'SMART_SEARCH_UNSUPPORTED_INPUT')
 })
 
-test('runs ordinary input through a cmd-only shim', async (context) => {
+test('rejects ordinary input through a cmd-only shim', async (context) => {
   if (process.platform !== 'win32') {
     context.skip('Windows-only cmd shim coverage')
     return
@@ -108,8 +207,8 @@ test('runs ordinary input through a cmd-only shim', async (context) => {
     }),
   })
 
-  assert.equal(result.ok, true)
-  assert.equal(result.result.input, 'safe cmd query')
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'SMART_SEARCH_UNSUPPORTED_INPUT')
 })
 
 test('preserves a public JSON CLI failure in a structured error envelope', async () => {
@@ -192,4 +291,16 @@ test('terminates a running command when the DSH execution signal is cancelled', 
   } finally {
     clearTimeout(cancellation)
   }
+})
+
+test('does not pass positional input for doctor command when input is empty', async () => {
+  const result = await runSmartSearchCli({
+    command: 'doctor',
+    input: '',
+    config: mockConfig(),
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.result.input, '')
+  assert.deepEqual(result.result.args, ['--format', 'json'])
 })
