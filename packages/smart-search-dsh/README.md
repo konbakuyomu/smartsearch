@@ -1,7 +1,7 @@
 # Smart Search for DeepSeek Harness
 
 `@konbakuyomu/smart-search-dsh` is a separate DeepSeek Harness (DSH) bundle.
-It exposes two bounded tools that invoke only the public Smart Search CLI JSON
+It exposes bounded tools that invoke only the public Smart Search CLI JSON
 contract. It does not add DSH dependencies to the core `@konbakuyomu/smart-search`
 package.
 
@@ -31,7 +31,7 @@ archive declares no install lifecycle script, so it does not add an
 Use DSH's public plugin command instead of editing those files yourself:
 
 ```sh
-dsh plugin --profile web add @konbakuyomu/smart-search-dsh@0.1.0
+dsh plugin --profile web add @konbakuyomu/smart-search-dsh@0.2.0
 dsh --profile web --dump-config
 ```
 
@@ -39,7 +39,7 @@ For a locally packed release candidate, replace the registry spec with the
 explicit tarball path:
 
 ```sh
-dsh plugin --profile web add ./konbakuyomu-smart-search-dsh-0.1.0.tgz
+dsh plugin --profile web add ./konbakuyomu-smart-search-dsh-0.2.0.tgz
 ```
 
 The config dump should contain the `smart-search-dsh` row and
@@ -52,9 +52,31 @@ create or edit a DSH profile.
 | --- | --- | --- |
 | `smart_search_search` | required non-empty `query` | `smart-search search QUERY --timeout SECONDS --format json` |
 | `smart_search_fetch` | required credential-free absolute HTTP(S) `url` | `smart-search fetch URL --format json` |
+| `smart_search_route` | required non-empty `query` | `smart-search route QUERY --format json` |
+| `smart_search_deep` | required non-empty `query`, optional `budget` | `smart-search deep QUERY [--budget LEVEL] --format json` |
+| `smart_search_research` | required non-empty `query`, optional `budget` | `smart-search research QUERY [--budget LEVEL] --format json` |
+| `smart_search_map` | required credential-free absolute HTTP(S) `url` | `smart-search map URL --format json` |
+| `smart_search_exa_search` | required non-empty `query` | `smart-search exa-search QUERY --format json` |
+| `smart_search_zhipu_search` | required non-empty `query` | `smart-search zhipu-search QUERY --format json` |
+| `smart_search_context7_docs` | required non-empty `library_id` and `query` | `smart-search context7-docs LIBRARY_ID QUERY --format json` |
+| `smart_search_doctor` | none | `smart-search doctor --format json` |
+
+### Tool Categories
+
+| Category | Tools | Purpose |
+| --- | --- | --- |
+| Core search | `smart_search_search`, `smart_search_fetch` | Broad web search and URL fetching |
+| Routing & planning | `smart_search_route`, `smart_search_deep` | Intent routing diagnostics and offline Deep Research planning |
+| Deep Research | `smart_search_research` | Live Deep Research execution with evidence synthesis |
+| Site mapping | `smart_search_map` | Documentation site / domain structure mapping |
+| Provider-specific | `smart_search_exa_search`, `smart_search_zhipu_search`, `smart_search_context7_docs` | Exa trusted-site, Zhipu Chinese-language, Context7 library/docs search |
+| Diagnostics | `smart_search_doctor` | Configuration and provider health check |
+
+The `budget` parameter for `smart_search_deep` and `smart_search_research`
+accepts: `quick`, `standard`, or `deep`. If omitted, the CLI default is used.
 
 The bundle does not expose Smart Search configuration, setup, credential,
-provider-selection, research-execution, shell, or arbitrary-command tools.
+provider-selection, shell, or arbitrary-command tools.
 Smart Search continues to own its own configuration and provider credentials.
 DSH credentials are never mapped into Smart Search arguments or configuration.
 
@@ -75,9 +97,7 @@ search budget and reserves one second for JSON serialization. `timeoutMs` must
 be from 1000 through 600000, and
 `maxOutputBytes` must be from 4096 through 1048576. The process is started with
 an argument vector, never a model-provided shell command. On Windows, npm
-PowerShell shims are preferred. A `.cmd`-only fallback permits ordinary input
-but rejects command-processor metacharacters rather than treating model input
-as shell syntax.
+PowerShell 7 (`pwsh.exe`) shims are preferred. CMD/BAT-only launchers are rejected. Configure an executable or a PowerShell 7 shim.
 
 Successful tool results are:
 
@@ -149,3 +169,21 @@ authorization.
 ## License
 
 MIT. See [LICENSE](./LICENSE).
+
+## Scope and CLI contract regression
+
+This is a curated ten-tool bridge, not a complete CLI wrapper. Configuration,
+installation and experimental commands remain outside this bundle. Context7
+requires a resolved library ID; use the CLI `context7-library` command to
+resolve it before calling the docs tool.
+
+Run the optional real-parser regression with `SMART_SEARCH_TEST_PYTHON`
+pointing to a Python executable with the Smart Search dependencies installed:
+
+```text
+node --test test/cli-contract.test.mjs
+```
+
+The test loads this repository's Python CLI parser without making provider
+requests. Without that environment variable it is explicitly skipped. Mock
+tests alone are not CLI compatibility proof.

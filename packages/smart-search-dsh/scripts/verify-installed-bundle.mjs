@@ -42,7 +42,22 @@ await bundle.apply(
   },
 )
 
-assert.deepEqual(registered.map((tool) => tool.name), ['smart_search_search', 'smart_search_fetch'])
+assert.deepEqual(
+  registered.map((tool) => tool.name),
+  [
+    'smart_search_search',
+    'smart_search_fetch',
+    'smart_search_route',
+    'smart_search_deep',
+    'smart_search_research',
+    'smart_search_map',
+    'smart_search_exa_search',
+    'smart_search_zhipu_search',
+    'smart_search_context7_docs',
+    'smart_search_doctor',
+  ],
+)
+
 const searchTool = registered.find((tool) => tool.name === 'smart_search_search')
 assert.ok(searchTool, 'Installed bundle did not register smart_search_search')
 const result = await searchTool.execute({ query: 'isolated mock search' }, { signal: new AbortController().signal })
@@ -50,4 +65,20 @@ assert.equal(result.ok, true)
 assert.equal(result.result.command, 'search')
 assert.equal(result.result.input, 'isolated mock search')
 
+const doctorTool = registered.find((tool) => tool.name === 'smart_search_doctor')
+assert.ok(doctorTool, 'Installed bundle did not register smart_search_doctor')
+const doctorResult = await doctorTool.execute({}, { signal: new AbortController().signal })
+assert.equal(doctorResult.ok, true)
+assert.equal(doctorResult.result.command, 'doctor')
+
+// Exercise every registered tool, including Context7's two positional inputs.
+for (const tool of registered) {
+  const input = tool.name.endsWith('_doctor') ? {}
+    : /_(fetch|map)$/.test(tool.name) ? { url: 'https://example.com/docs' }
+    : { query: 'Python asyncio docs',
+        ...(tool.name.endsWith('_context7_docs') ? { library_id: '/python/cpython' } : {}),
+        ...(/_(deep|research)$/.test(tool.name) ? { budget: 'quick' } : {}) }
+  const value = await tool.execute(input, { signal: new AbortController().signal })
+  assert.equal(value.ok, true, `Installed tool failed: ${tool.name}`)
+}
 console.log(JSON.stringify({ ok: true, registeredTools: registered.map((tool) => tool.name) }))

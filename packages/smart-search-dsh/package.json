@@ -1,7 +1,7 @@
 {
   "name": "@konbakuyomu/smart-search-dsh",
-  "version": "0.1.0",
-  "description": "DeepSeek Harness bundle exposing bounded Smart Search CLI tools.",
+  "version": "0.2.0",
+  "description": "DeepSeek Harness bundle exposing bounded Smart Search CLI tools: search, fetch, route, deep, research, map, exa-search, zhipu-search, context7-docs, doctor.",
   "license": "MIT",
   "homepage": "https://github.com/konbakuyomu/smartsearch/tree/main/packages/smart-search-dsh#readme",
   "repository": {
