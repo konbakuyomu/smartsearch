@@ -186,13 +186,27 @@ def _one_line(value: Any, limit: int = 160) -> str:
     return text
 
 
-def _md_cell(value: Any) -> str:
-    return _one_line(value).replace("|", r"\|")
+MD_CELL_LIMIT = 160
 
 
-def _markdown_table(headers: list[str], rows: list[list[Any]]) -> list[str]:
+def _md_cell(value: Any, limit: int = MD_CELL_LIMIT) -> str:
+    return _one_line(value, limit).replace("|", r"\|")
+
+
+def _markdown_table(
+    headers: list[str],
+    rows: list[list[Any]],
+    exact_headers: set[str] | None = None,
+) -> list[str]:
+    """Render a Markdown table.
+
+    `exact_headers` names columns holding exact identifiers (paths, URLs, IDs)
+    instead of prose. Those cells are never capped: a truncated path points at
+    a location that does not exist, which is worse than a wide table.
+    """
     if not rows:
         return []
+    cell_limits = [0 if header in (exact_headers or set()) else MD_CELL_LIMIT for header in headers]
     lines = [
         "| " + " | ".join(_md_cell(header) for header in headers) + " |",
         "| " + " | ".join("---" for _ in headers) + " |",
@@ -200,7 +214,7 @@ def _markdown_table(headers: list[str], rows: list[list[Any]]) -> list[str]:
     for row in rows:
         cells = list(row)[: len(headers)]
         cells.extend([""] * (len(headers) - len(cells)))
-        lines.append("| " + " | ".join(_md_cell(cell) for cell in cells) + " |")
+        lines.append("| " + " | ".join(_md_cell(cell, limit) for cell, limit in zip(cells, cell_limits)) + " |")
     return lines
 
 
@@ -394,7 +408,13 @@ def _format_result_markdown(command: str, data: dict[str, Any], title: str) -> s
     lines.append("")
     if results:
         lines.append("## Results")
-        lines.extend(_markdown_table(["#", "Title", "URL / ID", "Summary"], _result_rows(results)))
+        lines.extend(
+            _markdown_table(
+                ["#", "Title", "URL / ID", "Summary"],
+                _result_rows(results),
+                exact_headers={"URL / ID"},
+            )
+        )
     elif data.get("content"):
         lines.append("## Content")
         lines.extend(_markdown_code_block(data.get("content")))
@@ -951,7 +971,13 @@ def _format_skills_markdown(data: dict[str, Any]) -> str:
                 ]
             )
         lines.extend(["", "## Targets"])
-        lines.extend(_markdown_table(["Target", "Status", "Files", "Installed", "Hash match", "Extra", "Path"], rows))
+        lines.extend(
+            _markdown_table(
+                ["Target", "Status", "Files", "Installed", "Hash match", "Extra", "Path"],
+                rows,
+                exact_headers={"Path"},
+            )
+        )
     legacy_rows = []
     for item in targets:
         for legacy in item.get("legacy_locations") or []:
@@ -970,10 +996,22 @@ def _format_skills_markdown(data: dict[str, Any]) -> str:
             "## Legacy Locations",
             "Reported read-only; setup and update write only to the canonical target.",
         ])
-        lines.extend(_markdown_table(["Target", "Status", "Installed", "Extra", "Path"], legacy_rows))
+        lines.extend(
+            _markdown_table(
+                ["Target", "Status", "Installed", "Extra", "Path"],
+                legacy_rows,
+                exact_headers={"Path"},
+            )
+        )
     if data.get("failed"):
         lines.extend(["", "## Failed"])
-        lines.extend(_markdown_table(["Target", "Path", "Error"], [[item.get("target"), item.get("path"), item.get("error")] for item in data.get("failed", [])]))
+        lines.extend(
+            _markdown_table(
+                ["Target", "Path", "Error"],
+                [[item.get("target"), item.get("path"), item.get("error")] for item in data.get("failed", [])],
+                exact_headers={"Path"},
+            )
+        )
     lines.extend(_error_lines(data))
     return "\n".join(lines).strip() + "\n"
 
