@@ -679,6 +679,20 @@ smart-search deep "深度搜索一下最近的比特币行情" --format json | C
 
 ## 开发验证
 
+仓库用 `mise.toml` 声明开发工具链。安装 [mise](https://mise.jdx.dev) 后，`mise install` 会装好固定版本的 Python 和 Node，同一份文件也把常用命令暴露为 task：
+
+```bash
+mise run install      # 创建 .venv，以可编辑模式安装包和 dev 依赖
+mise run test         # 安装 dev 依赖并运行 pytest
+mise run cli -- --v   # 从当前检出运行 CLI
+mise run regression
+mise run smoke
+mise run parity
+mise run check
+```
+
+Python 任务共用当前检出的可编辑 `.venv`，包括 regression 和 smoke。额外开发脚本可通过 `mise run python path/to/script.py` 在同一环境执行。固定的 Python 3.13 满足项目版本约束；CI 独立覆盖 Python 3.10/3.12。mise 是可选的，下面的 `npm` 脚本仍受支持，CI 继续使用 `actions/setup-python` 与 `actions/setup-node`。
+
 ```powershell
 .\.venv\Scripts\python.exe -m compileall -q src tests
 .\.venv\Scripts\python.exe -m pytest tests -q

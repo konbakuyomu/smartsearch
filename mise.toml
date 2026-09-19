@@ -1,0 +1,55 @@
+# Development toolchain for smart-search.
+#
+# Both versions satisfy the declared ranges (Python >=3.10, Node >=18).
+# CI independently covers Python 3.10/3.12 and Node 18/22/24.
+# This is an optional developer entry point; npm and CI remain unchanged.
+[tools]
+python = "3.13.14"
+node = "24.16.0"
+
+# Invoke the project interpreter explicitly: shell profiles may prepend a
+# different Python to PATH after mise activates the venv.
+[vars]
+python = "{% if os() == 'windows' %}.venv/Scripts/python.exe{% else %}.venv/bin/python{% endif %}"
+
+[env]
+_.python.venv = { path = ".venv", create = true }
+
+[tasks.install]
+description = "Create the venv and install the package with dev dependencies"
+run = [
+  "{{vars.python}} -m ensurepip --upgrade",
+  '{{vars.python}} -m pip install --disable-pip-version-check -e ".[dev]"',
+]
+
+[tasks.test]
+description = "Install dev dependencies and run the pytest suite"
+run = [
+  "{{vars.python}} -m ensurepip --upgrade",
+  '{{vars.python}} -m pip install --disable-pip-version-check -e ".[dev]"',
+  "{{vars.python}} -m pytest",
+]
+
+[tasks.cli]
+description = "Run the CLI from this checkout"
+run = "{{vars.python}} -m smart_search.cli"
+
+[tasks.python]
+description = "Run a Python development script in the project environment"
+run = "{{vars.python}}"
+
+[tasks.regression]
+description = "Run the source regression suite from this checkout"
+run = "{{vars.python}} -m smart_search.cli regression"
+
+[tasks.smoke]
+description = "Run the mock smoke suite"
+run = "{{vars.python}} -m smart_search.cli smoke --mock --format json"
+
+[tasks.parity]
+description = "Verify the public and packaged skill trees match"
+run = "npm run check:skill-parity"
+
+[tasks.check]
+description = "Check Python syntax and patch whitespace"
+run = ["{{vars.python}} -m compileall -q src", "git diff --check"]
