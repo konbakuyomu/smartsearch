@@ -11,7 +11,9 @@ from urllib.parse import urlparse
 
 import httpx
 
+from . import jev_search
 from .config import config
+from .jev import JevClient, noul
 from .intent_router import (
     CAPABILITY_UTTERANCES,
     CURRENT_INTENT_KEYWORDS as ROUTER_CURRENT_INTENT_KEYWORDS,
@@ -620,6 +622,8 @@ def _tavily_disabled_message() -> str:
 
 
 PROVIDER_CREDENTIAL_SOURCES: dict[str, Any] = {
+    "xai-responses": lambda: (config.xai_api_key, config.xai_api_url),
+    "openai-compatible": lambda: (config.openai_compatible_api_key, config.openai_compatible_api_url),
     "zhipu": lambda: (config.zhipu_api_key, config.zhipu_api_url),
     "zhipu-mcp": lambda: (config.zhipu_mcp_api_key, config.zhipu_mcp_search_api_url),
     "zhipu-mcp-reader": lambda: (config.zhipu_mcp_api_key, config.zhipu_mcp_reader_api_url),
@@ -1139,6 +1143,19 @@ def provider_profiles() -> dict[str, dict[str, Any]]:
 
 
 def intent_router_status() -> dict[str, Any]:
+    if str(config._get_config_value("SMART_SEARCH_INTENT_ROUTER", "")).strip().lower() == "jev":
+        try:
+            settings = config.jev_settings()
+            return {
+                "mode": "jev", "ok": bool(settings.api_key), "configured": bool(settings.api_key),
+                "model": settings.model, "timeout_seconds": settings.timeout,
+                "max_rounds": settings.max_rounds, "max_channels": settings.max_channels,
+                "filter_results": settings.filter_results, "synthesize": settings.synthesis_mode,
+                "degrades_to_rules": False,
+                "error": "" if settings.api_key else "TYPESAFE_API_KEY is not configured",
+            }
+        except ValueError as exc:
+            return {"mode": "jev", "ok": False, "error": str(exc)}
     return IntentRouter(config).status()
 
 
@@ -1784,6 +1801,21 @@ async def research(
             "elapsed_ms": _elapsed_ms(start),
         }
 
+    if str(config._get_config_value("SMART_SEARCH_INTENT_ROUTER", "")).strip().lower() == "jev":
+        result = await search(question, validation="strict" if budget == "deep" else "balanced", fallback=fallback_mode)
+        result.update(
+            question=question, mode="jev_research_execution", route_policy_version="jev-v1",
+            citations=result.get("sources", []),
+            gap_check={
+                "status": result.get("evidence_assessment", {}).get("status", "failed"),
+                "gaps": [{"reason": reason} for reason in result.get("evidence_assessment", {}).get("gaps", [])],
+            },
+        )
+        if evidence_dir:
+            result["evidence_dir"] = evidence_dir
+            _write_research_artifact(evidence_dir, "report.json", result)
+        return result
+
     minimum = validate_minimum_profile()
     if not minimum.get("ok"):
         return {
@@ -2121,6 +2153,20 @@ def _minimum_profile_result(profile: str, capability_status: dict[str, Any]) -> 
 
 def validate_minimum_profile() -> dict[str, Any]:
     try:
+        if config.intent_router_mode == "jev":
+            settings = config.jev_settings()
+            enabled = [
+                provider for provider, profile in PROVIDER_PROFILES.items()
+                if provider != "main-search" and not profile.get("explicit_only")
+                and provider not in config.research_disabled_providers and _provider_configured(provider)
+            ]
+            missing = ([] if settings.api_key else ["jev"]) + ([] if enabled else ["retrieval"])
+            return {
+                "ok": not missing, "profile": "jev", "required": ["jev", "retrieval"], "missing": missing,
+                "error_type": "config_error" if missing else "",
+                "error": "Jev mode requires TYPESAFE_API_KEY and an enabled retrieval channel" if missing else "",
+                "capability_status": get_capability_status(),
+            }
         profile = config.minimum_profile
     except ValueError as e:
         return {"ok": False, "error_type": "parameter_error", "error": str(e), "missing": []}
@@ -2764,6 +2810,7 @@ async def search(
             raise ValueError(f"Invalid validation level: {validation_level}")
         if fallback_mode not in config._ALLOWED_FALLBACK_MODES:
             raise ValueError(f"Invalid fallback mode: {fallback_mode}")
+        router_mode = config.intent_router_mode
     except ValueError as e:
         return _empty_search_result(
             start,
@@ -2772,6 +2819,12 @@ async def search(
             "parameter_error",
             str(e),
             extra={"timeout_seconds": timeout_seconds},
+        )
+
+    if router_mode == "jev":
+        return await jev_search.search(
+            query, validation=validation_level, fallback=fallback_mode, providers=providers,
+            timeout_seconds=effective_timeout, platform=platform, model=model, stream=stream, extra_sources=extra_sources,
         )
 
     minimum = validate_minimum_profile()
@@ -3258,6 +3311,8 @@ async def route(
         validation_level = (validation or config.validation_level).strip().lower()
         if validation_level not in config._ALLOWED_VALIDATION_LEVELS:
             raise ValueError(f"Invalid validation level: {validation_level}")
+        if (mode or config.intent_router_mode).strip().lower() == "jev":
+            return await jev_search.plan(query, validation_level, allow_remote=allow_remote)
         route_result = await IntentRouter(config).route(
             query,
             validation_level=validation_level,
@@ -4950,6 +5005,25 @@ async def doctor() -> dict[str, Any]:
     primary_test = info.get("primary_connection_test", {})
     primary_status = primary_test.get("status")
     main_search_ok = any(status == "ok" for status in main_search_statuses) if main_connection_tests else primary_status == "ok"
+    if info["intent_router_status"].get("mode") == "jev":
+        try:
+            settings = config.jev_settings()
+            client = JevClient(settings, time.monotonic() + settings.timeout, verify=config.ssl_verify_enabled)
+            await client.evaluate(
+                {"diagnostic": "Smart Search connection check"},
+                {"connection": noul("Is this state a connection check?", "It is a diagnostic connection check.", "It is not a connection check.")},
+                "diagnostic",
+            )
+            info["jev_connection_test"] = {"status": "ok", "model": settings.model, "usage": client.usage()}
+            main_search_ok = main_search_ok if settings.synthesis_mode == "true" else True
+            if not main_provider_configs and settings.synthesis_mode != "true":
+                info["primary_connection_test"] = {"status": "not_required", "message": "Jev evidence mode does not require a main model"}
+        except (ValueError, ProviderCallError) as exc:
+            error_type, error = classify_provider_exception(exc)
+            info["jev_connection_test"] = {"status": "error", "error_type": error_type, "message": error}
+            primary_test = info["jev_connection_test"]
+            primary_status = "error"
+            main_search_ok = False
     info["ok"] = main_search_ok and minimum.get("ok", False)
     if info["ok"]:
         info["error_type"] = ""
@@ -4960,6 +5034,9 @@ async def doctor() -> dict[str, Any]:
     elif not minimum.get("ok", False):
         info["error"] = minimum.get("error", MINIMUM_PROFILE_ERROR)
         info["error_type"] = minimum.get("error_type", "config_error")
+    elif info.get("jev_connection_test", {}).get("status") == "error":
+        info["error"] = info["jev_connection_test"]["message"]
+        info["error_type"] = info["jev_connection_test"]["error_type"]
     else:
         info["error"] = primary_test.get("message", "Primary connection check failed")
         if primary_status == "config_error":

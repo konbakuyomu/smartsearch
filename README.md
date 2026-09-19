@@ -319,7 +319,7 @@ Intent router configuration:
 
 | Key | Purpose |
 | --- | --- |
-| `SMART_SEARCH_INTENT_ROUTER` | `hybrid`, `rules`, or `off`; default `hybrid` |
+| `SMART_SEARCH_INTENT_ROUTER` | `hybrid`, `rules`, `off`, or `jev`; default `hybrid` |
 | `INTENT_EMBEDDING_API_URL` | Optional OpenAI-compatible embeddings endpoint for semantic capability routing; recommended setup preset uses `https://api.siliconflow.cn/v1/embeddings` |
 | `INTENT_EMBEDDING_API_KEY` | Optional embeddings API key; masked by `doctor` and config output |
 | `INTENT_EMBEDDING_MODEL` | Embeddings model name; recommended setup preset uses `Qwen/Qwen3-Embedding-8B` |
@@ -332,6 +332,8 @@ Intent router configuration:
 | `SMART_SEARCH_TIMEOUT_SECONDS` | Total monotonic `search` budget, default `300`; `search --timeout` overrides it for one invocation |
 | `SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS` | How long a repeatedly failing optional provider is skipped, default `900`; `0` disables the cooldown |
 | `SMART_SEARCH_PROVIDER_FAILURE_THRESHOLD` | Consecutive soft failures before an optional provider is put on cooldown, default `2` |
+
+`jev` enables a separate evidence-first workflow for `search` and `research`: Jev chooses one or more configured channels, they run in parallel, and Jev evaluates the accumulated evidence before selecting any follow-up channels. There is no pre-search review round and no mandatory Grok call. Optional binary filtering removes irrelevant passages before returning evidence or performing optional main-model synthesis. See [Jev routing and filtering](docs/jev-routing.md) for configuration, limits, and diagnostics.
 
 Default `hybrid` is fail-open: if embeddings or classifier settings are missing or fail, routing records `degraded_reason` and falls back to local rules. Semantic routing may add a capability only when the top similarity score is at least `INTENT_EMBEDDING_THRESHOLD` and the top-vs-second score gap is at least `INTENT_EMBEDDING_MARGIN`; otherwise it records an ambiguous signal without adding a capability. The classifier may add capabilities, but unknown capability names and provider names are ignored. Providers are still selected only by capability.
 

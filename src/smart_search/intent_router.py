@@ -326,7 +326,7 @@ def contains_any(query: str, keywords: set[str]) -> bool:
 
 def extract_urls(query: str) -> list[str]:
     urls = []
-    for match in re.findall(r"https?://[^\s<>\]\)\"']+", query):
+    for match in re.findall(r"https?://[^\s<>\]\)\"'，。；！？、：）】》」』]+", query):
         cleaned = match.rstrip(".,;，。；)")
         if cleaned:
             urls.append(cleaned)

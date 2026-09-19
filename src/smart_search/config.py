@@ -4,6 +4,8 @@ import os
 import sys
 from pathlib import Path
 
+from .jev import JEV_DEFAULTS, JevSettings, validate_jev_value
+
 class Config:
     _instance = None
     _SETUP_COMMAND = (
@@ -29,7 +31,7 @@ class Config:
     _ALLOWED_VALIDATION_LEVELS = {"fast", "balanced", "strict"}
     _ALLOWED_FALLBACK_MODES = {"auto", "off"}
     _ALLOWED_MINIMUM_PROFILES = {"standard", "off"}
-    _ALLOWED_INTENT_ROUTER_MODES = {"hybrid", "rules", "off"}
+    _ALLOWED_INTENT_ROUTER_MODES = {"hybrid", "rules", "off", "jev"}
     _CONFIG_KEYS = {
         "XAI_API_URL",
         "XAI_API_KEY",
@@ -100,6 +102,7 @@ class Config:
         "SMART_SEARCH_LOG_TO_FILE",
         "SSL_VERIFY",
     }
+    _CONFIG_KEYS.update(JEV_DEFAULTS)
     _LEGACY_CONFIG_KEYS: dict[str, str] = {}
 
     def __new__(cls):
@@ -459,7 +462,11 @@ class Config:
         return value
 
     def _validate_config_value(self, key: str, value: str) -> None:
-        if key == "SMART_SEARCH_TIMEOUT_SECONDS":
+        if key in JEV_DEFAULTS:
+            validate_jev_value(key, value)
+        elif key == "SMART_SEARCH_INTENT_ROUTER":
+            self._validate_enum_value(key, value, self._ALLOWED_INTENT_ROUTER_MODES)
+        elif key == "SMART_SEARCH_TIMEOUT_SECONDS":
             self._parse_positive_float_value(key, value)
         elif key == "SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS":
             self._parse_non_negative_float_value(key, value)
@@ -551,6 +558,9 @@ class Config:
             self._DEFAULT_INTENT_ROUTER_MODE,
             self._ALLOWED_INTENT_ROUTER_MODES,
         )
+
+    def jev_settings(self) -> JevSettings:
+        return JevSettings.from_config(self)
 
     @property
     def intent_embedding_api_url(self) -> str:
@@ -826,6 +836,14 @@ class Config:
 
     def get_config_info(self) -> dict:
         config_parameter_errors: list[str] = []
+        jev_info = {}
+        for key, default in JEV_DEFAULTS.items():
+            value = self._get_config_value(key, default)
+            try:
+                value = validate_jev_value(key, value)
+            except ValueError as exc:
+                config_parameter_errors.append(str(exc))
+            jev_info[key] = self._mask_if_secret(key, str(value)) if "KEY" in key else value
         explicit_main_configured = bool(
             self.xai_api_key
             or (self.openai_compatible_api_url and self.openai_compatible_api_key)
@@ -855,6 +873,8 @@ class Config:
             self._DEFAULT_INTENT_ROUTER_MODE,
             self._ALLOWED_INTENT_ROUTER_MODES,
         )
+        if intent_router_mode == "jev":
+            config_status = "ok: Jev routing configured" if self._get_config_value("TYPESAFE_API_KEY") else "config_error: TYPESAFE_API_KEY is not configured"
         openai_compatible_api_mode, openai_compatible_api_mode_error = self._enum_info(
             "OPENAI_COMPATIBLE_API_MODE",
             self._DEFAULT_OPENAI_COMPATIBLE_API_MODE,
@@ -909,6 +929,7 @@ class Config:
             config_status = f"config_error: {'; '.join(config_parameter_errors)}"
 
         return {
+            **jev_info,
             "XAI_API_URL": self.xai_api_url,
             "XAI_API_KEY": self._mask_api_key(self.xai_api_key) if self.xai_api_key else "未配置",
             "XAI_MODEL": self.xai_model,

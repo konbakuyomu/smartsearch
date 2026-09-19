@@ -25,7 +25,11 @@ The router output keeps old fields such as `docs_intent`, `zh_current_intent`, `
 
 Intent router rules:
 
-- `SMART_SEARCH_INTENT_ROUTER=hybrid|rules|off`, default `hybrid`. `SMART_SEARCH_INTENT_ROUTER` accepts `hybrid`, `rules`, and `off`.
+- `SMART_SEARCH_INTENT_ROUTER=hybrid|rules|off|jev`, default `hybrid`. `SMART_SEARCH_INTENT_ROUTER` accepts `hybrid`, `rules`, `off`, and `jev`.
+- Jev mode requires `TYPESAFE_API_KEY` and at least one configured retrieval channel. It directly selects multiple allowed channel operations, executes them in parallel, and selects untried operations only after evidence is insufficient. `SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS` and `--providers` restrict its candidates; Sciverse remains explicit-only.
+- `SMART_SEARCH_JEV_FILTER_RESULTS=true` enables conservative binary passage filtering after retrieval. Failures retain original evidence. `SMART_SEARCH_JEV_SYNTHESIZE=false` is the default: no mandatory main-model synthesis. `SMART_SEARCH_JEV_MAX_ROUNDS=3` and `SMART_SEARCH_JEV_MAX_CHANNELS=3` bound execution within `--timeout`.
+- `SMART_SEARCH_JEV_SYNTHESIZE` accepts `true`, `false`, and `auto`. Auto asks Jev after optional filtering whether the retained evidence benefits from main-model synthesis. No allowed main model or a failed judgment returns evidence directly. `synthesis` reports the mode, decision probability, execution status and skip reason.
+- In Jev mode `search` and `research` return evidence with assessment/filter/usage telemetry. `route --router-mode jev` previews channel selection without executing search tools. `deep` stays an offline planner.
 - Optional semantic routing uses `INTENT_EMBEDDING_API_URL`, `INTENT_EMBEDDING_API_KEY`, `INTENT_EMBEDDING_MODEL`, `INTENT_EMBEDDING_THRESHOLD`, and `INTENT_EMBEDDING_MARGIN`.
 - Normal users should use the Qwen3-Embedding-8B preset: SiliconFlow endpoint `https://api.siliconflow.cn/v1/embeddings`, model `Qwen/Qwen3-Embedding-8B`, threshold `0.475`, and margin `0.053`.
 - `smart-search setup` auto-fills threshold/margin when Qwen3-Embedding-8B is selected and no explicit values are already configured.

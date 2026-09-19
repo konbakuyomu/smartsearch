@@ -328,7 +328,7 @@ smart-search deep "https://example.com/source" --format json
 
 | 配置项 | 用途 |
 | --- | --- |
-| `SMART_SEARCH_INTENT_ROUTER` | `hybrid`、`rules` 或 `off`，默认 `hybrid` |
+| `SMART_SEARCH_INTENT_ROUTER` | `hybrid`、`rules`、`off` 或 `jev`，默认 `hybrid` |
 | `INTENT_EMBEDDING_API_URL` | 可选 OpenAI-compatible embeddings endpoint，用于语义能力路由；推荐 setup preset 使用 `https://api.siliconflow.cn/v1/embeddings` |
 | `INTENT_EMBEDDING_API_KEY` | 可选 embeddings key；`doctor` 和 config 输出会脱敏 |
 | `INTENT_EMBEDDING_MODEL` | embeddings 模型名；推荐 setup preset 使用 `Qwen/Qwen3-Embedding-8B` |
@@ -341,6 +341,8 @@ smart-search deep "https://example.com/source" --format json
 | `SMART_SEARCH_TIMEOUT_SECONDS` | `search` 的总单调时限，默认 `300`；单次 `search --timeout` 可覆盖 |
 | `SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS` | 可选 provider 连续失败后被跳过的时长，默认 `900`；设为 `0` 关闭冷却 |
 | `SMART_SEARCH_PROVIDER_FAILURE_THRESHOLD` | 可选 provider 进入冷却前允许的连续软失败次数，默认 `2` |
+
+`jev` 为 `search` 和 `research` 提供可选流程：Jev 从已配置渠道中直接多选，并行检索后判断累计证据是否需要补搜，没有搜索前复核。可选二分过滤会剔除明确无关的证据；最终汇总支持 `true`、`false`、`auto`，自动模式由 Jev 根据最终保留的证据判断，默认直接返回证据。配置、限制和诊断信息见 [Jev 路由与过滤](docs/jev-routing.md)。
 
 默认 `hybrid` 是 fail-open：embeddings 或 classifier 没配置、超时或失败时，会在 `degraded_reason` 里说明，然后自动退回本地规则。语义路由只有在 top1 相似度达到 `INTENT_EMBEDDING_THRESHOLD`，并且 top1 与第二名差值达到 `INTENT_EMBEDDING_MARGIN` 时，才会直接添加 capability；否则只记录 ambiguous 信号。classifier 可以补充 capability，但未知 capability 和 provider 名会被忽略；provider 仍然只能由 capability-first 注册表选择。
 
@@ -478,7 +480,7 @@ smart-search sciverse-relations "unique-id-from-search" --relation CITATIONS --p
 | `SCIVERSE_API_TOKEN` | 显式 Sciverse 学术命令需要的 token |
 | `SCIVERSE_API_URL` | Sciverse API base URL，默认 `https://api.sciverse.space` |
 | `SCIVERSE_TIMEOUT_SECONDS` | Sciverse 请求超时，默认 `30` |
-| `SMART_SEARCH_INTENT_ROUTER` | 意图路由模式：`hybrid`、`rules`、`off`，默认 `hybrid` |
+| `SMART_SEARCH_INTENT_ROUTER` | 意图路由模式：`hybrid`、`rules`、`off`、`jev`，默认 `hybrid` |
 | `INTENT_EMBEDDING_API_URL` | 可选 embeddings endpoint，用于语义路由 |
 | `INTENT_EMBEDDING_API_KEY` | 可选 embeddings key |
 | `INTENT_EMBEDDING_MODEL` | embeddings 模型名 |

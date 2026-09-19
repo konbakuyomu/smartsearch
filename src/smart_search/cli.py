@@ -779,6 +779,8 @@ def _format_route_markdown(data: dict[str, Any]) -> str:
             lines.extend(_markdown_code_block("\n".join(str(command) for command in commands)))
     if data.get("degraded_reason"):
         lines.append(f"Degraded reason: {data.get('degraded_reason')}")
+    if data.get("intent_router_mode") == "jev":
+        lines.append("Selected channels: " + ", ".join(item["id"] for item in data.get("selected_channels", [])))
     reasons = data.get("reasons") or []
     if reasons:
         lines.extend(["", "## Reasons"])
@@ -1003,6 +1005,11 @@ def _format_markdown(command: str, data: dict[str, Any]) -> str:
             lines.extend(_error_lines(data))
             return "\n".join(lines).strip() + "\n"
         lines = [data.get("content", "")]
+        if data.get("primary_api_mode") == "jev":
+            assessment = data.get("evidence_assessment", {})
+            lines.append(f"\nEvidence: {assessment.get('status', 'unknown')}")
+            for warning in data.get("warnings", []):
+                lines.append(f"Warning: {warning}")
         lines.extend(_search_timeout_lines(data))
         lines.extend(_provider_notice_lines(data))
         primary_sources = data.get("primary_sources") or []
@@ -2338,6 +2345,7 @@ def _prompt_optional_enhancements(values: dict[str, str], current: dict[str, str
 def _has_intent_router_config(values: dict[str, str]) -> bool:
     keys = {
         "SMART_SEARCH_INTENT_ROUTER",
+        "TYPESAFE_API_KEY",
         "INTENT_EMBEDDING_API_URL",
         "INTENT_EMBEDDING_API_KEY",
         "INTENT_EMBEDDING_MODEL",
@@ -2368,7 +2376,7 @@ def _prompt_intent_router(values: dict[str, str], current: dict[str, str], lang:
         return
 
     mode_default = values.get("SMART_SEARCH_INTENT_ROUTER") or current.get("SMART_SEARCH_INTENT_ROUTER") or "hybrid"
-    if mode_default not in {"hybrid", "rules", "off"}:
+    if mode_default not in {"hybrid", "rules", "off", "jev"}:
         mode_default = "hybrid"
     mode = _prompt_select(
         _t(lang, "选择 intent router 模式", "Choose intent router mode"),
@@ -2376,10 +2384,34 @@ def _prompt_intent_router(values: dict[str, str], current: dict[str, str], lang:
             {"name": _t(lang, "hybrid: 规则 + embeddings + classifier，缺配置自动降级 rules", "hybrid: rules + embeddings + classifier, degrading to rules when optional config is missing"), "value": "hybrid"},
             {"name": _t(lang, "rules: 只用本地规则", "rules: local rules only"), "value": "rules"},
             {"name": _t(lang, "off: 关闭额外意图路由", "off: disable additional intent routing"), "value": "off"},
+            {"name": _t(lang, "jev: 多渠道搜索、按结果补搜、可选结果过滤", "jev: multiple channels, evidence-driven follow-up, optional filtering"), "value": "jev"},
         ],
         mode_default,
     )
     values["SMART_SEARCH_INTENT_ROUTER"] = mode
+    if mode == "jev":
+        values["TYPESAFE_API_KEY"] = _prompt_value(
+            "TYPESAFE_API_KEY", "TypeSafe API key", merged.get("TYPESAFE_API_KEY", ""), optional=False, lang=lang,
+        )
+        values["SMART_SEARCH_JEV_FILTER_RESULTS"] = str(_prompt_yes_no(
+            _t(lang, "使用 Jev 剔除无关结果?", "Use Jev to remove irrelevant evidence?"),
+            default=merged.get("SMART_SEARCH_JEV_FILTER_RESULTS", "false").lower() in {"true", "1", "yes", "on"},
+        )).lower()
+        synthesis_default = merged.get("SMART_SEARCH_JEV_SYNTHESIZE", "false").strip().lower()
+        if synthesis_default in {"1", "yes", "on"}:
+            synthesis_default = "true"
+        if synthesis_default not in {"true", "false", "auto"}:
+            synthesis_default = "false"
+        values["SMART_SEARCH_JEV_SYNTHESIZE"] = _prompt_select(
+            _t(lang, "选择主模型汇总模式", "Choose main-model synthesis mode"),
+            [
+                {"name": _t(lang, "true: 使用主模型汇总", "true: synthesize with the main model"), "value": "true"},
+                {"name": _t(lang, "false: 直接返回证据", "false: return evidence directly"), "value": "false"},
+                {"name": _t(lang, "auto: 由 Jev 判断是否需要汇总", "auto: let Jev decide whether synthesis is needed"), "value": "auto"},
+            ],
+            synthesis_default,
+        )
+        return
     if mode != "hybrid":
         return
 
@@ -2561,7 +2593,7 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
         ("SMART_SEARCH_VALIDATION_LEVEL", "Validation level (fast/balanced/strict)", True),
         ("SMART_SEARCH_FALLBACK_MODE", "Fallback mode (auto/off)", True),
         ("SMART_SEARCH_MINIMUM_PROFILE", "Minimum profile (standard/off)", True),
-        ("SMART_SEARCH_INTENT_ROUTER", "Intent router mode (hybrid/rules/off)", True),
+        ("SMART_SEARCH_INTENT_ROUTER", "Intent router mode (hybrid/rules/off/jev)", True),
         ("SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS", "Optional-provider failure cooldown seconds (0 disables)", True),
         ("SMART_SEARCH_PROVIDER_FAILURE_THRESHOLD", "Consecutive soft failures before cooldown", True),
         ("INTENT_EMBEDDING_API_URL", "Intent embedding API URL", True),
@@ -3024,12 +3056,14 @@ def _run_setup(args: argparse.Namespace) -> int:
             _write_skill_install_summary(skill_result, lang)
         _write_setup_status(final_status, lang, final=True)
         missing = [capability for capability in ("main_search", "docs_search", "web_fetch") if not final_status[capability]["ok"]]
+        if service.config.intent_router_mode == "jev":
+            missing = service.validate_minimum_profile().get("missing", [])
         if missing:
             _write_stderr(
                 _t(
                     lang,
-                    "\n当前配置尚未满足 standard 最低配置。\nsearch / doctor 会 fail closed，不会假装可用。\n",
-                    "\nThe current config does not satisfy the standard minimum profile.\nsearch / doctor will fail closed instead of pretending to work.\n",
+                    "\n当前配置尚未满足所选模式的最低配置。\nsearch / doctor 会报告缺失配置。\n",
+                    "\nThe current config does not satisfy the selected mode's minimum profile.\nsearch / doctor will fail closed and report missing configuration.\n",
                 )
             )
         else:
@@ -3056,6 +3090,7 @@ def _run_regression() -> int:
         "tests/test_zhipu_mcp_provider.py",
         "tests/test_smoke.py",
         "tests/test_intent_router.py",
+        "tests/test_jev.py",
         "tests/test_regression.py",
         "tests/test_release_workflow.py",
     ]
@@ -3110,7 +3145,7 @@ def build_parser() -> argparse.ArgumentParser:
     route_parser.add_argument("--validation", choices=["fast", "balanced", "strict"], default="")
     route_parser.add_argument(
         "--router-mode",
-        choices=["hybrid", "rules", "off"],
+        choices=["hybrid", "rules", "off", "jev"],
         default="",
         help="Override SMART_SEARCH_INTENT_ROUTER for this diagnostic call.",
     )

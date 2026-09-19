@@ -163,7 +163,7 @@ def test_deep_research_cli_contract_documents_plan_and_smoke_matrix():
         "Route diagnostic output includes",
         "`intent_router_mode`",
         "`required_capabilities`",
-        "`SMART_SEARCH_INTENT_ROUTER` accepts `hybrid`, `rules`, and `off`",
+        "`SMART_SEARCH_INTENT_ROUTER` accepts `hybrid`, `rules`, `off`, and `jev`",
         "`INTENT_EMBEDDING_API_URL`",
         "`INTENT_CLASSIFIER_API_URL`",
         "`INTENT_ROUTER_TIMEOUT_SECONDS` defaults to `8`",
