@@ -44,6 +44,7 @@ from .providers.openai_compatible import (
     openai_compatible_endpoint,
 )
 from .providers.sciverse import SciverseProvider
+from .providers.tinyfish import TinyFishFetchProvider, TinyFishSearchProvider
 from .providers.xai_responses import XAIResponsesSearchProvider
 from .providers.zhipu import ZhipuWebSearchProvider
 from .providers.zhipu_mcp import ZhipuMCPProvider
@@ -181,9 +182,9 @@ RESEARCH_JS_HEAVY_KEYWORDS = {
 RESEARCH_PDF_KEYWORDS = {"pdf", "arxiv", "论文", "paper", ".pdf"}
 RESEARCH_PROFILE_ORDER = {
     "main_search": ["xai-responses", "openai-compatible"],
-    "web_search": ["zhipu", "zhipu-mcp", "tavily", "firecrawl"],
+    "web_search": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish"],
     "docs_search": ["context7", "exa"],
-    "web_fetch": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl"],
+    "web_fetch": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish"],
     "vertical_search": ["anysearch"],
     "site_map": ["tavily"],
     "synthesis": ["main-search"],
@@ -280,6 +281,16 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
         "minimum_profile_role": "web_fetch",
         "quality_filters": ["non-empty normalized result", "non-empty extracted content"],
         "route_reasons": ["JS-heavy fetch", "dynamic/browser-like extraction", "robust fetch fallback"],
+    },
+    "tinyfish": {
+        "capability": "web_search",
+        "capabilities": ["web_search", "web_fetch"],
+        "strengths": ["broad web discovery", "clean markdown extraction", "news and locale hints", "research-paper domain type"],
+        "exclusions": ["docs semantic replacement", "browser automation"],
+        "fallback_group": "web_search/web_fetch",
+        "minimum_profile_role": "",
+        "quality_filters": ["non-empty normalized result", "non-empty extracted content", "challenge page rejection"],
+        "route_reasons": ["broad source discovery", "known URL extraction"],
     },
     "anysearch": {
         "capability": "vertical_search",
@@ -625,6 +636,7 @@ PROVIDER_CREDENTIAL_SOURCES: dict[str, Any] = {
     "zhipu-mcp-reader": lambda: (config.zhipu_mcp_api_key, config.zhipu_mcp_reader_api_url),
     "tavily": lambda: (config.tavily_api_key, config.tavily_api_url),
     "firecrawl": lambda: (config.firecrawl_api_key, config.firecrawl_api_url),
+    "tinyfish": lambda: (config.tinyfish_api_key, config.tinyfish_search_api_url, config.tinyfish_fetch_api_url),
     "exa": lambda: (config.exa_api_key, config.exa_base_url),
     "context7": lambda: (config.context7_api_key, config.context7_base_url),
     "jina": lambda: (config.jina_api_key, config.jina_reader_api_url),
@@ -1169,6 +1181,8 @@ def _provider_configured(provider: str) -> bool:
         return bool(config.zhipu_mcp_api_key)
     if provider == "firecrawl":
         return bool(config.firecrawl_api_key)
+    if provider == "tinyfish":
+        return bool(config.tinyfish_api_key)
     if provider == "anysearch":
         return bool(config.anysearch_api_key)
     if provider == "sciverse":
@@ -1288,9 +1302,9 @@ def _research_capability_routes(
 
     web_search = _configured_for_capability("web_search", capability_status)
     if signals["current_or_locale_intent"]:
-        ordered = [provider for provider in ["zhipu", "zhipu-mcp", "tavily", "firecrawl"] if provider in web_search]
+        ordered = [provider for provider in ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish"] if provider in web_search]
     else:
-        ordered = [provider for provider in ["tavily", "firecrawl", "zhipu", "zhipu-mcp"] if provider in web_search]
+        ordered = [provider for provider in ["tavily", "firecrawl", "zhipu", "zhipu-mcp", "tinyfish"] if provider in web_search]
     routes["capabilities"]["web_search"] = {
         "providers": _apply_research_overrides("web_search", ordered),
         "reason": "current/locale evidence" if signals["current_or_locale_intent"] else "broad source discovery",
@@ -2056,10 +2070,11 @@ def get_capability_status() -> dict[str, Any]:
                     ("zhipu-mcp", _provider_configured("zhipu-mcp")),
                     ("tavily", _provider_configured("tavily")),
                     ("firecrawl", _provider_configured("firecrawl")),
+                    ("tinyfish", _provider_configured("tinyfish")),
                 ]
                 if enabled
             ],
-            "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl"],
+            "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish"],
         },
         "docs_search": {
             "configured": [
@@ -2080,10 +2095,11 @@ def get_capability_status() -> dict[str, Any]:
                     ("jina", _provider_configured("jina")),
                     ("zhipu-mcp-reader", _provider_configured("zhipu-mcp-reader")),
                     ("firecrawl", _provider_configured("firecrawl")),
+                    ("tinyfish", _provider_configured("tinyfish")),
                 ]
                 if enabled
             ],
-            "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl"],
+            "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish"],
         },
         "vertical_search": {
             "configured": [
@@ -2249,41 +2265,58 @@ async def get_available_models_cached(api_url: str, api_key: str) -> list[str]:
     return models
 
 
+EXTRA_SOURCE_PROVIDERS = ("tavily", "firecrawl", "tinyfish")
+
+
+def _allocate_extra_sources(total: int) -> dict[str, int]:
+    """Split the optional extra-source budget across configured web_search providers.
+
+    Tavily and Firecrawl keep their historical 60/40 split so existing setups see
+    no change. TinyFish picks up the budget only when neither of them is
+    configured, and otherwise stays additive through the web_search chain.
+    """
+    counts = {provider: 0 for provider in EXTRA_SOURCE_PROVIDERS}
+    if total <= 0:
+        return counts
+    has_tavily = _provider_configured("tavily")
+    has_firecrawl = _provider_configured("firecrawl")
+    if has_tavily and has_firecrawl:
+        counts["tavily"] = max(1, round(total * 0.6))
+        counts["firecrawl"] = total - counts["tavily"]
+    elif has_tavily:
+        counts["tavily"] = total
+    elif has_firecrawl:
+        counts["firecrawl"] = total
+    elif _provider_configured("tinyfish"):
+        counts["tinyfish"] = total
+    return counts
+
+
 def extra_results_to_sources(
     tavily_results: list[dict] | None,
     firecrawl_results: list[dict] | None,
+    tinyfish_results: list[dict] | None = None,
 ) -> list[dict]:
     sources: list[dict] = []
     seen: set[str] = set()
 
-    if firecrawl_results:
-        for r in firecrawl_results:
+    for provider, results, description_field in (
+        ("firecrawl", firecrawl_results, "description"),
+        ("tavily", tavily_results, "content"),
+        ("tinyfish", tinyfish_results, "description"),
+    ):
+        for r in results or []:
             url = (r.get("url") or "").strip()
             if not url or url in seen:
                 continue
             seen.add(url)
-            item: dict = {"url": url, "provider": "firecrawl"}
+            item: dict = {"url": url, "provider": provider}
             title = (r.get("title") or "").strip()
             if title:
                 item["title"] = title
-            desc = (r.get("description") or "").strip()
+            desc = (r.get(description_field) or "").strip()
             if desc:
                 item["description"] = desc
-            sources.append(item)
-
-    if tavily_results:
-        for r in tavily_results:
-            url = (r.get("url") or "").strip()
-            if not url or url in seen:
-                continue
-            seen.add(url)
-            item = {"url": url, "provider": "tavily"}
-            title = (r.get("title") or "").strip()
-            if title:
-                item["title"] = title
-            content = (r.get("content") or "").strip()
-            if content:
-                item["description"] = content
             sources.append(item)
 
     return sources
@@ -2304,6 +2337,8 @@ async def _run_web_fetch_fallback(
         providers.append("zhipu-mcp-reader")
     if _provider_configured("firecrawl"):
         providers.append("firecrawl")
+    if _provider_configured("tinyfish"):
+        providers.append("tinyfish")
     if preferred_order:
         allowed = {provider for provider in providers}
         ordered = [provider for provider in preferred_order if provider in allowed]
@@ -2330,6 +2365,14 @@ async def _run_web_fetch_fallback(
                     continue
             elif provider == "zhipu-mcp-reader":
                 data = await zhipu_mcp_reader(url)
+                content = data.get("content") if data.get("ok") else None
+                if not data.get("ok"):
+                    status = _attempt_status_for_result(data)
+                    health_extra = _record_provider_result(provider, status, data.get("error_type", ""), data.get("error", ""))
+                    attempts.append(_attempt("web_fetch", provider, status, start, error_type=data.get("error_type", ""), error=data.get("error", ""), extra=health_extra))
+                    continue
+            elif provider == "tinyfish":
+                data = await call_tinyfish_fetch(url)
                 content = data.get("content") if data.get("ok") else None
                 if not data.get("ok"):
                     status = _attempt_status_for_result(data)
@@ -2370,6 +2413,8 @@ async def _run_web_search_fallback(
         configured.append("tavily")
     if _provider_configured("firecrawl"):
         configured.append("firecrawl")
+    if _provider_configured("tinyfish"):
+        configured.append("tinyfish")
     if provider_filter is not None:
         configured = [p for p in configured if p in provider_filter]
     if fallback == "off":
@@ -2414,6 +2459,14 @@ async def _run_web_search_fallback(
             elif provider == "firecrawl":
                 results = await call_firecrawl_search(query, count)
                 sources = _normalize_source_results(results, "firecrawl")
+                if sources:
+                    _record_provider_result(provider, "ok")
+                    attempts.append(_attempt("web_search", provider, "ok", start, result_count=len(sources)))
+                    return sources, attempts
+                attempts.append(_attempt("web_search", provider, "empty", start))
+            elif provider == "tinyfish":
+                results = await call_tinyfish_search(query, count)
+                sources = _normalize_source_results(results, "tinyfish")
                 if sources:
                     _record_provider_result(provider, "ok")
                     attempts.append(_attempt("web_search", provider, "ok", start, result_count=len(sources)))
@@ -2681,6 +2734,56 @@ async def call_firecrawl_scrape(url: str, ctx=None) -> str | None:
     return None
 
 
+async def call_tinyfish_search(query: str, max_results: int = 6) -> list[dict] | None:
+    """Return normalized TinyFish candidates, or None when the provider gave nothing.
+
+    A provider-side failure raises so the shared web_search boundary records the
+    attempt and falls through to the next configured provider.
+    """
+    api_key = config.tinyfish_api_key
+    if not api_key:
+        return None
+    data = await _decode_provider_json(
+        await TinyFishSearchProvider(
+            config.tinyfish_search_api_url,
+            api_key,
+            config.tinyfish_timeout,
+        ).search(query, max_results=max_results),
+        provider="tinyfish",
+    )
+    if not data.get("ok"):
+        raise ProviderCallError(
+            str(data.get("error_type") or "provider_error"),
+            str(data.get("error") or "TinyFish search failed"),
+            additional_secrets=(api_key,),
+        )
+    results = data.get("results")
+    if not isinstance(results, list):
+        raise ProviderCallError("parse_error", "TinyFish search payload is missing results")
+    return [item for item in results if isinstance(item, dict)]
+
+
+async def call_tinyfish_fetch(url: str) -> dict[str, Any]:
+    api_key = config.tinyfish_api_key
+    if not api_key:
+        return {
+            "ok": False,
+            "provider": "tinyfish",
+            "url": url,
+            "error_type": "config_error",
+            "error": (
+                "TINYFISH_API_KEY 未配置。请运行 `smart-search setup`，"
+                "或使用 `smart-search config set TINYFISH_API_KEY <key>`。"
+            ),
+        }
+    raw = await TinyFishFetchProvider(
+        config.tinyfish_fetch_api_url,
+        api_key,
+        config.tinyfish_timeout,
+    ).fetch(url)
+    return await _decode_provider_json(raw, provider="tinyfish")
+
+
 async def call_jina_reader(url: str) -> dict[str, Any]:
     raw = await JinaReaderProvider(
         config.jina_reader_api_url,
@@ -2823,18 +2926,10 @@ async def search(
             if provider_config["provider"] == "openai-compatible":
                 provider_config["stream"] = stream
 
-    has_tavily = _provider_configured("tavily")
-    has_firecrawl = _provider_configured("firecrawl")
-    tavily_count = 0
-    firecrawl_count = 0
-    if extra_sources > 0:
-        if has_tavily and has_firecrawl:
-            tavily_count = max(1, round(extra_sources * 0.6))
-            firecrawl_count = extra_sources - tavily_count
-        elif has_tavily:
-            tavily_count = extra_sources
-        elif has_firecrawl:
-            firecrawl_count = extra_sources
+    extra_source_counts = _allocate_extra_sources(extra_sources)
+    tavily_count = extra_source_counts["tavily"]
+    firecrawl_count = extra_source_counts["firecrawl"]
+    tinyfish_count = extra_source_counts["tinyfish"]
 
     selected_main_provider_configs = main_provider_configs if fallback_mode != "off" else main_provider_configs[:1]
     router = IntentRouter(config)
@@ -3112,7 +3207,11 @@ async def search(
     extra_calls: list[tuple[str, Any]] = []
     extra_providers = [
         provider
-        for provider, wanted in (("tavily", tavily_count), ("firecrawl", firecrawl_count))
+        for provider, wanted in (
+            ("tavily", tavily_count),
+            ("firecrawl", firecrawl_count),
+            ("tinyfish", tinyfish_count),
+        )
         if wanted
     ]
     extra_runnable, extra_skipped = _plan_provider_health("web_search", extra_providers)
@@ -3121,17 +3220,22 @@ async def search(
         extra_calls.append(("tavily", lambda: call_tavily_search(query, tavily_count)))
     if firecrawl_count and "firecrawl" in extra_runnable:
         extra_calls.append(("firecrawl", lambda: call_firecrawl_search(query, firecrawl_count)))
+    if tinyfish_count and "tinyfish" in extra_runnable:
+        extra_calls.append(("tinyfish", lambda: call_tinyfish_search(query, tinyfish_count)))
 
     gathered = await _collect_extra_source_calls(extra_calls, budget, execution)
     primary_result = primary_result or ""
     tavily_results: list[dict] | None = None
     firecrawl_results: list[dict] | None = None
+    tinyfish_results: list[dict] | None = None
     for provider, attempt_start, result in gathered:
         if isinstance(result, BaseException):
             provider_attempts.append(_attempt_with_health("web_search", provider, attempt_start, result))
             continue
         if result:
-            if provider == "tavily":
+            if provider == "tinyfish":
+                tinyfish_results = result
+            elif provider == "tavily":
                 tavily_results = result
             else:
                 firecrawl_results = result
@@ -3141,7 +3245,7 @@ async def search(
             provider_attempts.append(_attempt("web_search", provider, "empty", attempt_start))
 
     answer, primary_sources = split_answer_and_sources(primary_result)
-    extra_source_items = extra_results_to_sources(tavily_results, firecrawl_results)
+    extra_source_items = extra_results_to_sources(tavily_results, firecrawl_results, tinyfish_results)
 
     supplemental_sources: list[dict] = []
     if validation_level in {"balanced", "strict"}:
@@ -3821,7 +3925,7 @@ async def fetch(url: str) -> dict[str, Any]:
 
     configured_fetch_providers = [
         provider
-        for provider in ("tavily", "jina", "zhipu-mcp-reader", "firecrawl")
+        for provider in ("tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish")
         if _provider_configured(provider)
     ]
     if not configured_fetch_providers:
@@ -4823,6 +4927,24 @@ async def _test_context7_connection() -> dict[str, Any]:
     return {"status": "warning", "message": result.get("error", "Context7 API 不可用"), "response_time_ms": result.get("elapsed_ms", 0)}
 
 
+async def _test_tinyfish_connection() -> dict[str, Any]:
+    if not config.tinyfish_api_key:
+        return {"status": "not_configured", "message": "TINYFISH_API_KEY 未设置，TinyFish 功能不可用"}
+    start = time.time()
+    raw = await TinyFishSearchProvider(
+        config.tinyfish_search_api_url,
+        config.tinyfish_api_key,
+        config.tinyfish_timeout,
+    ).search("tinyfish connectivity check", max_results=1)
+    data = json.loads(raw)
+    response_time = data.get("elapsed_ms", _elapsed_ms(start))
+    if data.get("ok"):
+        return {"status": "ok", "message": "TinyFish Search API 可用", "response_time_ms": response_time}
+    error_type = str(data.get("error_type") or "")
+    status = error_type if error_type in {"auth_error", "config_error", "parameter_error", "rate_limited", "timeout", "quality_error"} else "warning"
+    return {"status": status, "message": data.get("error", "TinyFish Search API 不可用"), "response_time_ms": response_time}
+
+
 DOCTOR_PROBE_PROVIDERS = {
     "exa_connection_test": "exa",
     "tavily_connection_test": "tavily",
@@ -4830,6 +4952,7 @@ DOCTOR_PROBE_PROVIDERS = {
     "zhipu_connection_test": "zhipu",
     "zhipu_mcp_connection_test": "zhipu-mcp",
     "context7_connection_test": "context7",
+    "tinyfish_connection_test": "tinyfish",
 }
 DOCTOR_PROBE_NEUTRAL_STATUSES = {"not_configured", "configured", "skipped", "disabled"}
 
@@ -4927,6 +5050,13 @@ async def doctor() -> dict[str, Any]:
         info["context7_connection_test"] = {"status": "timeout", "message": "Context7 API 请求超时"}
     except Exception as e:
         info["context7_connection_test"] = {"status": "error", "message": sanitize_provider_error_message(e)}
+
+    try:
+        info["tinyfish_connection_test"] = await _test_tinyfish_connection()
+    except httpx.TimeoutException:
+        info["tinyfish_connection_test"] = {"status": "timeout", "message": "TinyFish API 请求超时"}
+    except Exception as e:
+        info["tinyfish_connection_test"] = {"status": "error", "message": sanitize_provider_error_message(e)}
 
     _record_doctor_probes(info)
     info["provider_health"] = provider_health_status()
@@ -5080,9 +5210,9 @@ async def _smoke_mock(start: float) -> dict[str, Any]:
             "fallback_chain": MAIN_SEARCH_FALLBACK_CHAIN,
             "ok": True,
         },
-        "web_search": {"configured": ["zhipu"], "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl"], "ok": True},
+        "web_search": {"configured": ["zhipu"], "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish"], "ok": True},
         "docs_search": {"configured": ["context7"], "fallback_chain": ["context7", "exa"], "ok": True},
-        "web_fetch": {"configured": ["tavily"], "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl"], "ok": True},
+        "web_fetch": {"configured": ["tavily"], "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish"], "ok": True},
         "vertical_search": {
             "configured": [],
             "fallback_chain": ["anysearch"],
@@ -5300,7 +5430,7 @@ async def _smoke_mock(start: float) -> dict[str, Any]:
         {
             **minimum_status,
             "docs_search": {"configured": [], "fallback_chain": ["context7", "exa"], "ok": False},
-            "web_fetch": {"configured": [], "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl"], "ok": False},
+            "web_fetch": {"configured": [], "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish"], "ok": False},
         },
     )
     cases.append(
@@ -5323,14 +5453,14 @@ async def _smoke_mock(start: float) -> dict[str, Any]:
     mock_research_status = {
         **minimum_status,
         "web_search": {
-            "configured": ["zhipu", "zhipu-mcp", "tavily", "firecrawl"],
-            "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl"],
+            "configured": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish"],
+            "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish"],
             "ok": True,
         },
         "docs_search": {"configured": ["context7", "exa"], "fallback_chain": ["context7", "exa"], "ok": True},
         "web_fetch": {
-            "configured": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl"],
-            "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl"],
+            "configured": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish"],
+            "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish"],
             "ok": True,
         },
         "vertical_search": {

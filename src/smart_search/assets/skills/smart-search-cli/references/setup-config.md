@@ -81,6 +81,9 @@
 - `ANYSEARCH_API_URL` defaults to `https://api.anysearch.com/mcp`; `ANYSEARCH_TIMEOUT_SECONDS` defaults to `30`.
 - `SCIVERSE_API_URL` defaults to `https://api.sciverse.space`; `SCIVERSE_TIMEOUT_SECONDS` defaults to `30`.
 - `FIRECRAWL_API_URL` defaults to `https://api.firecrawl.dev/v2`. Use it only for a Firecrawl-compatible REST base.
+- Use `smart-search setup --non-interactive --tinyfish-key "key"` to add TinyFish to `web_search` and `web_fetch`. It never satisfies `main_search` or `docs_search`, and it is appended after every existing provider.
+- `TINYFISH_SEARCH_API_URL` defaults to `https://api.search.tinyfish.ai`, and `TINYFISH_FETCH_API_URL` defaults to `https://api.fetch.tinyfish.ai`. Both authenticate with the `X-API-Key` header, not a bearer token.
+- `TINYFISH_TIMEOUT_SECONDS` defaults to `60` and covers both TinyFish search and fetch reads.
 
 ## Provider Failure Cooldown
 

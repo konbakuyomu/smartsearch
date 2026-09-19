@@ -56,14 +56,25 @@ Intent router rules:
 - Same-capability fallback is allowed; cross-capability fallback is not. Context7 is not used for unrelated broad web queries, and page extraction providers are not used as docs search providers.
 - `TAVILY_ENABLED=false` removes Tavily from registered `web_search` and `web_fetch` routes even when its key is present. Direct Tavily search/extract calls, `map`, `doctor`, and smoke must make no Tavily network request; `map` reports a local configuration error. Firecrawl remains independently configured and all fallback stays within its capability.
 - `main_search`: xAI Responses first for Grok/xAI, then OpenAI-compatible answer fallback when that peer provider is separately configured and `--fallback auto` is active.
-- `web_search`: Zhipu Web Search API first when routed in, then Zhipu Coding Plan MCP `web_search_prime`, then Tavily / Firecrawl source search when configured.
+- `web_search`: Zhipu Web Search API first when routed in, then Zhipu Coding Plan MCP `web_search_prime`, then Tavily / Firecrawl / TinyFish source search when configured.
 - `docs_search`: Context7 first for library/API/docs intent, then Exa for official-domain, paper, product-page, trusted-site, or low-noise supplemental discovery.
 - Automatic Context7 selection has no preferred library-id map. A candidate needs normalized query-subject overlap in its title or id; title/id exact and multi-token matches dominate, while description/trust/benchmark only break ties. When no candidate is eligible, Context7 is recorded as empty and can fall through to same-capability Exa. Explicit `context7-library` output and explicit `context7-docs LIBRARY_ID` remain unchanged.
-- Fetch capability: Tavily first, then Jina Reader with `JINA_API_KEY`, then Zhipu Coding Plan MCP `webReader`, then Firecrawl.
+- Fetch capability: Tavily first, then Jina Reader with `JINA_API_KEY`, then Zhipu Coding Plan MCP `webReader`, then Firecrawl, then TinyFish.
 - `search` calls Tavily and/or Firecrawl only when `--extra-sources N` is greater than 0.
 - With both Tavily and Firecrawl configured, `search --extra-sources N` splits extra sources between them, with Tavily receiving about 60% and Firecrawl the rest.
 - `fetch` and known-URL `search "https://..."` use the same fetch fallback chain.
-- `fetch` tries Tavily first, then Jina with `JINA_API_KEY`, then Zhipu Coding Plan MCP Reader, then Firecrawl.
+- `fetch` tries Tavily first, then Jina with `JINA_API_KEY`, then Zhipu Coding Plan MCP Reader, then Firecrawl, then TinyFish.
+
+TinyFish:
+
+- `TINYFISH_API_KEY` is optional and registers TinyFish for both `web_search` and `web_fetch`. It never satisfies `main_search` or `docs_search`, and it never reorders Tavily, Jina, Zhipu MCP Reader, or Firecrawl.
+- `TINYFISH_SEARCH_API_URL` defaults to `https://api.search.tinyfish.ai` and is called as `GET ?query=...`; `TINYFISH_FETCH_API_URL` defaults to `https://api.fetch.tinyfish.ai` and is called as `POST` with `{"urls": [url], "format": "markdown"}`.
+- Both endpoints send `X-API-Key`, not `Authorization: Bearer`. Never log or echo the key.
+- Search results normalize `snippet` to `description`, `site_name` to `source`, and `date` to `published_date`. An empty result set is a successful empty response, not a failure.
+- Fetch reads `results[0].text`; `errors[]` entries are surfaced as `provider_error` with the upstream message. A payload with neither results nor errors is `provider_error`, and a non-object payload is `parse_error`.
+- Challenge pages such as `Checking if the site connection is secure` are reported as `quality_error` so same-capability fallback can continue.
+- `401`/403 map to `auth_error`, `408` to `timeout`, `429` to `rate_limited`, `5xx` to `network_error`, and `400`/422 to `parameter_error`.
+- `--extra-sources N` reaches TinyFish only when neither Tavily nor Firecrawl is configured; with Tavily or Firecrawl present, TinyFish stays in the web_search fallback chain instead of splitting the extra-source budget.
 - `map` currently uses Tavily only.
 - `exa-search` and `exa-similar` use Exa only.
 - `context7-library` and `context7-docs` use Context7 only.

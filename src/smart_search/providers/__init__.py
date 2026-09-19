@@ -6,6 +6,7 @@ from .xai_responses import XAIResponsesSearchProvider
 from .exa import ExaSearchProvider
 from .jina import JinaReaderProvider
 from .sciverse import SciverseProvider
+from .tinyfish import TinyFishFetchProvider, TinyFishSearchProvider
 from .zhipu import ZhipuWebSearchProvider
 from .zhipu_mcp import ZhipuMCPProvider
 
@@ -19,6 +20,8 @@ __all__ = [
     "ExaSearchProvider",
     "JinaReaderProvider",
     "SciverseProvider",
+    "TinyFishFetchProvider",
+    "TinyFishSearchProvider",
     "ZhipuWebSearchProvider",
     "ZhipuMCPProvider",
 ]

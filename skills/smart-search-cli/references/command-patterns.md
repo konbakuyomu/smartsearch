@@ -101,6 +101,9 @@ smart-search config set TAVILY_API_URL "https://api.tavily.com" --format json
 smart-search config set TAVILY_ENABLED "false" --format json
 smart-search config set TAVILY_TIMEOUT_SECONDS "45" --format json
 smart-search config set FIRECRAWL_API_URL "https://api.firecrawl.dev/v2" --format json
+smart-search config set TINYFISH_API_KEY "key" --format json
+smart-search config set TINYFISH_SEARCH_API_URL "https://api.search.tinyfish.ai" --format json
+smart-search config set TINYFISH_FETCH_API_URL "https://api.fetch.tinyfish.ai" --format json
 smart-search model current --format json
 smart-search doctor --format json
 smart-search doctor --format markdown

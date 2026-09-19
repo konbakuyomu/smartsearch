@@ -84,6 +84,10 @@ class Config:
         "TAVILY_TIMEOUT_SECONDS",
         "FIRECRAWL_API_KEY",
         "FIRECRAWL_API_URL",
+        "TINYFISH_API_KEY",
+        "TINYFISH_SEARCH_API_URL",
+        "TINYFISH_FETCH_API_URL",
+        "TINYFISH_TIMEOUT_SECONDS",
         "ANYSEARCH_API_KEY",
         "ANYSEARCH_API_URL",
         "ANYSEARCH_TIMEOUT_SECONDS",
@@ -666,6 +670,28 @@ class Config:
         return self._get_config_value("FIRECRAWL_API_KEY")
 
     @property
+    def tinyfish_api_key(self) -> str | None:
+        return self._get_config_value("TINYFISH_API_KEY")
+
+    @property
+    def tinyfish_search_api_url(self) -> str:
+        return (
+            self._get_config_value("TINYFISH_SEARCH_API_URL", "https://api.search.tinyfish.ai")
+            or "https://api.search.tinyfish.ai"
+        )
+
+    @property
+    def tinyfish_fetch_api_url(self) -> str:
+        return (
+            self._get_config_value("TINYFISH_FETCH_API_URL", "https://api.fetch.tinyfish.ai")
+            or "https://api.fetch.tinyfish.ai"
+        )
+
+    @property
+    def tinyfish_timeout(self) -> float:
+        return float(self._get_config_value("TINYFISH_TIMEOUT_SECONDS", "60") or "60")
+
+    @property
     def anysearch_api_url(self) -> str:
         return self._get_config_value("ANYSEARCH_API_URL", "https://api.anysearch.com/mcp") or "https://api.anysearch.com/mcp"
 
@@ -949,6 +975,10 @@ class Config:
             "TAVILY_TIMEOUT_SECONDS": self.tavily_timeout,
             "FIRECRAWL_API_URL": self.firecrawl_api_url,
             "FIRECRAWL_API_KEY": self._mask_api_key(self.firecrawl_api_key) if self.firecrawl_api_key else "未配置",
+            "TINYFISH_SEARCH_API_URL": self.tinyfish_search_api_url,
+            "TINYFISH_FETCH_API_URL": self.tinyfish_fetch_api_url,
+            "TINYFISH_API_KEY": self._mask_api_key(self.tinyfish_api_key) if self.tinyfish_api_key else "未配置",
+            "TINYFISH_TIMEOUT_SECONDS": self.tinyfish_timeout,
             "ANYSEARCH_API_URL": self.anysearch_api_url,
             "ANYSEARCH_API_KEY": self._mask_api_key(self.anysearch_api_key) if self.anysearch_api_key else "未配置",
             "ANYSEARCH_TIMEOUT_SECONDS": self.anysearch_timeout,

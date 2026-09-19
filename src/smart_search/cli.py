@@ -577,6 +577,7 @@ def _format_doctor_markdown(data: dict[str, Any]) -> str:
         ("tavily", data.get("tavily_connection_test") or {}),
         ("jina", data.get("jina_connection_test") or {}),
         ("firecrawl", data.get("firecrawl_connection_test") or {}),
+        ("tinyfish", data.get("tinyfish_connection_test") or {}),
         ("zhipu", data.get("zhipu_connection_test") or {}),
         ("zhipu-mcp", data.get("zhipu_mcp_connection_test") or {}),
         ("context7", data.get("context7_connection_test") or {}),
@@ -1507,6 +1508,7 @@ def _display_provider(provider: str, lang: str) -> str:
         "jina": "Jina Reader",
         "tavily": "Tavily",
         "firecrawl": "Firecrawl",
+        "tinyfish": "TinyFish",
         "anysearch": "AnySearch",
         "sciverse": "Sciverse",
     }
@@ -1687,10 +1689,11 @@ def _setup_status_from_values(values: dict[str, str]) -> dict[str, Any]:
                     ("zhipu-mcp", has("ZHIPU_MCP_API_KEY")),
                     ("tavily", has("TAVILY_API_KEY")),
                     ("firecrawl", has("FIRECRAWL_API_KEY")),
+                    ("tinyfish", has("TINYFISH_API_KEY")),
                 ]
                 if configured
             ],
-            "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl"],
+            "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish"],
         },
         "docs_search": {
             "configured": [
@@ -1711,10 +1714,11 @@ def _setup_status_from_values(values: dict[str, str]) -> dict[str, Any]:
                     ("jina", has("JINA_API_KEY")),
                     ("zhipu-mcp-reader", has("ZHIPU_MCP_API_KEY")),
                     ("firecrawl", has("FIRECRAWL_API_KEY")),
+                    ("tinyfish", has("TINYFISH_API_KEY")),
                 ]
                 if configured
             ],
-            "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl"],
+            "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish"],
         },
         "vertical_search": {
             "configured": [
@@ -2265,7 +2269,7 @@ def _prompt_web_fetch(values: dict[str, str], current: dict[str, str], lang: str
             "选择 web_fetch provider",
             "Choose web_fetch providers",
         ),
-        ["tavily", "jina", "firecrawl"],
+        ["tavily", "jina", "firecrawl", "tinyfish"],
         default_selected,
         lang,
     )
@@ -2290,6 +2294,13 @@ def _prompt_web_fetch(values: dict[str, str], current: dict[str, str], lang: str
             lang=lang,
         )
         _prompt_firecrawl_api_url(values, current, lang)
+    if "tinyfish" in selected:
+        values["TINYFISH_API_KEY"] = _prompt_value(
+            "TINYFISH_API_KEY",
+            "TinyFish API key",
+            current.get("TINYFISH_API_KEY", ""),
+            lang=lang,
+        )
 
 
 def _prompt_optional_enhancements(values: dict[str, str], current: dict[str, str], lang: str) -> None:
@@ -2591,6 +2602,10 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
         ("TAVILY_API_KEY", "Tavily API key", True),
         ("FIRECRAWL_API_URL", "Firecrawl API URL", True),
         ("FIRECRAWL_API_KEY", "Firecrawl API key", True),
+        ("TINYFISH_API_KEY", "TinyFish API key", True),
+        ("TINYFISH_SEARCH_API_URL", "TinyFish Search API URL", True),
+        ("TINYFISH_FETCH_API_URL", "TinyFish Fetch API URL", True),
+        ("TINYFISH_TIMEOUT_SECONDS", "TinyFish timeout seconds", True),
         ("ANYSEARCH_API_URL", "AnySearch MCP API URL", True),
         ("ANYSEARCH_API_KEY", "AnySearch API key", True),
         ("ANYSEARCH_TIMEOUT_SECONDS", "AnySearch timeout seconds", True),
@@ -2613,6 +2628,8 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
         elif key in {"ZHIPU_MCP_SEARCH_API_URL", "ZHIPU_MCP_READER_API_URL", "ZHIPU_MCP_ZREAD_API_URL"}:
             value = _normalize_custom_base_url(value)
         elif key == "SCIVERSE_API_URL":
+            value = _normalize_custom_base_url(value)
+        elif key in {"TINYFISH_SEARCH_API_URL", "TINYFISH_FETCH_API_URL"}:
             value = _normalize_custom_base_url(value)
         values[key] = value
 
@@ -2941,6 +2958,10 @@ def _run_setup(args: argparse.Namespace) -> int:
         "TAVILY_API_KEY": args.tavily_key,
         "FIRECRAWL_API_URL": _normalize_firecrawl_api_url(args.firecrawl_api_url),
         "FIRECRAWL_API_KEY": args.firecrawl_key,
+        "TINYFISH_API_KEY": args.tinyfish_key,
+        "TINYFISH_SEARCH_API_URL": _normalize_custom_base_url(args.tinyfish_search_api_url),
+        "TINYFISH_FETCH_API_URL": _normalize_custom_base_url(args.tinyfish_fetch_api_url),
+        "TINYFISH_TIMEOUT_SECONDS": args.tinyfish_timeout,
         "ANYSEARCH_API_URL": _normalize_custom_base_url(args.anysearch_api_url),
         "ANYSEARCH_API_KEY": args.anysearch_key,
         "ANYSEARCH_TIMEOUT_SECONDS": args.anysearch_timeout,
@@ -3053,6 +3074,8 @@ def _run_regression() -> int:
         "tests/test_service.py",
         "tests/test_providers_new.py",
         "tests/test_jina_provider.py",
+        "tests/test_tinyfish_provider.py",
+        "tests/test_tinyfish_service.py",
         "tests/test_zhipu_mcp_provider.py",
         "tests/test_smoke.py",
         "tests/test_intent_router.py",
@@ -3592,6 +3615,10 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--tavily-key", default="", help="Save TAVILY_API_KEY.")
     setup_parser.add_argument("--firecrawl-api-url", default="", help="Save FIRECRAWL_API_URL.")
     setup_parser.add_argument("--firecrawl-key", default="", help="Save FIRECRAWL_API_KEY.")
+    setup_parser.add_argument("--tinyfish-key", default="", help="Save TINYFISH_API_KEY.")
+    setup_parser.add_argument("--tinyfish-search-api-url", default="", help="Save TINYFISH_SEARCH_API_URL.")
+    setup_parser.add_argument("--tinyfish-fetch-api-url", default="", help="Save TINYFISH_FETCH_API_URL.")
+    setup_parser.add_argument("--tinyfish-timeout", default="", help="Save TINYFISH_TIMEOUT_SECONDS.")
     setup_parser.add_argument("--anysearch-api-url", default="", help="Save ANYSEARCH_API_URL.")
     setup_parser.add_argument("--anysearch-key", default="", help="Save ANYSEARCH_API_KEY.")
     setup_parser.add_argument("--anysearch-timeout", default="", help="Save ANYSEARCH_TIMEOUT_SECONDS.")

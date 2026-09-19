@@ -1740,7 +1740,7 @@ def test_zhipu_mcp_key_satisfies_web_search_and_reader_fetch_as_separate_provide
     assert result["ok"] is True
     assert result["missing"] == []
     assert result["capability_status"]["web_search"]["configured"] == ["zhipu-mcp"]
-    assert result["capability_status"]["web_search"]["fallback_chain"] == ["zhipu", "zhipu-mcp", "tavily", "firecrawl"]
+    assert result["capability_status"]["web_search"]["fallback_chain"] == ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish"]
     assert result["capability_status"]["web_fetch"]["configured"] == ["zhipu-mcp-reader"]
 
 
