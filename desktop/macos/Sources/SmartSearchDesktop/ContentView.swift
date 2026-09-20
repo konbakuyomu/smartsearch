@@ -159,7 +159,7 @@ private struct OverviewView: View {
 
                 GroupBox("首次配置") {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("主搜索用于回答问题；文档检索用于查库文档；网页抓取用于读取链接。配置后请主动测试草稿，App 不会自动发起计费探针。")
+                        Text("主搜索用于回答问题；文档检索用于查库文档；网页抓取用于读取链接。配好之后请自己点一次测试，App 不会自动发起计费探针。")
                             .foregroundStyle(.secondary)
                         if state.minimumProfileOK == true {
                             Label("基础能力已配置", systemImage: "checkmark.circle.fill")
@@ -248,17 +248,17 @@ private struct ProvidersView: View {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("服务商与配置").font(.largeTitle.weight(.bold))
-                    Text("编辑草稿、按需测试草稿，然后保存。环境变量值只读，保存会带上当前 revision。")
+                    Text("改完可以先测试再保存。来源是环境变量的项目只读，保存会带上当前 revision。")
                         .foregroundStyle(.secondary)
                 }
 
                 HStack(spacing: 10) {
-                    Button("预览草稿") { Task { await model.previewConfig() } }
+                    Button("检查这样够不够") { Task { await model.previewConfig() } }
                         .disabled(model.connection != .ready)
                     Button("保存配置") { Task { await model.saveConfig() } }
                         .buttonStyle(.borderedProminent)
                         .disabled(model.connection != .ready || (model.configDraft.isEmpty && model.clearSecretKeys.isEmpty))
-                    Button("放弃草稿", role: .cancel) { model.resetConfigDraft() }
+                    Button("放弃修改", role: .cancel) { model.resetConfigDraft() }
                         .disabled(model.configDraft.isEmpty && model.clearSecretKeys.isEmpty)
                     Spacer()
                     Text("revision：\(state.revision?.displayString ?? "后端未提供")")
@@ -295,16 +295,16 @@ private struct ConfigPreviewView: View {
     let preview: JSONValue
 
     var body: some View {
-        GroupBox("草稿预览") {
+        GroupBox("配置检查") {
             VStack(alignment: .leading, spacing: 6) {
                 if preview.boolValue == false || preview["ok"]?.boolValue == false {
-                    Label("草稿未通过后端检查，尚未保存。", systemImage: "xmark.circle.fill")
+                    Label("这样还不够用，尚未保存。", systemImage: "xmark.circle.fill")
                         .foregroundStyle(.red)
                 } else if preview["minimum_profile_ok"]?.boolValue == true {
-                    Label("草稿满足基础配置条件。", systemImage: "checkmark.circle.fill")
+                    Label("这样配就够用了。", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                 } else {
-                    Text("后端已完成草稿预览；请根据缺失能力决定是否保存。")
+                    Text("检查已完成；请根据还缺的能力决定是否保存。")
                         .foregroundStyle(.secondary)
                 }
                 ForEach(preview["missing"]?.arrayValue?.map(\.displayString) ?? [], id: \.self) { item in
@@ -457,14 +457,14 @@ private struct ProviderDraftChecksView: View {
     let checks: JSONValue?
 
     var body: some View {
-        GroupBox("本 App 最近草稿测试") {
+        GroupBox("本 App 最近的测试") {
             VStack(alignment: .leading, spacing: 9) {
-                Text("只显示当前 App 进程中主动发起的草稿测试；它不写入冷却记录，也不代表已保存配置。")
+                Text("只显示本 App 主动发起的测试。测试的是当前表单里的值，包含还没保存的修改；不写入冷却记录。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 let entries = checks?.objectValue ?? [:]
                 if entries.isEmpty {
-                    Text("本 App 尚未测试草稿。")
+                    Text("本 App 还没测试过。")
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(entries.keys.sorted(), id: \.self) { provider in
@@ -507,11 +507,11 @@ private struct ProviderDraftCheckRow: View {
 
     private var statusLabel: String {
         switch status {
-        case "ok": return "草稿测试通过"
-        case "cancelled": return "草稿测试已取消"
-        case "not_configured": return "草稿未配置"
-        case "timeout": return "草稿测试超时"
-        default: return "草稿测试：\(status)"
+        case "ok": return "测试通过"
+        case "cancelled": return "测试已取消"
+        case "not_configured": return "未配置"
+        case "timeout": return "测试超时"
+        default: return "测试：\(status)"
         }
     }
 
@@ -555,7 +555,7 @@ private struct ProviderSection: View {
                 Text(sectionTitle)
                 Spacer()
                 if let provider {
-                    Button("测试此草稿") { Task { await model.testProvider(provider) } }
+                    Button("测试") { Task { await model.testProvider(provider) } }
                         .disabled(model.connection != .ready)
                 }
             }
@@ -588,7 +588,7 @@ private struct ConfigFieldEditor: View {
                 }
                 Spacer()
                 if let provider = field.provider, !model.isEnvironmentReadOnly(field) {
-                    Button("测试草稿") { Task { await model.testProvider(provider) } }
+                    Button("测试") { Task { await model.testProvider(provider) } }
                         .buttonStyle(.borderless)
                 }
                 Text(model.draftStatus(for: field)).foregroundStyle(.secondary)

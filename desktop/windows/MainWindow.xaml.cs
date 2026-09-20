@@ -232,7 +232,7 @@ public sealed partial class MainWindow : Window
         _fieldEditors.Clear();
         var panel = PagePanel();
         panel.Children.Add(PageTitle("服务商与高级配置"));
-        panel.Children.Add(Body("先编辑草稿，再测试草稿，最后保存。空的密钥输入始终表示保留；只有勾选清除才会删除保存值。环境变量来源只读。"));
+        panel.Children.Add(Theme.Secondary("改完可以先测试再保存。密钥输入框留空表示保持不变，只有勾选清除才会删掉已保存的值。来源是环境变量的项目只读。"));
         if (_state is not { } state)
         {
             panel.Children.Add(OfflineHint());
@@ -257,7 +257,8 @@ public sealed partial class MainWindow : Window
             foreach (var field in group)
                 content.Children.Add(BuildFieldEditor(field, preservedDraft));
             content.Children.Add(BuildProviderStatus(state, group.Key));
-            content.Children.Add(ActionButton("测试当前草稿", () => TestProviderDraftAsync(group.Key), primary: true));
+            content.Children.Add(Theme.Hint("测试当前表单里的值，包含还没保存的修改。不会保存配置，也不会改动冷却记录。"));
+            content.Children.Add(ActionButton("测试", () => TestProviderDraftAsync(group.Key), primary: true, busyText: "测试中…"));
             panel.Children.Add(new Expander
             {
                 Header = string.IsNullOrWhiteSpace(group.Key) ? "服务商" : group.Key,
@@ -286,7 +287,7 @@ public sealed partial class MainWindow : Window
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         actions.Children.Add(ActionButton("预览保存", PreviewDraftAsync));
         actions.Children.Add(ActionButton("保存更改", SaveDraftAsync, primary: true));
-        actions.Children.Add(ActionButton("刷新并保留草稿", () => RefreshStateAsync(preserveDraft: true)));
+        actions.Children.Add(ActionButton("刷新状态", () => RefreshStateAsync(preserveDraft: true), busyText: "刷新中…"));
         panel.Children.Add(actions);
         return Scroll(panel);
     }
@@ -406,7 +407,7 @@ public sealed partial class MainWindow : Window
         else if (!string.IsNullOrWhiteSpace(healthState))
             panel.Children.Add(Theme.Row(Theme.SpaceS,
                 Theme.PillFor(BackendStatusLabel(healthState), healthState),
-                Theme.Hint("不等同于一次草稿或已保存凭据测试")));
+                Theme.Hint("这不等同于一次真实测试")));
         else
             panel.Children.Add(Theme.Row(Theme.SpaceS,
                 Theme.Pill("无健康记录", Theme.StatusKind.Neutral),
@@ -665,11 +666,11 @@ public sealed partial class MainWindow : Window
     private async Task PreviewDraftAsync()
     {
         var draft = CollectDraft();
-        var result = await RequestAsync("config.preview", new { set = draft.Set, unset = draft.Unset }, "无法预览草稿。");
+        var result = await RequestAsync("config.preview", new { set = draft.Set, unset = draft.Unset }, "无法预览这次修改。");
         if (result is null)
             return;
         var ready = Bool(result.Value, "minimum_profile_ok");
-        ShowNotice("草稿预览", ready ? "草稿满足最小配置条件。可以先测试，再保存。" : $"草稿仍缺少：{MissingText(result.Value)}", ready ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
+        ShowNotice("检查结果", ready ? "这样配就够用了，可以先测试再保存。" : $"还差：{MissingText(result.Value)}", ready ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
     }
 
     private async Task SaveDraftAsync()
@@ -689,7 +690,7 @@ public sealed partial class MainWindow : Window
         {
             var errorType = Text(result.Value, "error_type", "unknown_error");
             if (errorType.Contains("conflict", StringComparison.OrdinalIgnoreCase))
-                ShowNotice("配置已变更", "检测到其他进程更新。你的草稿仍保留；点击“刷新并保留草稿”后重新确认。", InfoBarSeverity.Warning);
+                ShowNotice("配置已变更", "检测到其他进程更新了配置。你改的内容还在；点「刷新状态」后再确认一次。", InfoBarSeverity.Warning);
             else
                 ShowNotice("未保存", $"{Text(result.Value, "error", $"后端拒绝了本次配置（{errorType}）。")} 原配置未被 App 覆盖。", InfoBarSeverity.Error);
             return;
@@ -704,7 +705,7 @@ public sealed partial class MainWindow : Window
         var overrides = draft.Set.ToDictionary(item => item.Key, item => Convert.ToString(item.Value, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty);
         foreach (var key in draft.Unset)
             overrides[key] = string.Empty;
-        var result = await RequestAsync("provider.test", new { provider, overrides }, "无法启动草稿测试。");
+        var result = await RequestAsync("provider.test", new { provider, overrides }, "无法开始测试。");
         if (result is null)
             return;
         var testRunId = Text(result.Value, "run_id");
@@ -1070,7 +1071,7 @@ public sealed partial class MainWindow : Window
     private async Task RefreshProviderStateAfterTestAsync()
     {
         var draft = _currentPage == "providers" ? CaptureDraft() : null;
-        var refreshed = await RequestAsync("get_state", new { }, "无法刷新草稿测试状态。");
+        var refreshed = await RequestAsync("get_state", new { }, "无法刷新测试结果。");
         if (refreshed is null)
             return;
         ApplyState(refreshed.Value);

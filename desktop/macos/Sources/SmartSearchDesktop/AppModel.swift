@@ -338,8 +338,8 @@ final class AppModel: ObservableObject {
             let result = try await backend.request(method: "config.apply", params: .object(params))
             guard result["ok"]?.boolValue == true else {
                 errorMessage = result["error_type"]?.stringValue == "conflict"
-                    ? "配置已被其他进程修改；草稿已保留，请刷新后核对。"
-                    : "后端没有保存配置；草稿已保留。"
+                    ? "配置已被其他进程修改；你改的内容还在，请刷新后核对。"
+                    : "后端没有保存配置；你改的内容还在。"
                 return
             }
             // config.apply returns a compact status snapshot; get_state restores the
@@ -372,12 +372,12 @@ final class AppModel: ObservableObject {
                 "overrides": .object(overrides),
             ]))
             guard result["ok"]?.boolValue == true, let runID = result["run_id"]?.stringValue else {
-                errorMessage = "后端未能开始草稿测试；正式配置没有改变。"
+                errorMessage = "后端未能开始测试；配置没有改变。"
                 return
             }
             ownedActiveRunIDs.insert(runID)
-            ownedRunResults.register(runID: runID, kind: .providerTest, label: "测试 \(provider) 草稿")
-            noticeMessage = "正在测试当前草稿，结果会出现在活动页。"
+            ownedRunResults.register(runID: runID, kind: .providerTest, label: "测试 \(provider)")
+            noticeMessage = "正在测试，结果会出现在活动页。"
             await refreshActivity()
         } catch {
             present(error)
