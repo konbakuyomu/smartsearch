@@ -21,6 +21,7 @@ public sealed partial class MainWindow : Window
     private readonly BackendClient _backend;
     private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _activityTimer;
     private readonly NativeTray _tray;
+    private static Dictionary<string, string> _statusLabels = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, FieldEditor> _fieldEditors = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Control> _commandControls = new(StringComparer.Ordinal);
     private readonly List<CommandArgument> _commandArguments = [];
@@ -134,7 +135,35 @@ public sealed partial class MainWindow : Window
         if (state.ValueKind != JsonValueKind.Object)
             return;
         _state = state.Clone();
+        CacheStatusLabels(_state.Value);
     }
+
+    /// <summary>
+    /// Keep the backend's status vocabulary so raw values such as `live`,
+    /// `up_to_date` or `completed` never reach a Chinese window. Both frontends
+    /// read the same table, so the wording only has to be maintained once.
+    /// </summary>
+    private static void CacheStatusLabels(JsonElement state)
+    {
+        var table = Property(Property(state, "metadata"), "status_labels");
+        if (table.ValueKind != JsonValueKind.Object)
+            return;
+        var labels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in table.EnumerateObject())
+        {
+            var label = Text(entry.Value, "zh");
+            if (!string.IsNullOrWhiteSpace(label))
+                labels[entry.Name] = label;
+        }
+        if (labels.Count > 0)
+            _statusLabels = labels;
+    }
+
+    /// <summary>Backend wording for a status value, or the value itself.</summary>
+    private static string BackendStatusLabel(string status)
+        => !string.IsNullOrWhiteSpace(status) && _statusLabels.TryGetValue(status.Trim(), out var label)
+            ? label
+            : status;
 
     private void OnNavigationSelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
@@ -177,7 +206,7 @@ public sealed partial class MainWindow : Window
             ? "当前配置已经满足最小使用条件。是否最近成功由服务商状态中的检查时间决定。"
             : "还缺少最小配置。先完成主搜索、文档检索或网页抓取中需要的一项服务商配置。"));
         panel.Children.Add(KeyValue("配置目录", Text(state, "config_dir", Text(state, "config_path", "未返回"))));
-        panel.Children.Add(KeyValue("最小配置", profileOk ? "已满足" : MissingText(minimum)));
+        panel.Children.Add(KeyValue("最小配置", profileOk ? "已满足" : MissingText(minimum), mono: false));
         var capabilityRows = CapabilityRows(state).ToList();
         if (capabilityRows.Count > 0)
             panel.Children.Add(Section("当前能力", capabilityRows));
@@ -228,7 +257,9 @@ public sealed partial class MainWindow : Window
             {
                 Header = string.IsNullOrWhiteSpace(group.Key) ? "服务商" : group.Key,
                 IsExpanded = true,
-                Content = content
+                Content = content,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch
             });
         }
 
@@ -238,7 +269,13 @@ public sealed partial class MainWindow : Window
             var content = new StackPanel { Spacing = 12 };
             foreach (var field in advanced)
                 content.Children.Add(BuildFieldEditor(field, preservedDraft));
-            panel.Children.Add(new Expander { Header = "高级与路由设置", Content = content });
+            panel.Children.Add(new Expander
+            {
+                Header = "高级与路由设置",
+                Content = content,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch
+            });
         }
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -257,14 +294,21 @@ public sealed partial class MainWindow : Window
         var initialValue = string.IsNullOrWhiteSpace(value) ? Text(field, "default") : value;
         var isSecret = IsSecret(field);
         var isLocked = source.Equals("environment", StringComparison.OrdinalIgnoreCase);
-        var box = new StackPanel { Spacing = 4 };
-        box.Children.Add(new TextBlock { Text = Label(field), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+        var box = new StackPanel { Spacing = Theme.SpaceXS };
+        box.Children.Add(Theme.CardTitle(Label(field)));
         var help = Text(field, "help_zh", Text(field, "help_en"));
         if (!string.IsNullOrWhiteSpace(help))
-            box.Children.Add(new TextBlock { Text = help, Opacity = 0.75, TextWrapping = TextWrapping.Wrap });
+            box.Children.Add(Theme.Secondary(help));
         var saved = DisplayValue(Property(_state!.Value, "saved_values"), key);
-        box.Children.Add(new TextBlock { Text = $"有效值：{(string.IsNullOrWhiteSpace(initialValue) ? "未设置" : initialValue)}（来源：{SourceLabel(source)}）", Opacity = 0.75, TextWrapping = TextWrapping.Wrap });
-        box.Children.Add(new TextBlock { Text = $"保存值：{(string.IsNullOrWhiteSpace(saved) ? "未设置" : saved)}", Opacity = 0.75, TextWrapping = TextWrapping.Wrap });
+        // Provenance is a value plus its source, so it reads as data with a
+        // label rather than as another sentence competing with the help text.
+        box.Children.Add(Theme.Row(Theme.SpaceXS,
+            Theme.Hint("有效值"),
+            Theme.MonoHint(string.IsNullOrWhiteSpace(initialValue) ? "未设置" : initialValue),
+            Theme.Pill(SourceLabel(source), Theme.StatusKind.Neutral)));
+        box.Children.Add(Theme.Row(Theme.SpaceXS,
+            Theme.Hint("保存值"),
+            Theme.MonoHint(string.IsNullOrWhiteSpace(saved) ? "未设置" : saved)));
 
         var input = CreateFieldInput(field, isSecret, initialValue, isLocked);
         box.Children.Add(input);
@@ -280,7 +324,9 @@ public sealed partial class MainWindow : Window
         }
         else
         {
-            box.Children.Add(new TextBlock { Text = "此值由环境变量提供，App 不会覆盖或清除它。", Opacity = 0.75, TextWrapping = TextWrapping.Wrap });
+            box.Children.Add(Theme.Row(Theme.SpaceS,
+                Theme.Pill("环境变量接管", Theme.StatusKind.Warn),
+                Theme.Hint("App 不会覆盖或清除它")));
         }
 
         var editor = new FieldEditor(field.Clone(), input, clear, ReadControl(input), isSecret, isLocked);
@@ -318,31 +364,50 @@ public sealed partial class MainWindow : Window
         var cooling = healthState.Equals("cooldown", StringComparison.OrdinalIgnoreCase) ||
                       Items(health, "cooldown_providers").Any(item => item.ValueKind == JsonValueKind.String && item.GetString()!.Equals(provider, StringComparison.OrdinalIgnoreCase));
         if (!Bool(health, "enabled", true))
-            panel.Children.Add(Body("健康记录：未启用，不能据此判断服务商是否可用。"));
+            panel.Children.Add(Theme.Row(Theme.SpaceS,
+                Theme.Pill("健康记录未启用", Theme.StatusKind.Neutral),
+                Theme.Hint("不能据此判断服务商是否可用")));
         else if (cooling)
-            panel.Children.Add(Body($"当前冷却中（剩余约 {CooldownText(healthRow)}）。这是失败保护，不代表最近成功。"));
+            panel.Children.Add(Theme.Row(Theme.SpaceS,
+                Theme.Pill($"冷却中 · 剩余 {CooldownText(healthRow)}", Theme.StatusKind.Warn),
+                Theme.Hint("这是失败保护，不代表最近成功")));
         else if (healthState.Equals("closed", StringComparison.OrdinalIgnoreCase))
-            panel.Children.Add(Body("当前未冷却（健康状态为 closed）；这不代表最近探测成功。"));
+            panel.Children.Add(Theme.Row(Theme.SpaceS,
+                Theme.Pill("未冷却", Theme.StatusKind.Ok),
+                Theme.Hint("不代表最近探测成功")));
         else if (!string.IsNullOrWhiteSpace(healthState))
-            panel.Children.Add(Body($"健康状态：{healthState}；它不等同于一次草稿或已保存凭据测试。"));
+            panel.Children.Add(Theme.Row(Theme.SpaceS,
+                Theme.PillFor(BackendStatusLabel(healthState), healthState),
+                Theme.Hint("不等同于一次草稿或已保存凭据测试")));
         else
-            panel.Children.Add(Body("健康记录：没有当前状态；这不代表最近探测成功。"));
+            panel.Children.Add(Theme.Row(Theme.SpaceS,
+                Theme.Pill("无健康记录", Theme.StatusKind.Neutral),
+                Theme.Hint("不代表最近探测成功")));
 
         var check = Property(Property(state, "provider_checks"), provider);
         if (check.ValueKind != JsonValueKind.Object)
         {
-            panel.Children.Add(Body("最近草稿测试：未测试。"));
+            panel.Children.Add(Theme.Row(Theme.SpaceS,
+                Theme.Hint("最近测试"),
+                Theme.Pill("未测试", Theme.StatusKind.Neutral)));
             return panel;
         }
         var status = Text(check, "status", "unknown");
         var scope = Text(check, "scope");
-        panel.Children.Add(Body($"最近草稿测试：{ProviderCheckLabel(status)}；{TimestampOrText(check, "checked_at")}。{(scope.Equals("draft", StringComparison.OrdinalIgnoreCase) ? "仅测试当前草稿，不代表已保存凭据。" : "测试范围：" + (string.IsNullOrWhiteSpace(scope) ? "未返回" : scope))}"));
+        panel.Children.Add(Theme.Row(Theme.SpaceS,
+            Theme.Hint("最近测试"),
+            Theme.PillFor(ProviderCheckLabel(status), status),
+            Theme.Hint(TimestampOrText(check, "checked_at"))));
         var probe = Text(check, "probe");
         if (!string.IsNullOrWhiteSpace(probe))
-            panel.Children.Add(Body($"检查方式：{probe}"));
+            panel.Children.Add(Theme.Row(Theme.SpaceS,
+                Theme.Hint("检查方式"),
+                Theme.Hint(BackendStatusLabel(probe))));
+        if (!scope.Equals("draft", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(scope))
+            panel.Children.Add(Theme.Hint($"测试范围：{BackendStatusLabel(scope)}"));
         var message = Text(check, "message");
         if (!string.IsNullOrWhiteSpace(message))
-            panel.Children.Add(Body($"结果说明：{message}"));
+            panel.Children.Add(Theme.Secondary(message));
         return panel;
     }
 
@@ -372,7 +437,7 @@ public sealed partial class MainWindow : Window
         panel.Children.Add(_commandFieldPanel);
         panel.Children.Add(ActionButton("运行", StartSelectedCommandAsync, primary: true));
 
-        panel.Children.Add(new TextBlock { Text = "结果", FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Margin = new Thickness(0, 16, 0, 0) });
+        panel.Children.Add(WithTopGap(Theme.SectionTitle("结果")));
         _resultText = new TextBox
         {
             IsReadOnly = true,
@@ -433,7 +498,7 @@ public sealed partial class MainWindow : Window
         cliActions.Children.Add(ActionButton("复制内置 CLI 调用", CopyBundledCli));
         cliActions.Children.Add(ActionButton("启用内置命令", EnableBundledCliAsync, primary: true));
         panel.Children.Add(cliActions);
-        panel.Children.Add(new TextBlock { Text = "Skills", FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Margin = new Thickness(0, 16, 0, 0) });
+        panel.Children.Add(WithTopGap(Theme.SectionTitle("Skills")));
         _skillRows = new StackPanel { Spacing = 8 };
         panel.Children.Add(_skillRows);
         var skillActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -465,7 +530,7 @@ public sealed partial class MainWindow : Window
         };
         panel.Children.Add(theme);
 
-        panel.Children.Add(new TextBlock { Text = "附加活动目录", FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Margin = new Thickness(0, 16, 0, 0) });
+        panel.Children.Add(WithTopGap(Theme.SectionTitle("附加活动目录")));
         panel.Children.Add(Body("默认观察当前配置目录。只有你选择加入的目录会额外纳入活动列表；App 不扫描整盘或其他用户目录。"));
         var directoryRows = new StackPanel { Spacing = 4 };
         RenderExtraDirectories(directoryRows);
@@ -481,8 +546,8 @@ public sealed partial class MainWindow : Window
             }
         }));
 
-        panel.Children.Add(new TextBlock { Text = "版本与更新", FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Margin = new Thickness(0, 16, 0, 0) });
-        panel.Children.Add(KeyValue("App", "Smart Search Desktop / Windows App SDK 2.5.1"));
+        panel.Children.Add(WithTopGap(Theme.SectionTitle("版本与更新")));
+        panel.Children.Add(KeyValue("App", "Smart Search Desktop / Windows App SDK 2.5.1", mono: false));
         panel.Children.Add(KeyValue("后端版本", Text(_state, "version", "未连接")));
         panel.Children.Add(KeyValue("协议", Text(_state, "protocol_version", "1")));
         panel.Children.Add(KeyValue("后端路径", _backend.BackendPath ?? "未启动"));
@@ -528,10 +593,10 @@ public sealed partial class MainWindow : Window
         var flags = Items(field, "flags").Select(value => value.ValueKind == JsonValueKind.String ? value.GetString()! : string.Empty).Where(flag => !string.IsNullOrWhiteSpace(flag)).ToList();
         _commandArguments.Add(new CommandArgument(name, flags, kind.Equals("bool", StringComparison.OrdinalIgnoreCase), Bool(field, "multiple"), Bool(field, "required")));
         var group = new StackPanel { Spacing = 4 };
-        group.Children.Add(new TextBlock { Text = Text(field, "label", name), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+        group.Children.Add(Theme.CardTitle(Text(field, "label", name)));
         var help = Text(field, "help");
         if (!string.IsNullOrWhiteSpace(help))
-            group.Children.Add(new TextBlock { Text = help, Opacity = 0.75, TextWrapping = TextWrapping.Wrap });
+            group.Children.Add(Theme.Secondary(help));
         var input = CreateCommandInput(field);
         _commandControls[name] = input;
         group.Children.Add(input);
@@ -676,8 +741,10 @@ public sealed partial class MainWindow : Window
         if (_ownedRuns.Contains(runId))
             _ownedRunStatus[runId] = status;
         var summary = new StackPanel { Spacing = 3 };
-        summary.Children.Add(new TextBlock { Text = $"{Text(run, "command", "任务")} · {StatusLabel(status)}", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
-        summary.Children.Add(Body($"来源：{Text(run, "origin", "unknown")}  阶段：{Text(run, "phase", "等待状态")}  耗时：{Elapsed(run)}"));
+        summary.Children.Add(Theme.Row(Theme.SpaceS,
+            Theme.Hint($"来源 {BackendStatusLabel(Text(run, "origin", "unknown"))}"),
+            Theme.Hint($"阶段 {BackendStatusLabel(Text(run, "phase", "等待状态"))}"),
+            Theme.Hint($"耗时 {Elapsed(run)}")));
         var provider = Text(run, "provider");
         var model = Text(run, "model");
         if (!string.IsNullOrWhiteSpace(provider) || !string.IsNullOrWhiteSpace(model))
@@ -692,7 +759,19 @@ public sealed partial class MainWindow : Window
             summary.Children.Add(ActionButton("取消此 App 任务", () => CancelOwnedRunAsync(runId)));
         if (_ownedRuns.Contains(runId) && IsTerminal(status))
             summary.Children.Add(ActionButton("查看结果", () => ShowRunResultAsync(runId)));
-        return new Expander { Tag = runId, Header = $"{Text(run, "command", "任务")} · {StatusLabel(status)}", Content = summary };
+        var header = Theme.Row(Theme.SpaceS,
+            Theme.Mono(Text(run, "command", "任务")),
+            Theme.PillFor(StatusLabel(status), status));
+        return new Expander
+        {
+            Tag = runId,
+            Header = header,
+            Content = summary,
+            // Auto width made every row size to its own text, so the list
+            // rendered as a staircase of mismatched cards.
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch
+        };
     }
 
     private async Task ShowActivityDetailsAsync(JsonElement run)
@@ -726,7 +805,7 @@ public sealed partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(Text(details.Value, "note")))
             content.Children.Add(Body(Text(details.Value, "note")));
 
-        content.Children.Add(new TextBlock { Text = "阶段事件", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        content.Children.Add(Theme.CardTitle("阶段事件"));
         var events = Items(details.Value, "events").ToList();
         if (events.Count == 0)
             content.Children.Add(Body("没有可持久读取的事件；当前 App 自有任务仍可保留其内存状态。"));
@@ -1174,7 +1253,14 @@ public sealed partial class MainWindow : Window
 
     private XamlRoot DialogRoot => ((FrameworkElement)Content).XamlRoot;
 
-    private static StackPanel PagePanel() => new() { Spacing = 14, MaxWidth = 920 };
+    private static StackPanel PagePanel() => new()
+    {
+        Spacing = Theme.SpaceM,
+        MaxWidth = Theme.ContentMaxWidth,
+        // Stretch combined with MaxWidth centres the column, which on a maximised
+        // window leaves a wide dead margin on both sides of left-aligned text.
+        HorizontalAlignment = HorizontalAlignment.Left
+    };
 
     private static ScrollViewer Scroll(UIElement content) => new()
     {
@@ -1184,41 +1270,40 @@ public sealed partial class MainWindow : Window
         VerticalScrollBarVisibility = ScrollBarVisibility.Auto
     };
 
-    private static TextBlock PageTitle(string text) => new()
+    /// <summary>Separate a heading from the block above it without a margin literal.</summary>
+    private static TextBlock WithTopGap(TextBlock block)
     {
-        Text = text,
-        FontSize = 28,
-        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-        TextWrapping = TextWrapping.Wrap
-    };
+        block.Margin = new Thickness(0, Theme.SpaceL, 0, 0);
+        return block;
+    }
 
-    private static TextBlock Body(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap };
+    private static TextBlock PageTitle(string text) => Theme.PageTitle(text);
 
-    private static UIElement KeyValue(string label, string value) => new StackPanel
+    private static TextBlock Body(string text) => Theme.Body(text);
+
+    /// <summary>A value carried alongside its label. Identifiers, paths and
+    /// versions render monospaced so they read as data.</summary>
+    private static UIElement KeyValue(string label, string value, bool mono = true)
     {
-        Spacing = 2,
-        Children =
-        {
-            new TextBlock { Text = label, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
-            new TextBlock { Text = value, TextWrapping = TextWrapping.Wrap, Opacity = 0.8 }
-        }
-    };
+        var caption = Theme.Hint(label);
+        var body = mono ? Theme.Mono(value) : Theme.Body(value);
+        return Theme.Stack(2, caption, body);
+    }
 
     private static UIElement Section(string heading, IEnumerable<UIElement> children)
     {
-        var panel = new StackPanel { Spacing = 8, Margin = new Thickness(0, 16, 0, 0) };
-        panel.Children.Add(new TextBlock { Text = heading, FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        var panel = new StackPanel { Spacing = Theme.SpaceS, Margin = new Thickness(0, Theme.SpaceL, 0, 0) };
+        panel.Children.Add(Theme.SectionTitle(heading));
+        var body = new StackPanel { Spacing = Theme.SpaceS };
         foreach (var child in children)
-            panel.Children.Add(child);
+            body.Children.Add(child);
+        panel.Children.Add(Theme.Card(body));
         return panel;
     }
 
-    private static TextBlock OfflineHint()
-    {
-        var hint = Body("本地后端未连接，因此不会显示猜测出来的状态。请先确认随包后端存在，再重新连接。");
-        hint.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.OrangeRed);
-        return hint;
-    }
+    private static UIElement OfflineHint() => Theme.Card(
+        Theme.Row(Theme.SpaceS, Theme.Pill("未连接", Theme.StatusKind.Bad)),
+        Theme.Secondary("本地后端未连接，因此不会显示猜测出来的状态。请先确认随包后端存在，再重新连接。"));
 
     private Button ActionButton(string text, Func<Task> action, bool primary = false)
     {
@@ -1380,7 +1465,7 @@ public sealed partial class MainWindow : Window
         "environment" => "环境变量",
         "config_file" => "配置文件",
         "default" => "默认值",
-        _ => string.IsNullOrWhiteSpace(source) ? "未知" : source
+        _ => string.IsNullOrWhiteSpace(source) ? "未知" : BackendStatusLabel(source)
     };
 
     private static string MissingText(JsonElement value)
@@ -1405,7 +1490,7 @@ public sealed partial class MainWindow : Window
         "failed" or "error" => "未通过",
         "cancelled" => "已取消",
         "closed" => "已结束（不推断成功）",
-        _ => string.IsNullOrWhiteSpace(status) ? "状态未知" : status
+        _ => string.IsNullOrWhiteSpace(status) ? "状态未知" : BackendStatusLabel(status)
     };
 
     private static string CooldownText(JsonElement health)
@@ -1423,7 +1508,7 @@ public sealed partial class MainWindow : Window
         "cancelling" => "正在取消",
         "stale" => "状态未更新",
         "interrupted" => "已中断",
-        _ => string.IsNullOrWhiteSpace(status) ? "未知" : status
+        _ => string.IsNullOrWhiteSpace(status) ? "未知" : BackendStatusLabel(status)
     };
 
     private static string SkillStatusLabel(string status) => status.ToLowerInvariant() switch
@@ -1431,7 +1516,7 @@ public sealed partial class MainWindow : Window
         "missing" => "未安装",
         "stale" => "可更新",
         "up_to_date" => "已是当前版本",
-        _ => string.IsNullOrWhiteSpace(status) ? "状态未知" : status
+        _ => string.IsNullOrWhiteSpace(status) ? "状态未知" : BackendStatusLabel(status)
     };
 
     private static bool IsTerminal(string status) => status.Equals("finished", StringComparison.OrdinalIgnoreCase) ||

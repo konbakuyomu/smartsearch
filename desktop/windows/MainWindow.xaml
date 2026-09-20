@@ -17,7 +17,9 @@
                          SelectionChanged="OnNavigationSelectionChanged">
       <muxc:NavigationView.PaneHeader>
         <StackPanel Orientation="Horizontal" Spacing="10" Margin="12,12,12,16">
-          <Border Background="White" CornerRadius="6" Width="40" Height="40" Padding="2">
+          <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                  BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                  BorderThickness="1" CornerRadius="6" Width="40" Height="40" Padding="2">
             <Image Source="ms-appx:///Assets/smart-search.png" Stretch="Uniform" AutomationProperties.Name="Smart Search 图标" />
           </Border>
           <TextBlock Text="Smart Search" VerticalAlignment="Center" FontWeight="SemiBold" />
