@@ -53,6 +53,12 @@ final class AppModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var noticeMessage: String?
     @Published private(set) var isBusy: Set<String> = []
+    /// Operations still running, keyed as "test:<provider>". provider.test is
+    /// fire-and-forget — the call returns a run id in milliseconds while the probe
+    /// itself takes up to 20 seconds — so isBusy, which clears when the function
+    /// returns, cannot drive the spinner on its own.
+    @Published private(set) var inFlight: Set<String> = []
+    private var runOperationKeys: [String: String] = [:]
 
     @Published var configDraft: [String: String] = [:]
     @Published var clearSecretKeys: Set<String> = []
@@ -377,7 +383,8 @@ final class AppModel: ObservableObject {
             }
             ownedActiveRunIDs.insert(runID)
             ownedRunResults.register(runID: runID, kind: .providerTest, label: "测试 \(provider)")
-            noticeMessage = "正在测试，结果会出现在活动页。"
+            inFlight.insert("test:\(provider)")
+            runOperationKeys[runID] = "test:\(provider)"
             await refreshActivity()
         } catch {
             present(error)
@@ -611,6 +618,8 @@ final class AppModel: ObservableObject {
             _ = try? await backend.request(method: "run.cancel", params: .object(["run_id": .string(runID)]))
         }
         ownedActiveRunIDs.removeAll()
+        inFlight.removeAll()
+        runOperationKeys.removeAll()
         await backend.shutdown()
         connection = .disconnected
     }
@@ -730,6 +739,9 @@ final class AppModel: ObservableObject {
             if let run = ActivityRun(event.data) { upsert(run) }
             if ["finished", "failed", "cancelled", "stale", "interrupted"].contains(status) {
                 ownedActiveRunIDs.remove(runID)
+                if let operationKey = runOperationKeys.removeValue(forKey: runID) {
+                    inFlight.remove(operationKey)
+                }
                 let descriptor = ownedRunResults.descriptor(for: runID)
                 if let result = event.data["result"], result != .null,
                    let descriptor = ownedRunResults.cache(result.redacted(), for: runID) {

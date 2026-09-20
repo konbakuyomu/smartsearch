@@ -196,6 +196,26 @@ struct ConfigField: Identifiable, Hashable {
     }
 }
 
+/// One sidebar group of config fields, as the backend orders and names it.
+///
+/// Without this the providers page sorted section ids alphabetically, which put
+/// `diagnostics` (log level, SSL) above `getting_started` — so the first thing a
+/// new user saw was debug plumbing rather than the three keys they need.
+struct ConfigSection: Identifiable, Hashable {
+    let id: String
+    let order: Int
+    let label: String
+    let blurb: String
+
+    init?(_ value: JSONValue) {
+        guard let raw = value.objectValue, let id = raw.string("id") else { return nil }
+        self.id = id
+        order = raw["order"]?.integerValue ?? Int.max
+        label = raw.string("label_zh") ?? raw.string("label_en") ?? id
+        blurb = raw.string("blurb_zh") ?? raw.string("blurb_en") ?? ""
+    }
+}
+
 struct CommandField: Identifiable, Hashable {
     let name: String
     let label: String
@@ -368,6 +388,7 @@ struct DesktopState {
     let savedValues: [String: JSONValue]
     let sources: [String: JSONValue]
     let fields: [ConfigField]
+    let sections: [ConfigSection]
     let commands: [CommandCatalogEntry]
     let skillTargets: [SkillTarget]
     let minimumProfile: JSONValue?
@@ -388,6 +409,9 @@ struct DesktopState {
         savedValues = raw.object("saved_values")
         sources = raw.object("sources")
         fields = raw.object("metadata").array("fields").compactMap(ConfigField.init)
+        sections = raw.object("metadata").array("sections")
+            .compactMap(ConfigSection.init)
+            .sorted { $0.order < $1.order }
         commands = raw.array("commands").compactMap(CommandCatalogEntry.init)
         skillTargets = raw.array("skill_targets").compactMap(SkillTarget.init)
         minimumProfile = raw["minimum_profile"]

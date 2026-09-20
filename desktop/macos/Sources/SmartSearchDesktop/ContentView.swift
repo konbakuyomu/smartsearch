@@ -10,7 +10,8 @@ struct ContentView: View {
                 HStack(spacing: 10) {
                     Image(nsImage: NSApp.applicationIconImage)
                         .resizable().scaledToFit().frame(width: 36, height: 36)
-                        .padding(3).background(.white, in: RoundedRectangle(cornerRadius: 6))
+                        .padding(3)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
                         .accessibilityLabel("Smart Search 图标")
                     Text("Smart Search").font(.headline)
                 }
@@ -253,11 +254,20 @@ private struct ProvidersView: View {
                 }
 
                 HStack(spacing: 10) {
-                    Button("检查这样够不够") { Task { await model.previewConfig() } }
-                        .disabled(model.connection != .ready)
-                    Button("保存配置") { Task { await model.saveConfig() } }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(model.connection != .ready || (model.configDraft.isEmpty && model.clearSecretKeys.isEmpty))
+                    Button {
+                        Task { await model.previewConfig() }
+                    } label: {
+                        BusyLabel(text: "检查这样够不够", busyText: "检查中…", busy: model.isBusy.contains("preview"))
+                    }
+                    .disabled(model.connection != .ready || model.isBusy.contains("preview"))
+                    Button {
+                        Task { await model.saveConfig() }
+                    } label: {
+                        BusyLabel(text: "保存配置", busyText: "保存中…", busy: model.isBusy.contains("save"))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.connection != .ready || model.isBusy.contains("save")
+                              || (model.configDraft.isEmpty && model.clearSecretKeys.isEmpty))
                     Button("放弃修改", role: .cancel) { model.resetConfigDraft() }
                         .disabled(model.configDraft.isEmpty && model.clearSecretKeys.isEmpty)
                     Spacer()
@@ -280,14 +290,51 @@ private struct ProvidersView: View {
                     }
                 }
 
-                ForEach(sections.keys.sorted(), id: \.self) { section in
+                // Follow the backend's declared order. Sorting the raw ids
+                // alphabetically put `diagnostics` first, so a new user met the
+                // log level and the SSL switch before "start here".
+                ForEach(orderedSectionIDs(state: state, present: Set(sections.keys)), id: \.self) { section in
                     let fields = sections[section] ?? []
-                    ProviderSection(model: model, state: state, section: section, fields: fields)
+                    ProviderSection(
+                        model: model,
+                        state: state,
+                        section: section,
+                        title: state.sections.first { $0.id == section }?.label,
+                        blurb: state.sections.first { $0.id == section }?.blurb ?? "",
+                        fields: fields)
                 }
             }
             .padding(24)
             .frame(maxWidth: 980, alignment: .leading)
         })
+    }
+}
+
+/// Section ids in backend order, with anything the backend did not describe
+/// appended alphabetically so a new section never vanishes from the page.
+private func orderedSectionIDs(state: DesktopState, present: Set<String>) -> [String] {
+    var ordered = state.sections.map(\.id).filter(present.contains)
+    let described = Set(ordered)
+    ordered.append(contentsOf: present.subtracting(described).sorted())
+    return ordered
+}
+
+/// A button label that turns into a spinner while its operation runs. Without it
+/// a 20-second probe looks identical to a click that did nothing.
+private struct BusyLabel: View {
+    let text: String
+    let busyText: String
+    let busy: Bool
+
+    var body: some View {
+        if busy {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text(busyText)
+            }
+        } else {
+            Text(text)
+        }
     }
 }
 
@@ -534,6 +581,8 @@ private struct ProviderSection: View {
     @ObservedObject var model: AppModel
     let state: DesktopState
     let section: String
+    let title: String?
+    let blurb: String
     let fields: [ConfigField]
 
     private var provider: String? {
@@ -541,35 +590,58 @@ private struct ProviderSection: View {
         return providers.count == 1 ? providers.first : nil
     }
 
+    /// Of the 68 keys, 55 are advanced and 9 are essential. Showing them at equal
+    /// weight is what makes this page read as a wall; `tier` was already parsed
+    /// and simply never consulted.
+    private var upfront: [ConfigField] { fields.filter { $0.tier != "advanced" } }
+    private var advanced: [ConfigField] { fields.filter { $0.tier == "advanced" } }
+
+    private var testKey: String { "test:" + (provider ?? section) }
+
     var body: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 14) {
-                ForEach(fields) { field in
+                if !blurb.isEmpty {
+                    Text(blurb).font(.caption).foregroundStyle(.secondary)
+                }
+                let visible = upfront.isEmpty ? advanced : upfront
+                ForEach(visible) { field in
                     ConfigFieldEditor(model: model, state: state, field: field)
-                    if field.id != fields.last?.id { Divider() }
+                    if field.id != visible.last?.id { Divider() }
+                }
+                if !upfront.isEmpty, !advanced.isEmpty {
+                    DisclosureGroup("更多设置（\(advanced.count)）") {
+                        VStack(alignment: .leading, spacing: 14) {
+                            ForEach(advanced) { field in
+                                ConfigFieldEditor(model: model, state: state, field: field)
+                                if field.id != advanced.last?.id { Divider() }
+                            }
+                        }
+                        .padding(.top, 8)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         } label: {
             HStack {
-                Text(sectionTitle)
+                Text(title ?? section)
                 Spacer()
                 if let provider {
-                    Button("测试") { Task { await model.testProvider(provider) } }
-                        .disabled(model.connection != .ready)
+                    Button {
+                        Task { await model.testProvider(provider) }
+                    } label: {
+                        if model.inFlight.contains(testKey) {
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.small)
+                                Text("测试中…")
+                            }
+                        } else {
+                            Text("测试")
+                        }
+                    }
+                    .disabled(model.connection != .ready || model.inFlight.contains(testKey))
                 }
             }
-        }
-    }
-
-    private var sectionTitle: String {
-        switch section {
-        case "getting_started": return "开始使用"
-        case "providers": return "服务商"
-        case "routing": return "路由"
-        case "reliability": return "可靠性"
-        case "diagnostics": return "诊断"
-        default: return section
         }
     }
 }
