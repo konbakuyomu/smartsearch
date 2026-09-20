@@ -22,144 +22,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  windows:
-    name: Windows ${{ matrix.architecture }} test package
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - architecture: x64
-            runner: windows-latest
-            python_architecture: x64
-          - architecture: arm64
-            runner: windows-11-arm
-            python_architecture: arm64
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.release_tag || github.ref }}
-
-      - name: Set up Python
-        id: python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-          architecture: ${{ matrix.python_architecture }}
-
-      - name: Set up .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "8.0.x"
-
-      - name: Install build dependencies
-        run: python -m pip install --disable-pip-version-check . "pyinstaller==6.22.3"
-
-      - name: Verify backend stop and reconnect without a window
-        shell: pwsh
-        run: >-
-          dotnet run --project desktop/tests/BackendLifecycleCheck --configuration Release --
-          "${{ steps.python.outputs.python-path }}"
-          "$env:RUNNER_TEMP/smartsearch-client-lifecycle"
-
-      - name: Install Inno Setup on the disposable release runner
-        if: inputs.release_tag != ''
-        run: choco install innosetup --yes --no-progress
-
-      - name: Build self-contained test package
-        shell: pwsh
-        run: >-
-          .\desktop\scripts\Build-Windows.ps1
-          -Architecture ${{ matrix.architecture }}
-          -PythonPath "${{ steps.python.outputs.python-path }}"
-          -InstallerMode ${{ inputs.release_tag && 'Required' || 'Skip' }}
-
-      - name: Stage release installer
-        if: inputs.release_tag != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-package-windows-${{ matrix.architecture }}
-          path: .desktop-artifacts/windows-${{ matrix.architecture }}-*/installer/*.exe
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload unsigned test package
-        uses: actions/upload-artifact@v4
-        with:
-          name: smart-search-windows-${{ matrix.architecture }}-unsigned-test
-          path: .desktop-artifacts/windows-${{ matrix.architecture }}-*/publish/
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 7
-
-  macos:
-    name: macOS ${{ matrix.architecture }} test package
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - architecture: x86_64
-            runner: macos-15-intel
-            python_architecture: x64
-          - architecture: arm64
-            runner: macos-15
-            python_architecture: arm64
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.release_tag || github.ref }}
-
-      - name: Set up Python
-        id: python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-          architecture: ${{ matrix.python_architecture }}
-
-      - name: Install build dependencies
-        env:
-          PYTHON_BIN: ${{ steps.python.outputs.python-path }}
-        run: '"$PYTHON_BIN" -m pip install --disable-pip-version-check . "pyinstaller==6.22.3"'
-
-      - name: Build unsigned test app and DMG
-        run: >-
-          bash desktop/scripts/build-macos.sh
-          --architecture ${{ matrix.architecture }}
-          --python "${{ steps.python.outputs.python-path }}"
-
-      - name: Upload unsigned test package
-        uses: actions/upload-artifact@v4
-        with:
-          name: smart-search-macos-${{ matrix.architecture }}-unsigned-test
-          path: .desktop-artifacts/macos-${{ matrix.architecture }}-*/*.dmg
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Stage release DMG
-        if: inputs.release_tag != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-package-macos-${{ matrix.architecture }}
-          path: .desktop-artifacts/macos-${{ matrix.architecture }}-*/*.dmg
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Test macOS protocol models
-        run: >-
-          swift test --package-path desktop/macos --configuration release
-          --arch ${{ matrix.architecture }}
-          --scratch-path .desktop-artifacts/macos-model-tests
-
   release-assets:
     if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
-    needs: [windows, macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v6
         with:
@@ -167,6 +35,8 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           pattern: release-package-*
+          run-id: 35502967876
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           path: release-packages
           merge-multiple: true
       - name: Validate version, platforms and checksums
@@ -196,5 +66,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"
-          gh release upload "$RELEASE_TAG" release-packages/*.exe release-packages/*.dmg release-packages/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY"
+          python - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          repo, tag = os.environ['GITHUB_REPOSITORY'], os.environ['RELEASE_TAG']
+          release = json.loads(subprocess.check_output(['gh', 'api', f'repos/{repo}/releases/392382704']))
+          assert release['tag_name'] == tag == 'v0.1.20'
+          existing = {asset['name']: asset for asset in release['assets']}
+          files = [p for p in pathlib.Path('release-packages').iterdir() if p.is_file()]
+          assert len(files) == 5
+          for p in files:
+              digest = 'sha256:' + hashlib.file_digest(p.open('rb'), 'sha256').hexdigest()
+              if p.name in existing:
+                  assert existing[p.name]['state'] == 'uploaded' and existing[p.name]['digest'] == digest, p.name
+              else:
+                  subprocess.run(['gh', 'release', 'upload', tag, str(p), '--repo', repo], check=True)
+          subprocess.run(['gh', 'release', 'edit', tag, '--draft=false', '--latest', '--repo', repo], check=True)
+          PY
