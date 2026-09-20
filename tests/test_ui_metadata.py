@@ -202,3 +202,10 @@ def test_secret_fields_for_real_providers_link_somewhere():
         if item.kind != "secret" or item.key in unlinked_ok:
             continue
         assert item.key_url or item.docs_url, f"{item.key} is a secret with nowhere to get it"
+
+
+def test_status_labels_ship_in_the_payload():
+    # Both native frontends read the table from here rather than hardcoding it.
+    payload = metadata_payload()
+    assert payload["status_labels"], "status_labels must reach the desktop frontends"
+    assert payload["status_labels"]["cooldown"]["zh"] == "冷却中"

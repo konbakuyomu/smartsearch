@@ -446,6 +446,67 @@ CONFIG_FIELDS: tuple[ConfigField, ...] = (
 FIELDS_BY_KEY: dict[str, ConfigField] = {item.key: item for item in CONFIG_FIELDS}
 
 
+# Machine-readable status values that reach a user-facing surface. The native
+# frontends render whatever the backend hands them, so without a table here the
+# UI ends up showing `closed`, `up_to_date` or `provider.test` verbatim in an
+# otherwise Chinese window. Frontends look a value up and fall back to printing
+# it unchanged, so an unlisted value degrades instead of disappearing.
+STATUS_LABELS: dict[str, dict[str, str]] = {
+    # provider_health[].state
+    "closed": {"zh": "正常", "en": "Normal"},
+    "cooldown": {"zh": "冷却中", "en": "Cooling down"},
+    # test result probe kind
+    "main": {"zh": "主搜索探测", "en": "Main-search probe"},
+    "live": {"zh": "真实请求", "en": "Live request"},
+    "presence": {"zh": "仅检查已填写", "en": "Presence only"},
+    "shared": {"zh": "共用凭据", "en": "Shared credential"},
+    "none": {"zh": "无探针", "en": "No probe"},
+    # connection-test status
+    "ok": {"zh": "通过", "en": "Passed"},
+    "not_configured": {"zh": "未配置", "en": "Not configured"},
+    "configured": {"zh": "已填写，未验证", "en": "Filled in, unverified"},
+    "disabled": {"zh": "已停用", "en": "Disabled"},
+    "skipped": {"zh": "已跳过", "en": "Skipped"},
+    "warning": {"zh": "有警告", "en": "Warning"},
+    "timeout": {"zh": "超时", "en": "Timed out"},
+    "error": {"zh": "失败", "en": "Failed"},
+    "auth_error": {"zh": "鉴权失败", "en": "Auth failed"},
+    "config_error": {"zh": "配置有误", "en": "Bad configuration"},
+    "rate_limited": {"zh": "被限流", "en": "Rate limited"},
+    "network_error": {"zh": "网络错误", "en": "Network error"},
+    "parse_error": {"zh": "解析失败", "en": "Parse failed"},
+    "provider_error": {"zh": "服务商报错", "en": "Provider error"},
+    "parameter_error": {"zh": "参数有误", "en": "Bad parameter"},
+    "runtime_error": {"zh": "运行出错", "en": "Runtime error"},
+    "evidence_error": {"zh": "证据缺失", "en": "Evidence missing"},
+    # run lifecycle
+    "running": {"zh": "进行中", "en": "Running"},
+    "cancelling": {"zh": "正在取消", "en": "Cancelling"},
+    "cancelled": {"zh": "已取消", "en": "Cancelled"},
+    "interrupted": {"zh": "已中断", "en": "Interrupted"},
+    "finished": {"zh": "已完成", "en": "Finished"},
+    "completed": {"zh": "已完成", "en": "Completed"},
+    "failed": {"zh": "失败", "en": "Failed"},
+    "stale": {"zh": "记录过期", "en": "Stale"},
+    # skill install status
+    "up_to_date": {"zh": "已是最新", "en": "Up to date"},
+    "missing": {"zh": "未安装", "en": "Not installed"},
+    "extra_files": {"zh": "有多余文件", "en": "Extra files present"},
+    # config value source
+    "environment": {"zh": "环境变量", "en": "Environment variable"},
+    "config_file": {"zh": "配置文件", "en": "Config file"},
+    "default": {"zh": "默认值", "en": "Default"},
+}
+
+
+def status_label(value: str, lang: str = "zh") -> str:
+    """Translate one status value, falling back to the raw value."""
+    entry = STATUS_LABELS.get(str(value or "").strip())
+    if not entry:
+        return str(value or "")
+    return entry.get(lang) or entry.get("en") or str(value)
+
+
 def metadata_payload() -> dict[str, Any]:
     """Serialise sections and fields for the page."""
     return {
@@ -480,4 +541,5 @@ def metadata_payload() -> dict[str, Any]:
             }
             for item in CONFIG_FIELDS
         ],
+        "status_labels": {key: dict(value) for key, value in STATUS_LABELS.items()},
     }
