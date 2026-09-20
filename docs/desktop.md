@@ -4,9 +4,10 @@
 
 ## 安装和打开
 
-在 [v0.1.19 Release](https://github.com/konbakuyomu/smartsearch/releases/tag/v0.1.19)
-下载 Windows x64 安装器。它安装到当前用户的应用目录，自带运行环境，无需先安装 Python、Node 或全局 CLI。
-安装器尚未签名。macOS、Windows ARM64、干净虚拟机和完整 DPI 矩阵尚未完成实机验收。
+在 [v0.1.20 Release](https://github.com/konbakuyomu/smartsearch/releases/tag/v0.1.20)
+下载对应架构的安装包，Windows x64、Windows ARM64、macOS Apple 芯片和 macOS Intel 各一个，旁边附 `SHA256SUMS.txt`。
+它安装到当前用户的应用目录，自带运行环境，无需先安装 Python、Node 或全局 CLI。
+安装包尚未签名，macOS 未公证。macOS、Windows ARM64、干净虚拟机和完整 DPI 矩阵尚未完成实机验收。
 
 安装后从开始菜单打开 **Smart Search**。已有配置会被复用；没有配置时，概览会提示缺少主搜索、文档检索或网页读取能力。
 
@@ -29,7 +30,7 @@
 - CLI 和 App 可以独立运行。App 自带私有后端，外部 CLI 不通过 App 执行。
 - 使用同一个配置目录时，Key、地址和模型配置互通；保存的新配置用于下一次调用，正在运行的任务保留启动时的快照。
 - 默认 Windows 配置路径为 `%LOCALAPPDATA%\smart-search`，既有 legacy 路径仍受支持；显式 `SMART_SEARCH_CONFIG_DIR` 或 App 中选择的目录可以用于隔离。
-- App 更新不覆盖独立 npm CLI。要在 App 看到终端/AI 的活动，请将外部 CLI 升级到 0.1.19；旧 CLI 保持可用，但没有新活动事件。
+- App 更新不覆盖独立 npm CLI。要在 App 看到终端/AI 的活动，请将外部 CLI 升级到 0.1.20；旧 CLI 保持可用，但没有新活动事件。
 - 如果使用 App 内置 CLI 的绝对路径，关闭窗口不影响调用；卸载 App 会移除该内置可执行文件。独立安装的 npm CLI 不受影响。
 - 不同进程继承的环境变量可能不同，因此相同配置文件不保证两个进程的有效环境完全一致。
 

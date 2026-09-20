@@ -214,8 +214,8 @@ def test_release_version_metadata_and_tarball_support_are_synchronized():
 
 
 def test_release_docs_explain_beta_lane_and_npm_immutability():
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    reference = (ROOT / "docs" / "reference.md").read_text(encoding="utf-8")
+    reference_zh = (ROOT / "docs" / "reference.zh-CN.md").read_text(encoding="utf-8")
     public_contract = read_reference_tree(ROOT / "skills" / "smart-search-cli")
     packaged_contract = read_reference_tree(
         ROOT / "src" / "smart_search" / "assets" / "skills" / "smart-search-cli"
@@ -243,7 +243,7 @@ def test_release_docs_explain_beta_lane_and_npm_immutability():
         "ConvertFrom-Json",
     ]
     for marker in required_markers:
-        assert marker in readme
+        assert marker in reference
     zh_required_markers = [
         "发布通道",
         "<package.json version>-beta.N",
@@ -258,7 +258,7 @@ def test_release_docs_explain_beta_lane_and_npm_immutability():
         "ConvertFrom-Json",
     ]
     for marker in zh_required_markers:
-        assert marker in readme_zh
+        assert marker in reference_zh
     contract_markers = [
         "Release Lanes",
         "<package.json version>-beta.N",

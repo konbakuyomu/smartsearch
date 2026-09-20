@@ -212,8 +212,8 @@ def test_search_timeout_retry_policy_is_distributable():
 
 
 def test_deep_research_readme_documents_capability_orchestration():
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    reference = (ROOT / "docs" / "reference.md").read_text(encoding="utf-8")
+    reference_zh = (ROOT / "docs" / "reference.zh-CN.md").read_text(encoding="utf-8")
     english_markers = [
         "Deep Research is not a fixed topic recipe system",
         "smart-search research",
@@ -259,14 +259,16 @@ def test_deep_research_readme_documents_capability_orchestration():
         "没有 fetch 的来源标为未验证候选",
     ]
     for marker in english_markers:
-        assert marker in readme
+        assert marker in reference
     for marker in chinese_markers:
-        assert marker in readme_zh
+        assert marker in reference_zh
 
 
 def test_readme_language_split_and_provider_links_are_documented():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    reference = (ROOT / "docs" / "reference.md").read_text(encoding="utf-8")
+    reference_zh = (ROOT / "docs" / "reference.zh-CN.md").read_text(encoding="utf-8")
     package_json = (ROOT / "package.json").read_text(encoding="utf-8")
 
     assert "[简体中文](README.zh-CN.md) | English" in readme
@@ -274,6 +276,8 @@ def test_readme_language_split_and_provider_links_are_documented():
     assert "## 中文" not in readme
     assert "## English" not in readme
     assert "README.zh-CN.md" in package_json
+    assert "docs/reference.md" in readme
+    assert "docs/reference.zh-CN.md" in readme_zh
 
     provider_markers = [
         "https://docs.x.ai/docs",
@@ -291,8 +295,8 @@ def test_readme_language_split_and_provider_links_are_documented():
         "https://www.firecrawl.dev/app/api-keys",
     ]
     for marker in provider_markers:
-        assert marker in readme
-        assert marker in readme_zh
+        assert marker in reference
+        assert marker in reference_zh
 
 
 def test_deep_research_shared_skill_files_are_synchronized():
@@ -300,8 +304,8 @@ def test_deep_research_shared_skill_files_are_synchronized():
 
 
 def test_opencode_skill_path_contract_is_synchronized():
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    reference = (ROOT / "docs" / "reference.md").read_text(encoding="utf-8")
+    reference_zh = (ROOT / "docs" / "reference.zh-CN.md").read_text(encoding="utf-8")
     public_contract = _read_reference_tree(PUBLIC_SKILL_DIR)
     packaged_contract = _read_reference_tree(PACKAGED_SKILL_DIR)
     required_markers = [
@@ -312,7 +316,7 @@ def test_opencode_skill_path_contract_is_synchronized():
     ]
 
     for marker in required_markers:
-        assert marker in readme
+        assert marker in reference
         assert marker in public_contract
         assert marker in packaged_contract
 
@@ -321,12 +325,12 @@ def test_opencode_skill_path_contract_is_synchronized():
         "~/.opencode/skills/smart-search-cli",
         "legacy_locations",
     ]:
-        assert marker in readme_zh
+        assert marker in reference_zh
 
 
 def test_zhipu_setup_contract_public_and_packaged_assets_match():
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    reference = (ROOT / "docs" / "reference.md").read_text(encoding="utf-8")
+    reference_zh = (ROOT / "docs" / "reference.zh-CN.md").read_text(encoding="utf-8")
     public_text = _read_skill_tree(PUBLIC_SKILL_DIR)
     packaged_text = _read_skill_tree(PACKAGED_SKILL_DIR)
     public_contract = _read_reference_tree(PUBLIC_SKILL_DIR)
@@ -347,7 +351,7 @@ def test_zhipu_setup_contract_public_and_packaged_assets_match():
         "not the MCP Server",
     ]
     for marker in required_markers:
-        assert marker in readme
+        assert marker in reference
         assert marker in public_text
         assert marker in packaged_text
     zh_required_markers = [
@@ -366,15 +370,15 @@ def test_zhipu_setup_contract_public_and_packaged_assets_match():
         "不是 MCP Server",
     ]
     for marker in zh_required_markers:
-        assert marker in readme_zh
+        assert marker in reference_zh
     for marker in ["--zhipu-api-url", "--zhipu-search-engine"]:
         assert marker in public_contract
         assert marker in packaged_contract
 
 
 def test_jina_and_zhipu_mcp_contract_public_and_packaged_assets_match():
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    reference = (ROOT / "docs" / "reference.md").read_text(encoding="utf-8")
+    reference_zh = (ROOT / "docs" / "reference.zh-CN.md").read_text(encoding="utf-8")
     public_text = _read_skill_tree(PUBLIC_SKILL_DIR)
     packaged_text = _read_skill_tree(PACKAGED_SKILL_DIR)
     public_contract = _read_reference_tree(PUBLIC_SKILL_DIR)
@@ -416,7 +420,7 @@ def test_jina_and_zhipu_mcp_contract_public_and_packaged_assets_match():
         "A normal `ZHIPU_API_KEY` for Web Search API does not prove `zhipu-mcp-search` or zread access",
     ]
     for marker in readme_markers:
-        assert marker in readme
+        assert marker in reference
 
     zh_markers = [
         "JINA_API_KEY",
@@ -428,12 +432,12 @@ def test_jina_and_zhipu_mcp_contract_public_and_packaged_assets_match():
         "普通 `ZHIPU_API_KEY` 能用 Web Search API，不代表能用 `zhipu-mcp-search` 或 zread",
     ]
     for marker in zh_markers:
-        assert marker in readme_zh
+        assert marker in reference_zh
 
 
 def test_streaming_and_anysearch_contract_public_and_packaged_assets_match():
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    reference = (ROOT / "docs" / "reference.md").read_text(encoding="utf-8")
+    reference_zh = (ROOT / "docs" / "reference.zh-CN.md").read_text(encoding="utf-8")
     public_text = _read_skill_tree(PUBLIC_SKILL_DIR)
     packaged_text = _read_skill_tree(PACKAGED_SKILL_DIR)
     public_contract = _read_reference_tree(PUBLIC_SKILL_DIR)
@@ -468,7 +472,7 @@ def test_streaming_and_anysearch_contract_public_and_packaged_assets_match():
         "not required by the `standard` minimum profile",
     ]
     for marker in required_markers:
-        assert marker in readme
+        assert marker in reference
         assert marker in public_text
         assert marker in packaged_text
         assert marker in public_contract
@@ -504,14 +508,14 @@ def test_streaming_and_anysearch_contract_public_and_packaged_assets_match():
         "不是 `standard` 最低配置要求",
     ]
     for marker in zh_required_markers:
-        assert marker in readme_zh
+        assert marker in reference_zh
 
 
 def test_openai_compatible_fallback_is_fail_over_not_time_slice():
     public_contract = _read_reference_tree(PUBLIC_SKILL_DIR)
     packaged_contract = _read_reference_tree(PACKAGED_SKILL_DIR)
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    reference = (ROOT / "docs" / "reference.md").read_text(encoding="utf-8")
+    reference_zh = (ROOT / "docs" / "reference.zh-CN.md").read_text(encoding="utf-8")
     markers = [
         "fail-over after a hard primary-model failure, not a time slice",
         "remaining shared main-search budget",
@@ -519,13 +523,13 @@ def test_openai_compatible_fallback_is_fail_over_not_time_slice():
     for marker in markers:
         assert marker in public_contract
         assert marker in packaged_contract
-    assert "fail-over, not a time slice" in readme
-    assert "失败后接力，不是时间片" in readme_zh
+    assert "fail-over, not a time slice" in reference
+    assert "失败后接力，不是时间片" in reference_zh
 
 
 def test_openai_compatible_responses_mode_contract_is_documented_and_packaged():
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    reference = (ROOT / "docs" / "reference.md").read_text(encoding="utf-8")
+    reference_zh = (ROOT / "docs" / "reference.zh-CN.md").read_text(encoding="utf-8")
     public_text = _read_skill_tree(PUBLIC_SKILL_DIR)
     packaged_text = _read_skill_tree(PACKAGED_SKILL_DIR)
 
@@ -542,7 +546,7 @@ def test_openai_compatible_responses_mode_contract_is_documented_and_packaged():
     assert "does not promise `/responses` support" in public_text
     assert "does not promise `/responses` support" in packaged_text
 
-    assert "OPENAI_COMPATIBLE_API_MODE=responses" in readme
-    assert "official `model` + `instructions`/`input` request subset" in readme
-    assert "OPENAI_COMPATIBLE_API_MODE=responses" in readme_zh
-    assert "官方 `model` + `instructions`/`input` 请求子集" in readme_zh
+    assert "OPENAI_COMPATIBLE_API_MODE=responses" in reference
+    assert "official `model` + `instructions`/`input` request subset" in reference
+    assert "OPENAI_COMPATIBLE_API_MODE=responses" in reference_zh
+    assert "官方 `model` + `instructions`/`input` 请求子集" in reference_zh

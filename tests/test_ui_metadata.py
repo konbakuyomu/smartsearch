@@ -146,17 +146,23 @@ def _readme_urls() -> set[str]:
     from pathlib import Path
 
     root = Path(__file__).resolve().parent.parent
-    text = (root / "README.md").read_text(encoding="utf-8")
-    text += (root / "README.zh-CN.md").read_text(encoding="utf-8")
+    text = ""
+    for name in (
+        "README.md",
+        "README.zh-CN.md",
+        "docs/reference.md",
+        "docs/reference.zh-CN.md",
+    ):
+        text += (root / name).read_text(encoding="utf-8")
     return set(re.findall(r"https://[^\s)\]|`\"']+", text))
 
 
 def test_every_link_is_documented_in_the_readme():
-    """Links must come from the README's provider table, never from memory.
+    """Links must come from the published provider tables, never from memory.
 
     An invented key page sends someone to a 404 while they are already unsure
-    where the key lives, so the README is the single source and this assertion
-    keeps the two from drifting apart.
+    where the key lives, so the READMEs and docs/reference*.md are the single
+    source and this assertion keeps the two from drifting apart.
     """
     documented = _readme_urls()
     for item in CONFIG_FIELDS:
@@ -164,8 +170,9 @@ def test_every_link_is_documented_in_the_readme():
             if not url:
                 continue
             assert url in documented, (
-                f"{item.key}.{label} = {url} is not in README.md or README.zh-CN.md. "
-                "Add it to the provider table there first, or remove it here."
+                f"{item.key}.{label} = {url} is not in the READMEs or "
+                "docs/reference*.md. Add it to the provider table there first, "
+                "or remove it here."
             )
 
 
