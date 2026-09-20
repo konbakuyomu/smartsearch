@@ -214,12 +214,29 @@ internal static class Theme
     /// <summary>Badge whose tint is derived from the status value itself.</summary>
     internal static Border PillFor(string text, string? status) => Pill(text, KindOf(status));
 
-    /// <summary>The spinner shown next to a control while an operation is in flight.</summary>
-    internal static ProgressRing Spinner(double size = 16) => new()
+    /// <summary>
+    /// The spinner shown while an operation is in flight.
+    ///
+    /// ProgressRing defaults to the accent brush, which is invisible on an accent
+    /// button, so a spinner destined for one is tinted with the on-accent text
+    /// brush instead.
+    /// </summary>
+    internal static ProgressRing Spinner(bool onAccent = false, double size = 16)
     {
-        IsActive = true,
-        Width = size,
-        Height = size,
-        VerticalAlignment = VerticalAlignment.Center,
-    };
+        var ring = new ProgressRing
+        {
+            IsActive = true,
+            Width = size,
+            Height = size,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var brush = BrushFor(onAccent ? "TextOnAccentFillColorPrimaryBrush" : "TextFillColorPrimaryBrush");
+        if (brush is not null)
+            ring.Foreground = brush;
+        return ring;
+    }
+
+    /// <summary>Inline "working on it" content for a button, matching its foreground.</summary>
+    internal static UIElement BusyContent(string text, bool onAccent)
+        => Row(SpaceS, Spinner(onAccent), new TextBlock { Text = text });
 }

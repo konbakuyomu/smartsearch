@@ -28,6 +28,11 @@ public sealed partial class MainWindow : Window
     private readonly HashSet<string> _ownedRuns = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _ownedRunStatus = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _ownedRunKinds = new(StringComparer.Ordinal);
+    // provider.test is fire-and-forget: the call returns a run_id in milliseconds
+    // while the probe itself takes up to 20 seconds. Without this the card shows
+    // nothing at all for that whole window.
+    private readonly Dictionary<string, string> _runProviders = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _testingProviders = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, JsonElement> _ownedRunResults = new(StringComparer.Ordinal);
     private readonly List<string> _extraActivityDirectories = [];
     private readonly Dictionary<string, string> _preferences = new(StringComparer.Ordinal);
@@ -355,9 +360,32 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>Whether a provider.test run for this provider is still in flight.</summary>
+    private bool HasRunningTestFor(string provider)
+    {
+        foreach (var entry in _runProviders)
+        {
+            if (!entry.Value.Equals(provider, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (!_ownedRunStatus.TryGetValue(entry.Key, out var status) || !IsTerminal(status))
+                return true;
+        }
+        return false;
+    }
+
     private UIElement BuildProviderStatus(JsonElement state, string provider)
     {
-        var panel = new StackPanel { Spacing = 3 };
+        var panel = new StackPanel { Spacing = Theme.SpaceXS };
+        // Self-healing: a dropped run event must not strand a card on "testing".
+        if (_testingProviders.Contains(provider) && !HasRunningTestFor(provider))
+            _testingProviders.Remove(provider);
+        if (_testingProviders.Contains(provider))
+        {
+            panel.Children.Add(Theme.Row(Theme.SpaceS,
+                Theme.Spinner(),
+                Theme.Pill("测试中", Theme.StatusKind.Neutral),
+                Theme.Hint("最长等待 20 秒")));
+        }
         var health = Property(state, "provider_health");
         var healthRow = Items(health, "providers").FirstOrDefault(item => Text(item, "provider").Equals(provider, StringComparison.OrdinalIgnoreCase));
         var healthState = Text(healthRow, "state");
@@ -679,8 +707,12 @@ public sealed partial class MainWindow : Window
         var result = await RequestAsync("provider.test", new { provider, overrides }, "无法启动草稿测试。");
         if (result is null)
             return;
-        RegisterOwnedRun(Text(result.Value, "run_id"), "provider.test");
-        ShowNotice("草稿测试已开始", "测试只使用当前草稿中实际编辑的值，不会保存配置或改变正式健康记录。", InfoBarSeverity.Success);
+        var testRunId = Text(result.Value, "run_id");
+        RegisterOwnedRun(testRunId, "provider.test");
+        if (!string.IsNullOrWhiteSpace(testRunId))
+            _runProviders[testRunId] = provider;
+        _testingProviders.Add(provider);
+        RenderCurrentPage();
     }
 
     private async Task RefreshActivityAsync(bool silent)
@@ -1019,7 +1051,14 @@ public sealed partial class MainWindow : Window
                     {
                         await LoadRunResultAsync(runId, backendEvent.Data);
                         if (_ownedRunKinds.TryGetValue(runId, out var kind) && kind == "provider.test")
+                        {
+                            if (_runProviders.TryGetValue(runId, out var testedProvider))
+                            {
+                                _testingProviders.Remove(testedProvider);
+                                _runProviders.Remove(runId);
+                            }
                             await RefreshProviderStateAfterTestAsync();
+                        }
                     }
                 }
             }
@@ -1305,12 +1344,42 @@ public sealed partial class MainWindow : Window
         Theme.Row(Theme.SpaceS, Theme.Pill("未连接", Theme.StatusKind.Bad)),
         Theme.Secondary("本地后端未连接，因此不会显示猜测出来的状态。请先确认随包后端存在，再重新连接。"));
 
-    private Button ActionButton(string text, Func<Task> action, bool primary = false)
+    private Button ActionButton(string text, Func<Task> action, bool primary = false, string? busyText = null)
     {
-        var button = new Button { Content = text, Margin = new Thickness(0, 4, 8, 4), MinWidth = 112 };
+        var button = new Button
+        {
+            Content = text,
+            Margin = new Thickness(0, Theme.SpaceXS, Theme.SpaceS, Theme.SpaceXS),
+            MinWidth = 112
+        };
         if (primary)
             button.Style = Application.Current.Resources["AccentButtonStyle"] as Style;
-        button.Click += async (_, _) => await action();
+
+        var running = false;
+        button.Click += async (_, _) =>
+        {
+            // The button used to stay live for the whole call. A provider probe
+            // runs up to 20 seconds, so with nothing changing on screen a user
+            // clicks again, and every extra click is another real, possibly
+            // billable request. Every button in the app comes from this factory,
+            // so disabling here covers save, preview, install, run and test.
+            if (running)
+                return;
+            running = true;
+            var original = button.Content;
+            button.IsEnabled = false;
+            button.Content = Theme.BusyContent(busyText ?? text + "中…", primary);
+            try
+            {
+                await action();
+            }
+            finally
+            {
+                button.Content = original;
+                button.IsEnabled = true;
+                running = false;
+            }
+        };
         return button;
     }
 
