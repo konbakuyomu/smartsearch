@@ -3,6 +3,101 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <Application.Resources>
-    <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+      </ResourceDictionary.MergedDictionaries>
+
+      <!--
+        Status tints live here rather than in code because ApplyTheme only sets
+        RequestedTheme; it does not rebuild the pages. A brush resolved once in
+        C# would keep the old theme's colour until the user navigated away and
+        back, while a ThemeResource referenced from a Style updates in place.
+
+        No HighContrast dictionary: under high contrast the Light entries apply,
+        and Theme.cs tolerates a missing brush, so nothing breaks. Proper high
+        contrast support needs a real machine to verify and is left for later.
+      -->
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="StatusOkForeground" Color="#0F7B3F" />
+          <SolidColorBrush x:Key="StatusOkBackground" Color="#1A0F7B3F" />
+          <SolidColorBrush x:Key="StatusWarnForeground" Color="#9A5B00" />
+          <SolidColorBrush x:Key="StatusWarnBackground" Color="#1F9A5B00" />
+          <SolidColorBrush x:Key="StatusBadForeground" Color="#B3261E" />
+          <SolidColorBrush x:Key="StatusBadBackground" Color="#1AB3261E" />
+          <SolidColorBrush x:Key="StatusNeutralForeground" Color="#5C6370" />
+          <SolidColorBrush x:Key="StatusNeutralBackground" Color="#145C6370" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="StatusOkForeground" Color="#5FD08A" />
+          <SolidColorBrush x:Key="StatusOkBackground" Color="#2E5FD08A" />
+          <SolidColorBrush x:Key="StatusWarnForeground" Color="#E0A34C" />
+          <SolidColorBrush x:Key="StatusWarnBackground" Color="#2EE0A34C" />
+          <SolidColorBrush x:Key="StatusBadForeground" Color="#F2857A" />
+          <SolidColorBrush x:Key="StatusBadBackground" Color="#2EF2857A" />
+          <SolidColorBrush x:Key="StatusNeutralForeground" Color="#A6AEBB" />
+          <SolidColorBrush x:Key="StatusNeutralBackground" Color="#24A6AEBB" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+
+      <!-- Card: the app's only figure/ground separation. -->
+      <Style x:Key="SectionCardStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="16" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+      </Style>
+
+      <!-- Pill: one shape for every status value, tinted by the four variants.
+           These styles deliberately avoid BasedOn: a StaticResource lookup into a
+           merged dictionary depends on parse order, and a build break here is
+           expensive to diagnose on a machine that cannot compile WinUI. -->
+      <Style x:Key="StatusPillStyle" TargetType="Border">
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="8,1,8,2" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="HorizontalAlignment" Value="Left" />
+      </Style>
+      <Style x:Key="StatusPillTextStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="LineHeight" Value="16" />
+        <Setter Property="TextWrapping" Value="NoWrap" />
+      </Style>
+
+      <!-- Data values: keys, URLs, paths and timestamps read as data, not prose. -->
+      <Style x:Key="MonoTextStyle" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="LineHeight" Value="19" />
+        <Setter Property="IsTextSelectionEnabled" Value="True" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+      </Style>
+      <Style x:Key="MonoCaptionTextStyle" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="Cascadia Mono, Consolas, Courier New" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="LineHeight" Value="16" />
+        <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+        <Setter Property="IsTextSelectionEnabled" Value="True" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+      </Style>
+
+      <!-- Secondary prose. Replaces Opacity=0.75, which greys the glyphs instead
+           of establishing a hierarchy. -->
+      <Style x:Key="SecondaryTextStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="LineHeight" Value="20" />
+        <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+      </Style>
+      <Style x:Key="HintTextStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="LineHeight" Value="16" />
+        <Setter Property="Foreground" Value="{ThemeResource TextFillColorTertiaryBrush}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+      </Style>
+    </ResourceDictionary>
   </Application.Resources>
 </Application>
