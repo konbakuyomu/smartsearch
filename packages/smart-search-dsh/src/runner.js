@@ -2,7 +2,10 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 
-const SUPPORTED_COMMANDS = new Set(['search', 'fetch'])
+const SUPPORTED_COMMANDS = new Set([
+  'search', 'fetch', 'route', 'deep', 'research',
+  'map', 'exa-search', 'zhipu-search', 'context7-docs', 'doctor',
+])
 
 function errorResult(command, code, message, details = undefined) {
   return {
@@ -81,34 +84,20 @@ function resolveWindowsExecutable(executable) {
   return executable
 }
 
-function quoteForWindowsCommandProcessor(value) {
-  const escaped = String(value)
-    .replace(/\^/g, '^^')
-    .replace(/%/g, '%%')
-    .replace(/["&|<>()]/g, '^$&')
-  return `"${escaped}"`
-}
-
 function createSpawnRequest(executable, args) {
   const resolvedExecutable = resolveWindowsExecutable(executable)
   if (process.platform === 'win32' && /\.ps1$/i.test(resolvedExecutable)) {
     return {
-      file: 'powershell.exe',
+      file: 'pwsh.exe',
       args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-File', resolvedExecutable, ...args],
       windowsVerbatimArguments: false,
-      requiresCmdSafeInput: false,
+
     }
   }
   if (process.platform === 'win32' && /\.(?:cmd|bat)$/i.test(resolvedExecutable)) {
-    const commandLine = [resolvedExecutable, ...args].map(quoteForWindowsCommandProcessor).join(' ')
-    return {
-      file: process.env.ComSpec ?? process.env.COMSPEC ?? 'cmd.exe',
-      args: ['/d', '/v:off', '/s', '/c', `"${commandLine}"`],
-      windowsVerbatimArguments: true,
-      requiresCmdSafeInput: true,
-    }
+    return { unsupportedShell: true }
   }
-  return { file: resolvedExecutable, args, windowsVerbatimArguments: false, requiresCmdSafeInput: false }
+  return { file: resolvedExecutable, args, windowsVerbatimArguments: false }
 }
 
 function terminateChild(child) {
@@ -144,23 +133,33 @@ function parseJsonResult(command, stdout) {
   }
 }
 
-export async function runSmartSearchCli({ command, input, config, signal }) {
+export async function runSmartSearchCli({ command, input, config, signal, extraArgs = [] }) {
   if (!SUPPORTED_COMMANDS.has(command)) {
     throw new TypeError(`smart-search-dsh: unsupported Smart Search command ${command}`)
   }
 
-  const cliArgs = [...config.executableArgs, command, input]
+  const cliArgs = [...config.executableArgs, command]
+  // Commands that accept a positional input argument
+  const hasPositionalInput = input !== ''
+  if (hasPositionalInput) {
+    cliArgs.push(input)
+  }
+  // Add search-specific timeout budget
   if (command === 'search') {
     cliArgs.push('--timeout', formatSearchTimeout(config.timeoutMs))
+  }
+  // Add any extra arguments from the tool definition (e.g. --budget)
+  for (const arg of extraArgs) {
+    cliArgs.push(arg)
   }
   cliArgs.push('--format', 'json')
 
   const request = createSpawnRequest(config.executable, cliArgs)
-  if (request.requiresCmdSafeInput && /[&|<>()^%!"\r\n]/.test(input)) {
+  if (request.unsupportedShell) {
     return errorResult(
       command,
       'SMART_SEARCH_UNSUPPORTED_INPUT',
-      'This Windows cmd executable cannot safely accept shell metacharacters. Configure a trusted executable or PowerShell shim instead.',
+      'CMD/BAT launchers are disabled. Configure a trusted executable or PowerShell 7 shim instead.',
     )
   }
   return new Promise((resolve) => {
