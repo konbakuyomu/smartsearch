@@ -1,4 +1,4 @@
-"""Frozen executable and development module entry point."""
+"""Private configurator process; the user CLI is installed separately."""
 import sys
 
 
@@ -10,8 +10,13 @@ def main():
         from smart_search.desktop_backend import main as run
     elif sys.argv[1:2] == ["--desktop-worker"]:
         from smart_search.desktop_worker import main as run
+    elif sys.argv[1:] == ["--version"]:
+        from smart_search.cli import _get_version
+        print("smart-search " + _get_version())
+        return 0
     else:
-        from smart_search.cli import main as run
+        print("This is the App's private helper. Install the Smart Search CLI separately.", file=sys.stderr)
+        return 2
     return run()
 
 

@@ -155,6 +155,56 @@ async def test_auto_check_downloads_only_and_failed_check_blocks_sync(tmp_path, 
     assert manager.task.done()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [None, "offline", "target-changed"])
+async def test_single_update_checks_cold_cache_then_updates_only_selection(tmp_path, monkeypatch, failure):
+    manager, _ = isolated(tmp_path, monkeypatch)
+    manager.state.update(cached=True, can_sync=False)
+    destination = skills.target_path("opencode", manager.environment.home, {})
+    data, source = bundle()
+    calls = []
+
+    async def fetch(_):
+        calls.append(1)
+        if failure == "offline":
+            raise httpx.ConnectError("offline")
+        if failure == "target-changed":
+            destination.mkdir(parents=True)
+            (destination / "SKILL.md").write_bytes(b"edited while checking")
+        return source, data, update.unpack_skills(data, source)
+
+    monkeypatch.setattr(update, "fetch_skills", fetch)
+    manager.update({"confirm": True, "targets": ["opencode"]})
+    assert manager.state["busy"] and manager.state["checking"]
+    with pytest.raises(ValueError):
+        manager.update({"confirm": True, "targets": ["claude"]})
+    await manager.task
+    assert calls == [1] and not manager.state["busy"] and not manager.state["checking"]
+    assert not skills.target_path("claude", manager.environment.home, {}).exists()
+    if failure:
+        assert manager.state["error"]
+        if failure == "offline":
+            assert not destination.exists()
+        else:
+            assert (destination / "SKILL.md").read_bytes() == b"edited while checking"
+        async def retry_fetch(_):
+            return source, data, update.unpack_skills(data, source)
+        monkeypatch.setattr(update, "fetch_skills", retry_fetch)
+        manager.update({"confirm": True, "targets": ["opencode"]})
+        await manager.task
+        assert manager.state["result"]["ok"] and not manager.state["error"]
+        if failure == "target-changed":
+            backup = Path(manager.state["result"]["installed"][0]["backup"])
+            assert (backup / "SKILL.md").read_bytes() == b"edited while checking"
+    else:
+        assert manager.state["result"]["ok"]
+        original_time = (destination / "SKILL.md").stat().st_mtime_ns
+        manager.update({"confirm": True, "targets": ["opencode"]})
+        await manager.task
+        assert manager.state["result"]["installed"][0]["changed_files"] == 0
+        assert (destination / "SKILL.md").stat().st_mtime_ns == original_time
+
+
 def test_changed_files_invalidate_confirmation_but_cli_version_does_not(tmp_path, monkeypatch):
     manager, info = isolated(tmp_path, monkeypatch)
     plan = manager.state["plan_id"]
@@ -302,7 +352,7 @@ async def test_backend_serializes_skill_and_runtime_mutations(tmp_path, monkeypa
     backend = Backend(lambda *_: None)
     backend.directory, backend.initialized = str(tmp_path), True
     backend.skills.state["busy"] = True
-    for method in ("profile.select", "cli.update", "cli.enable", "environment.install", "skills.install", "app.update-prepare", "shutdown", "language.set"):
+    for method in ("profile.select", "cli.update", "environment.prepare", "environment.install", "skills.install", "app.update-prepare", "shutdown", "language.set"):
         with pytest.raises(ValueError):
             await backend.handle(method, {"lang": "en"})
     backend.skills.state["busy"] = False
@@ -312,7 +362,8 @@ async def test_backend_serializes_skill_and_runtime_mutations(tmp_path, monkeypa
 
 
 @pytest.mark.asyncio
-async def test_native_protocol_catalog_and_sync_share_latest_bytes(tmp_path, monkeypatch):
+@pytest.mark.parametrize("method", ["skills.sync", "skills.update"])
+async def test_native_protocol_catalog_and_sync_share_latest_bytes(tmp_path, monkeypatch, method):
     manager, info = isolated(tmp_path, monkeypatch)
     events = []
     backend = Backend(events.append)
@@ -322,7 +373,13 @@ async def test_native_protocol_catalog_and_sync_share_latest_bytes(tmp_path, mon
     monkeypatch.setattr(backend, "cli_status", lambda: info)
     catalog = await backend.handle("skills.catalog", {})
     assert catalog["source"]["version"] == "0.1.22" and len(catalog["targets"]) == len(skills.SKILL_TARGETS)
-    await backend.handle("skills.sync", {"targets": ["roo"], "confirm": True, "plan_id": catalog["plan_id"]})
+    async def fetch(_):
+        data, source = bundle()
+        return source, data, update.unpack_skills(data, source)
+    monkeypatch.setattr(update, "fetch_skills", fetch)
+    if method == "skills.update":
+        manager.state.update(cached=True, can_sync=False)
+    await backend.handle(method, {"targets": ["roo"], "confirm": True, "plan_id": catalog["plan_id"]})
     await manager.task
     assert events[-1]["event"] == "skills" and events[-1]["data"]["result"]["ok"]
     refreshed = await backend.handle("skills.catalog", {})

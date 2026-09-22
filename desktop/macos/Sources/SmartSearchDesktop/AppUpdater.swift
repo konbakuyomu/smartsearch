@@ -100,7 +100,7 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate, SPUStand
     private func completePreparedUpdate() async {
         guard !preparing, let resume = resumeInstallation else { return }
         guard canInstall() else {
-            statusMessage = L("请先处理正在进行的任务或未保存修改，再点击更新重启。")
+            statusMessage = L("请先保存修改并结束当前操作，再更新 App。")
             return
         }
         preparing = true

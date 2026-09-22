@@ -129,10 +129,8 @@ extension Dictionary where Key == String, Value == JSONValue {
 }
 
 enum Destination: String, CaseIterable, Identifiable, Hashable {
-    case overview
     case providers
     case search
-    case activity
     case integration
     case settings
 
@@ -140,21 +138,17 @@ enum Destination: String, CaseIterable, Identifiable, Hashable {
 
     var title: String {
         switch self {
-        case .overview: return L("概览")
-        case .providers: return L("服务商")
-        case .search: return L("搜索与研究")
-        case .activity: return L("活动")
-        case .integration: return L("更新 Skills")
-        case .settings: return L("设置与关于")
+        case .providers: return L("配置")
+        case .search: return L("测试")
+        case .integration: return L("CLI 与 Skills")
+        case .settings: return L("设置")
         }
     }
 
     var symbol: String {
         switch self {
-        case .overview: return "rectangle.3.group"
         case .providers: return "key.horizontal"
         case .search: return "magnifyingglass"
-        case .activity: return "clock.arrow.circlepath"
         case .integration: return "terminal"
         case .settings: return "gearshape"
         }
@@ -253,7 +247,14 @@ struct OperationState {
     mutating func endRequest(_ key: String) { requests.remove(key) }
     mutating func track(_ runID: String, key: String) { runs[runID, default: []].insert(key) }
     mutating func finish(_ runID: String) { runs.removeValue(forKey: runID) }
+    func runIDs(for key: String) -> [String] { runs.filter { $0.value.contains(key) }.map(\.key) }
     mutating func reset() { requests.removeAll(); runs.removeAll() }
+}
+
+enum SkillsSelectionPolicy {
+    static func canUpdate(connected: Bool, selectedCount: Int, busy: Bool) -> Bool {
+        connected && selectedCount > 0 && !busy
+    }
 }
 
 struct CommandField: Identifiable, Hashable {
@@ -320,50 +321,6 @@ struct SkillTarget: Identifiable, Hashable {
         label = raw.string("label") ?? id
         isDefault = raw.bool("default") ?? false
         status = raw.string("status")
-    }
-}
-
-struct ActivityRun: Identifiable, Hashable {
-    let runID: String
-    let command: String
-    let origin: String
-    let configDirectory: String?
-    let status: String
-    let phase: String?
-    let provider: String?
-    let model: String?
-    let configRevision: String?
-    let elapsedMilliseconds: Int?
-    let errorType: String?
-    let sourcesCount: Int?
-    let updatedAt: Date?
-    let raw: JSONValue
-
-    var id: String { runID }
-    var isActive: Bool { status == "running" || status == "cancelling" }
-
-    init?(_ value: JSONValue) {
-        guard let raw = value.objectValue, let runID = raw.string("run_id") else { return nil }
-        self.runID = runID
-        command = raw.string("command") ?? L("未知命令")
-        origin = raw.string("origin") ?? "unknown"
-        configDirectory = raw.string("config_dir")
-        status = raw.string("status") ?? "unknown"
-        phase = raw.string("phase")
-        provider = raw.string("provider")
-        model = raw.string("model")
-        configRevision = raw.string("config_revision")
-        elapsedMilliseconds = raw["elapsed_ms"]?.integerValue
-        errorType = raw.string("error_type")
-        sourcesCount = raw["sources_count"]?.integerValue
-        updatedAt = raw["updated_at"]?.numberValue.map(Date.init(timeIntervalSince1970:))
-        self.raw = value
-    }
-
-    var elapsedText: String {
-        let milliseconds = elapsedMilliseconds ?? 0
-        if milliseconds < 1_000 { return "\(milliseconds) ms" }
-        return String(format: L("%.1f 秒"), Double(milliseconds) / 1_000)
     }
 }
 
@@ -501,10 +458,6 @@ struct DesktopState {
             ?? commands.first { $0.id == phase }?.label
             ?? statusLabels[phase]
             ?? L("处理中")
-    }
-
-    func activityRuns() -> [ActivityRun] {
-        raw["activity"]?["runs"]?.arrayValue?.compactMap(ActivityRun.init) ?? []
     }
 
     var providerGroups: [ProviderFieldGroup] {

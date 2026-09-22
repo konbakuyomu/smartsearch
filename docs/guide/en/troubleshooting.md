@@ -44,7 +44,7 @@ smart-search deep "深度搜索一下最近的比特币行情" --format json | C
 
 ## The CLI package updated but its runtime is not ready
 
-Managers such as mise may skip npm lifecycle scripts, so the package version can change before its Python runtime exists. The App's Update CLI action verifies installation ownership, prepares that package's private Python environment, then checks actual execution. Failures retain their logs and allow a same-version retry after checking again. Ordinary refresh remains read-only. If no independent Python is available, use Shared independent CLI environment first. Running `smart-search --version` in a terminal may also repair a missing runtime, making the first invocation slower.
+Managers such as mise may skip npm lifecycle scripts, so the package version can change before its Python runtime exists. The App's Update CLI action verifies installation ownership, prepares that package's private Python environment, then checks actual execution. Failures retain their logs and allow a same-version retry after checking again. Ordinary refresh remains read-only. If its runtime is missing, select Repair CLI in CLI & Skills; dependencies are prepared automatically. Running `smart-search --version` in a terminal may also repair a missing runtime, making the first invocation slower.
 
 ## App update failed or is unavailable
 
@@ -81,8 +81,8 @@ This targets only this app; do not disable Gatekeeper globally. Ad-hoc signing d
 
 ## Interface language
 
-Set the App language in Settings & about, and the independent CLI language with `smart-search config set SMART_SEARCH_LANGUAGE en`. If the CLI still uses another language, check a per-call `--lang` and the `SMART_SEARCH_LANGUAGE` environment override. `auto` follows the CLI locale, which can differ from the GUI session. Use `smart-search --lang en --help` to test without changing settings. Unreadable preferences fall back with a warning; repair that configuration file without deleting provider keys. Original page text and third-party logs do not change language.
+Set the App language in Settings, and the independent CLI language with `smart-search config set SMART_SEARCH_LANGUAGE en`. If the CLI still uses another language, check a per-call `--lang` and the `SMART_SEARCH_LANGUAGE` environment override. `auto` follows the CLI locale, which can differ from the GUI session. Use `smart-search --lang en --help` to test without changing settings. Unreadable preferences fall back with a warning; repair that configuration file without deleting provider keys. Original page text and third-party logs do not change language.
 
 ## AI integration is still pending
 
-Use Update Skills to check the stable source and select Agents with changed files; a software version change alone does not require Skill sync. An unready CLI does not block content sync, but prepare it under Shared independent CLI environment before making calls. If detection fails in Settings, read the specific reason, select Refresh installed versions, then check for updates. Matching files do not prove the Agent loaded the Skill. Reopen the session or use Gemini `/skills reload`, then verify the actual CLI version. Changed content is backed up and the result shows its recovery path. See [App setup](app.md).
+In CLI & Skills, select targets and choose Install/update selected Skills. The action checks the source automatically; retry failures with the same button. An empty selection or conflicting operation disables submission. Matching files report up to date. Use Install/Repair CLI for missing dependencies. Matching Skill files do not prove the Agent loaded them: reopen the session or use Gemini `/skills reload`, then verify the actual version. Changed content is backed up and results show its recovery path. See [App setup](app.md).

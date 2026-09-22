@@ -71,12 +71,4 @@ internal sealed class AppUpdater
         _manager.ApplyUpdatesAndRestart(_update);
     }
 
-    internal static string? LegacyInstallation()
-    {
-        const string key = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\{BE6BC4C8-605B-48DD-A4FE-11975FD7D4DD}_is1";
-        using var installed = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(key);
-        var directory = installed?.GetValue("InstallLocation") as string;
-        return directory is not null && Path.IsPathFullyQualified(directory) &&
-            File.Exists(Path.Combine(directory, "SmartSearch.Desktop.exe")) ? directory : null;
-    }
 }

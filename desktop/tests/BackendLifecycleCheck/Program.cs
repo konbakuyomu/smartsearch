@@ -1,10 +1,25 @@
 using SmartSearch.Desktop;
 
 Localization.Preference = "zh";
-if (ActivityPresentation.ProviderModel("firecrawl", "") != "服务商：firecrawl" ||
-    ActivityPresentation.ProviderModel("openai-compatible", "grok-test") != "服务商：openai-compatible · 模型：grok-test" ||
-    ActivityPresentation.ProviderModel("", "") != "")
-    throw new Exception("Activity captions must distinguish a model from a non-model provider.");
+var selectedTargets = new HashSet<string>();
+if (SkillsSelectionPolicy.CanUpdate(true, selectedTargets.Count, false))
+    throw new Exception("An empty selection must not submit an update.");
+selectedTargets.Add("opencode");
+if (!SkillsSelectionPolicy.CanUpdate(true, selectedTargets.Count, false))
+    throw new Exception("Selecting OpenCode must enable the action before a source check.");
+if (SkillsSelectionPolicy.CanUpdate(true, selectedTargets.Count, true) || SkillsSelectionPolicy.CanUpdate(false, selectedTargets.Count, false))
+    throw new Exception("A busy or disconnected app must not submit an update.");
+selectedTargets.Clear();
+if (SkillsSelectionPolicy.CanUpdate(true, selectedTargets.Count, false))
+    throw new Exception("Clearing the last selection must disable submission.");
+var operations = new OperationState();
+operations.TrackRun("test:exa", "exa-run");
+operations.TrackRun("test:context7", "docs-run");
+if (!operations.RunsFor("test:exa").SequenceEqual(["exa-run"]))
+    throw new Exception("Inline cancellation must target only the selected provider's own run.");
+operations.EndRun("exa-run");
+if (operations.RunsFor("test:exa").Length != 0 || operations.RunsFor("test:context7").Length != 1)
+    throw new Exception("A completed test must not cancel another provider's task.");
 
 // The same real client must reconnect after stopping for a failed installer
 // launch. No UI, installer, package manager, or provider is invoked here.

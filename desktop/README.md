@@ -1,5 +1,7 @@
 # Smart Search 桌面构建
 
+原生 App 是四页配置器：配置、测试、CLI 与 Skills、设置。私有配置/测试进程不公开为 CLI；终端和 Agent 使用 App 目录外的独立安装。
+
 脚本默认构建未做发行者签名的测试产物：macOS 本地默认使用 ad-hoc，固定证书签名与作者配置见 [macOS 签名](../docs/macos-signing.md)；Windows 显式使用 `-SigningMode Required` 时生成自签名产物，签名失败即停止。不创建 GitHub Release、不修改 PATH，也不会读取或删除共享配置、用户结果或外部 npm CLI。每次执行都会在 `.desktop-artifacts/` 新建独立目录；失败现场保留供排查。
 
 Python 后端固定为 PyInstaller `onedir`：`smart-search.exe`（Windows）或 `smart-search`（macOS），并验证 `smart_search/assets` 全量存在、`smart-search` 包元数据存在。Mac 通用版保留两套完整后端，由双架构启动器选择当前架构。`--smoke` 仅发送本机 `initialize` 与 `shutdown` 协议消息，使用本次运行目录中的空配置目录，不发真实服务商请求。
@@ -32,7 +34,7 @@ mise run desktop:windows:build -Architecture x64
 
 安装包由仓库锁定的 Velopack `vpk` 工具生成，默认按当前用户安装；`-InstallerMode Skip` 只生成散包。生产安装身份为 `com.smartsearch.desktop.win-x64` 或 `com.smartsearch.desktop.win-arm64`，渠道为 `win-x64-stable` / `win-arm64-stable`。散包不能充当已安装的更新客户端，界面提示先完整安装。
 
-首次从 Inno Setup 版迁移时，先完成写入并退出旧 App，再通过 Windows“已安装的应用”卸载旧 App，运行新的完整 Setup，并从新快捷方式启动。新包附带双语 `migration.txt`；App 只读识别旧安装，不自动卸载。共享配置、结果、独立 CLI、SmartSearchTools 和 Agent Skills 保留在原路径。后续版本由 Velopack 更新。
+首次从 Inno Setup 版迁移时，先完成写入并退出旧 App，再通过 Windows“已安装的应用”卸载旧 App，运行新的完整 Setup，并从新快捷方式启动。新包附带双语 `migration.txt`；App 不再常驻显示旧安装迁移面板，也不自动卸载。共享配置、结果、独立 CLI、SmartSearchTools 和 Agent Skills 保留在原路径。后续版本由 Velopack 更新。
 
 传入 `-PreviousReleaseDirectory` 可用已校验的同架构上一版完整包生成差分，目标完整包始终保留。没有框架基线是首版；已有基线下载或校验失败会阻止发布。`test_windows_updates.py <result.json>` 使用独立测试身份、目录和本地 feed，验证真实 SDK 差分安装及损坏差分后的完整包回退，不覆盖正式安装。
 
@@ -96,21 +98,21 @@ Windows 新构建统一使用 `windows-Setup-{架构}.exe`，不以文件名判�
 
 ## App 和 CLI 更新
 
-设置中的“版本与更新”分别展示 App/内置引擎与实际生效的独立 CLI。Windows App 由 Velopack、macOS App 由 Sparkle 检查官方稳定源；启用时在到期后检查，间隔至少 24 小时，可关闭且保留手动检查。退出后没有检查服务。自动检查只取元数据，发现更新提示“更新/稍后”，同一会话不重复提示同一版本。
+设置只保留 App 更新；独立 CLI 在“CLI 与 Skills”页维护。Windows App 由 Velopack、macOS App 由 Sparkle 检查官方稳定源；启用时在到期后检查，间隔至少 24 小时，可关闭且保留手动检查。退出后没有检查服务。自动检查只取元数据，发现更新提示“更新/稍后”，同一会话不重复提示同一版本。
 
 点击更新后由 SDK 下载和校验，优先使用适用差分，失败时按框架规则回退完整包。安装前保护草稿、自有任务、CLI 升级、环境和 Skills 写入，安全关闭 sidecar 后由框架安装重启。下载完成不代表安装完成，重启后核对 App 与内置引擎实际版本。不会强行停止外部 CLI。
 
-独立 CLI 只在确认属于普通全局 npm 或全局 mise npm 时可更新。点击前展示来源、路径和目标版本；执行保留原管理器，补齐目标包私有 Python，读回实际运行结果后才成功。同版本未就绪可显式重试。复杂 mise 选项、项目范围、版本约束、未知或冲突来源保留手动说明，不改 PATH。普通探测只读；管理器写入期间保持 App 打开。
+独立 CLI 只在确认属于普通全局 npm 或全局 mise npm 时可更新。来源无法确认时显示原因；执行保留原管理器，补齐目标包私有 Python，读回实际运行结果后才成功。同版本未就绪可显式重试。复杂 mise 选项、项目范围、版本约束、未知或冲突来源保留手动说明，不改 PATH。普通探测只读；管理器写入期间保持 App 打开。
 
 ## 环境准备与 App/CLI 解耦
 
-“更新 Skills → 共用独立 CLI 环境”提供“检测环境 → 安装缺少的组件 → 验证可用性”。健康的 Node/npm、支持 venv/pip 的 Python 和明确来源的 CLI 优先复用。缺失时从 Node 官方 LTS 发行版和经校验的 uv/Astral CPython 准备运行环境，再安装锁定的 npm 稳定版 CLI；无需预装 mise，也不代装或登录 Codex/Claude Code。
+“CLI 与 Skills”用一个 CLI 安装/修复动作在内部完成检测、安装和验证。健康的 Node/npm、支持 venv/pip 的 Python 和明确来源的 CLI 优先复用。缺失时从 Node 官方 LTS 发行版和经校验的 uv/Astral CPython 准备运行环境，再安装锁定的 npm 稳定版 CLI；无需预装 mise，也不代装或登录 Codex/Claude Code。
 
 新环境位于 `%LOCALAPPDATA%/SmartSearchTools` 或 `~/.local/share/smart-search-tools`，独立 npm prefix 在其 `cli` 子目录。它们不是 App 文件，关闭、更新或卸载 App 不会移除它们。AI 接入文件包含独立 Node 和 npm CLI 的绝对调用路径。Windows 为新安装补充自己的用户 PATH 项并提示重新打开 AI/终端；macOS 不修改 shell 配置，图形 AI 可以按技能中的完整路径调用。
 
-“更新 Skills”统一列出所有 Agent 目标，区分 Skill 文件状态、独立 CLI 版本和实际 AI 调用。最新源是官方 npm 稳定包，下载通过 SHA512 与归档边界检查，只读取说明文件。默认每天检查并提示；用户选择目标、核对路径后才备份并更新。备份路径在结果中显示，额外文件、未选目标与历史副本保留。Codex 使用 `.agents/skills`，Claude 尊重 `CLAUDE_CONFIG_DIR`，也支持 Cursor、Copilot、Gemini、OpenCode、Cline、Roo Code 等注册目标。更新会刷新独立 CLI 的本机调用说明。离线缓存不能冒充本次最新检查成功；CLI 未就绪不阻止正文同步，实际 AI 调用前仍需准备独立 CLI。检查不发收费请求，AI 内调用仍由用户验证。
+“CLI 与 Skills”用勾选框统一列出所有 Agent 目标，区分 Skill 文件状态、独立 CLI 版本和实际 AI 调用。最新源是官方 npm 稳定包，下载通过 SHA512 与归档边界检查，只读取说明文件。默认每天检查并提示；用户勾选任一目标后主按钮可用，一次操作完成可信来源检查、目标复核、备份和同步。相同内容显示已是最新，不重复写入。备份路径在结果中显示，额外文件、未选目标与历史副本保留。Codex 使用 `.agents/skills`，Claude 尊重 `CLAUDE_CONFIG_DIR`，也支持 Cursor、Copilot、Gemini、OpenCode、Cline、Roo Code 等注册目标。更新会刷新独立 CLI 的本机调用说明。离线缓存不能冒充本次最新检查成功；CLI 未就绪不阻止正文同步，实际 AI 调用前仍需准备独立 CLI。检查不发收费请求，AI 内调用仍由用户验证。
 
-安装失败保留已成功组件，重新检测后补缺。只有下载可取消；包管理器写入期间保持 App 打开。实现检查必须使用隔离配置、环境和技能目录；Windows x64 的实测不代表 macOS/ARM64 或真实 AI 会话已经验证。
+安装失败保留已成功组件，从同一动作重试补缺。只有下载可取消；包管理器写入期间保持 App 打开。实现检查必须使用隔离配置、环境和技能目录；Windows x64 的实测不代表 macOS/ARM64 或真实 AI 会话已经验证。
 
 ## 双语界面与手册
 

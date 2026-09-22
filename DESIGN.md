@@ -1,19 +1,19 @@
 ---
 name: Smart Search for macOS
-description: 任务优先的原生 macOS 搜索工作台。
+description: 配置、测试与 CLI/Skills 安装优先的原生配置器。
 ---
 
 # Design System: Smart Search for macOS
 
 ## Overview
 
-**Creative North Star: "Apple 原生 macOS 工作台"**
+**Creative North Star: "原生桌面配置器"**
 
 使用系统窗口、字体与控件建立熟悉感。Codex Tweaks 提供结构参考，Smart Search 保留自己的名称和图标。先呈现主要任务、必要状态与下一步行动，技术细节按需进入。
 
 **Key Characteristics:** 原生、清楚、克制；真实状态；稳定留白。
 
-范围为 `desktop/macos`，依据 `DesktopLayout.swift`、`DesktopSplitView.swift`、`ContentView.swift`、`SmartSearchDesktopApp.swift`。原生令牌保存在 sidecar 的 `extensions.native`。搜索、服务商、活动的分栏及设置页紧凑布局已完成部分实机检查；英文、主题切换与宽窗口的视觉验收仍待完成。
+范围为 `desktop/macos` 及下方 Windows 适配，依据原生布局、主视图和导航实现。原生令牌保存在 sidecar 的 `extensions.native`。历史 Windows/macOS 实机检查记录保留；本轮四页配置器、勾选框与单一操作的新增视觉验收单独记录。
 
 ## Colors
 
@@ -37,16 +37,13 @@ description: 任务优先的原生 macOS 搜索工作台。
 | --- | --- | --- |
 | 服务商 | 184／220／280 | 400 |
 | 搜索 | 280／320／360 | 360 |
-| 活动 | 224／260／320 | 360 |
 
 | 工作区 | 结构 |
 | --- | --- |
-| 概览 | 基础状态、下一步与能力；详情 sheet |
-| 服务商 | 搜索框下方是统一滚动列表，意图路由为无图标的第一行，随列表滚动；随后按后端主要能力分组列出服务商，行内显示名称与配置状态，右侧副标题说明真实用途。路由模式使用本地化名称，仅展示当前模式参数，研究数据源偏好单独进入 |
-| 搜索与研究 | 左侧输入、右侧结果；两栏分别滚动，选项使用 sheet |
-| 活动 | 左列表、右详情；原生可调整分栏 |
-| 更新 Skills | 目标开关列表；文件／偏好／环境 sheet |
-| 设置与关于 | 顶部项目信息和 GitHub；同一页面依次呈现通用、App 更新、独立 CLI、高级设置，以标题、间距和有边框面板区分 |
+| 配置（默认） | 搜索框下方是统一滚动列表，意图路由为第一行；按能力分组列出服务商，保留草稿、保存、预览与就地测试/取消 |
+| 测试 | 左侧六类配置测试和输入、右侧结果；选项按需查看，测试就地取消；同一时间一个业务测试 |
+| CLI 与 Skills | CLI 状态与安装/更新/重试动作；Agent 勾选框列表和底部安装/更新按钮。检查、备份、同步组成一次操作，错误和备份路径就地显示 |
+| 设置 | 项目信息和 GitHub、语言、外观、配置目录、App 更新。一个 App 更新主操作随状态变化；无常驻迁移或开发连接面板 |
 
 ## Elevation & Depth
 
@@ -59,11 +56,12 @@ description: 任务优先的原生 macOS 搜索工作台。
 ## Components
 
 - **Buttons:** 当前主要动作使用 `.borderedProminent`；运行中显示进度与文字，冲突时禁用。危险动作声明对应 role。
-- **Settings rows:** 设置面板使用 `DesktopPanel(compact: true)`；说明靠左、控件靠右。自动更新开关保持原生尺寸，长说明允许换行；运行环境的说明和准备按钮位于同一行。
-- **Configuration directory:** Windows 和 macOS 的当前配置目录右侧提供“选择配置目录…”和“恢复默认配置目录”，同一行排列。默认路径与是否已使用默认目录均由后端提供；已在默认目录、未连接或切换期间禁用恢复按钮。恢复沿用目录切换的草稿保护，并读取默认目录自己的配置。
+- **Settings rows:** 设置面板使用 `DesktopPanel(compact: true)`；说明靠左、控件靠右。自动更新开关保持原生尺寸，长说明允许换行。
+- **Configuration directory:** 当前配置目录右侧提供“选择配置目录…”，使用自定义目录时才显示“恢复默认配置目录”。后端提供默认路径，目录切换保留草稿保护。
 - **Inputs:** 字段按 metadata 使用 TextField／SecureField 或 Picker；当前有效值直接填入控件，placeholder 只用于空字段的输入示例。只有实际修改进入草稿，清空普通字段也会保存为空值。现有 Toggle 使用 `.switch`，保留系统焦点与键盘交互，字段来源等详情进入 popover。
 - **Secrets:** macOS 客户端显式请求后，私有后端管道提供可编辑 Key，实际值绑定 SecureField 并由系统显示密码圆点；未配置时才显示输入提示。清空或“清除 Key”在保存时删除密钥，“保留”和放弃修改恢复当前值。环境变量字段保持只读；Key 不进入通用状态、详情或诊断，Web／CLI 状态保持脱敏。
-- **Navigation:** `NavigationSplitView` 与 sidebar；记录筛选使用 segmented Picker；服务商、搜索及活动共用 `DesktopSplitView` 原生分栏。设置不增加第二套导航。配置和 Skills 底部保留操作区。
+- **Navigation:** `NavigationSplitView` 与 sidebar；配置、测试共用 `DesktopSplitView` 原生分栏。设置不增加第二套导航。配置和 Skills 底部保留操作区；全局重新读取仅出现在配置页，断线时提供重连。
+- **Skills selection:** 使用原生 checkbox，含义是本次写入目标；取消勾选不会卸载。非冲突状态下，任一选择都使主按钮可用，不以缓存或内容差异禁用。完成后保留选择，无变化明确显示已是最新。
 - **Providers:** 分组顺序为主搜索、文档检索、网页搜索、网页抓取、垂直检索；依据后端 `provider_profiles.capability`，不以必填字段或是否配置推断类型。多能力服务商只出现一次，详情说明全部声明能力和用途；实验性与显式调用限制保持可见。搜索覆盖名称、用途及全部能力，过滤不清除选择或草稿。
 - **Disclosure:** 整行使用真实 Button，最小高度 30，展开箭头旋转 90°；动画 `easeInOut(0.18s)`，减少动态效果开启时禁用。提供展开状态的可访问值。
 - **Language:** 语言变化时刷新列表、详情控件和菜单，保留外层 `NavigationSplitView` 的身份；页面选择留在稳定的父视图，草稿与搜索参数保留在 AppModel。运行标题从稳定 ID 重新取词。分栏 hosting controllers 明确传递 locale、colorScheme 和共用控件样式。

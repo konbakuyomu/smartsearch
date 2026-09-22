@@ -25,22 +25,16 @@
         <Grid x:Name="MascotSpacer" Height="160" />
       </muxc:NavigationView.PaneFooter>
       <muxc:NavigationView.MenuItems>
-        <muxc:NavigationViewItem Content="概览" Tag="overview" IsSelected="True">
-          <muxc:NavigationViewItem.Icon><SymbolIcon Symbol="Home" /></muxc:NavigationViewItem.Icon>
-        </muxc:NavigationViewItem>
-        <muxc:NavigationViewItem Content="服务商" Tag="providers">
+        <muxc:NavigationViewItem Content="配置" Tag="providers" IsSelected="True">
           <muxc:NavigationViewItem.Icon><SymbolIcon Symbol="Contact" /></muxc:NavigationViewItem.Icon>
         </muxc:NavigationViewItem>
-        <muxc:NavigationViewItem Content="搜索与研究" Tag="search">
+        <muxc:NavigationViewItem Content="测试" Tag="search">
           <muxc:NavigationViewItem.Icon><SymbolIcon Symbol="Find" /></muxc:NavigationViewItem.Icon>
         </muxc:NavigationViewItem>
-        <muxc:NavigationViewItem Content="活动" Tag="activity">
-          <muxc:NavigationViewItem.Icon><SymbolIcon Symbol="AllApps" /></muxc:NavigationViewItem.Icon>
-        </muxc:NavigationViewItem>
-        <muxc:NavigationViewItem Content="AI 接入" Tag="ai">
+        <muxc:NavigationViewItem Content="CLI 与 Skills" Tag="ai">
           <muxc:NavigationViewItem.Icon><SymbolIcon Symbol="Remote" /></muxc:NavigationViewItem.Icon>
         </muxc:NavigationViewItem>
-        <muxc:NavigationViewItem Content="设置与关于" Tag="settings">
+        <muxc:NavigationViewItem Content="设置" Tag="settings">
           <muxc:NavigationViewItem.Icon><SymbolIcon Symbol="Setting" /></muxc:NavigationViewItem.Icon>
         </muxc:NavigationViewItem>
       </muxc:NavigationView.MenuItems>

@@ -22,11 +22,9 @@ internal sealed record CommandArgument(
 
 internal sealed record CommandValue(string? Text, bool IsChecked = false);
 
-internal static class ActivityPresentation
+internal static class SkillsSelectionPolicy
 {
-    public static string ProviderModel(string provider, string model) => string.Join(" · ",
-        new[] { string.IsNullOrWhiteSpace(provider) ? null : L("服务商：{0}", provider),
-                string.IsNullOrWhiteSpace(model) ? null : L("模型：{0}", model) }.Where(value => value is not null));
+    public static bool CanUpdate(bool connected, int selectedCount, bool busy) => connected && selectedCount > 0 && !busy;
 }
 
 internal static class ControlValueComparer
@@ -52,6 +50,7 @@ internal sealed class OperationState
         if (!_runs.TryGetValue(runId, out var keys)) _runs[runId] = keys = [];
         keys.Add(key);
     }
+    public string[] RunsFor(string key) => _runs.Where(item => item.Value.Contains(key)).Select(item => item.Key).ToArray();
     public void EndRun(string runId) => _runs.Remove(runId);
     public void Clear() { _requests.Clear(); _runs.Clear(); }
 }

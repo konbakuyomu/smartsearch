@@ -123,16 +123,31 @@ final class ProtocolModelTests: XCTestCase {
         XCTAssertTrue(state.begin("test:exa"))
         XCTAssertFalse(state.begin("test:exa"))
         state.track("probe", key: "test:exa")
+        state.track("docs", key: "test:context7")
+        XCTAssertEqual(state.runIDs(for: "test:exa"), ["probe"])
         state.endRequest("test:exa")
         XCTAssertTrue(state.busyKeys.contains("test:exa"))
         XCTAssertFalse(state.begin("test:exa"))
-        XCTAssertTrue(state.begin("test:context7"))
+        XCTAssertFalse(state.begin("test:context7"))
         state.track("probe", key: "cancel:probe")
         state.finish("probe")
+        XCTAssertTrue(state.runIDs(for: "test:exa").isEmpty)
+        XCTAssertEqual(state.runIDs(for: "test:context7"), ["docs"])
         XCTAssertFalse(state.busyKeys.contains("test:exa"))
         XCTAssertFalse(state.busyKeys.contains("cancel:probe"))
         state.reset()
         XCTAssertTrue(state.busyKeys.isEmpty)
+    }
+
+    func testSkillsSelectionEnablesOneActionBeforeSourceCheck() {
+        var selected: Set<String> = []
+        XCTAssertFalse(SkillsSelectionPolicy.canUpdate(connected: true, selectedCount: selected.count, busy: false))
+        selected.insert("opencode")
+        XCTAssertTrue(SkillsSelectionPolicy.canUpdate(connected: true, selectedCount: selected.count, busy: false))
+        XCTAssertFalse(SkillsSelectionPolicy.canUpdate(connected: true, selectedCount: selected.count, busy: true))
+        XCTAssertFalse(SkillsSelectionPolicy.canUpdate(connected: false, selectedCount: selected.count, busy: false))
+        selected.removeAll()
+        XCTAssertFalse(SkillsSelectionPolicy.canUpdate(connected: true, selectedCount: selected.count, busy: false))
     }
 
     func testConfigurationMetadataPreservesOrderAndHints() throws {

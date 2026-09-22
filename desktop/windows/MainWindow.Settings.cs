@@ -10,8 +10,6 @@ namespace SmartSearch.Desktop;
 
 public sealed partial class MainWindow
 {
-    private string? _settingsAnchor;
-
     private UIElement BuildSettingsPage()
     {
         var panel = PagePanel();
@@ -41,13 +39,13 @@ public sealed partial class MainWindow
             ApplyTheme(value);
         };
         var preferences = new StackPanel { Spacing = 8 };
-        preferences.Children.Add(SettingRow(L("界面语言"), L("App 与独立 CLI 分别保存语言选择。环境写入期间请等待操作完成。"), BuildLanguagePicker()));
+        preferences.Children.Add(SettingRow(L("界面语言"), string.Empty, BuildLanguagePicker()));
         preferences.Children.Add(Divider());
-        preferences.Children.Add(SettingRow(L("外观"), L("跟随系统外观，或单独选择浅色、深色模式。"), theme));
+        preferences.Children.Add(SettingRow(L("外观"), string.Empty, theme));
         preferences.Children.Add(Divider());
         var directoryActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         directoryActions.Children.Add(ActionButton(L("选择配置目录…"), SelectConfigDirectoryAsync, operationKey: "profile", busyText: L("切换中…")));
-        directoryActions.Children.Add(ActionButton(L("恢复默认配置目录"), RestoreDefaultConfigDirectoryAsync,
+        if (!Bool(_state, "is_default_config_dir")) directoryActions.Children.Add(ActionButton(L("恢复默认配置目录"), RestoreDefaultConfigDirectoryAsync,
             operationKey: "profile", busyText: L("切换中…"),
             enabled: () => Text(_state, "default_config_dir").Length > 0 && !Bool(_state, "is_default_config_dir")));
         preferences.Children.Add(SettingRow(L("当前配置目录"), Text(_state, "config_dir", Text(_state, "config_path", L("未连接"))),
@@ -59,54 +57,17 @@ public sealed partial class MainWindow
         {
             if (!_settingAutoUpdate) await UpdateRequestAsync("updates.auto", new { enabled = _autoUpdateSwitch.IsOn });
         };
-        _updateCheckSummary = Secondary(string.Empty);
         _appUpdateSummary = Body(string.Empty);
-        _cliUpdateSummary = Body(string.Empty);
-        _downloadSummary = Secondary(string.Empty);
-        _cliUpdateLog = DataText(string.Empty);
         _downloadProgress = new ProgressBar { Minimum = 0, Maximum = 100, Visibility = Visibility.Collapsed };
-        var updates = new StackPanel { Spacing = 8 };
-        updates.Children.Add(SettingRow(L("自动检查更新"), L("每 24 小时检查，点击才下载"), _autoUpdateSwitch));
-        updates.Children.Add(ActionRow(ActionButton(L("检查更新"), CheckForUpdateAsync, operationKey: "updates-check", busyText: L("检查中…")),
-            ActionButton(L("刷新已安装版本"), () => RefreshStateAsync(), operationKey: "state", busyText: L("刷新中…"))));
-        updates.Children.Add(_updateCheckSummary);
-        updates.Children.Add(Divider());
+        _appCancelButton = ActionButton(L("取消"), () => { _appDownloadCancellation?.Cancel(); return Task.CompletedTask; }, operationKey: "updates-cancel");
+        var updates = new StackPanel { Spacing = 12 };
+        updates.Children.Add(SettingRow(L("自动检查更新"), L("发现新版时提醒我"), _autoUpdateSwitch));
         updates.Children.Add(_appUpdateSummary);
-        updates.Children.Add(_downloadSummary);
         updates.Children.Add(_downloadProgress);
-        updates.Children.Add(ActionRow(
-            ActionButton(L("下载更新并重启"), InstallUpdateAsync, primary: true, operationKey: "updates-install", busyText: L("更新中…")),
-            ActionButton(L("取消下载"), () => { _appDownloadCancellation?.Cancel(); return Task.CompletedTask; }, operationKey: "updates-cancel")));
-        updates.Children.Add(ActionRow(ActionButton(L("旧版迁移说明"), ShowMigrationAsync),
-            new HyperlinkButton { Content = L("查看版本说明"), NavigateUri = new Uri("https://github.com/konbakuyomu/smartsearch/releases") }));
-        updates.Children.Add(Secondary(L("由 Velopack 校验并更新整个 App；差分不可用时下载完整包。用户配置、独立 CLI 和 Skills 保留。")));
-        panel.Children.Add(SettingsSection(L("App 更新"), L("更新 App 和内置引擎。"), Card(updates)));
-
-        var cli = new StackPanel { Spacing = 8 };
-        cli.Children.Add(_cliUpdateSummary);
-        cli.Children.Add(ActionRow(ActionButton(L("更新 CLI"), UpdateCliAsync, primary: true, operationKey: "updates-cli", busyText: L("更新中…")),
-            ActionButton(L("复制更新命令"), () => { CopyText(Text(Property(_updates, "cli"), "command")); return Task.CompletedTask; }, operationKey: "updates-copy"),
-            DetailsButton(L("更新日志与命令"), () => ShowDetailsAsync(L("更新日志与命令"), DataText(_cliUpdateLog.Text)))));
-        var runtime = BuildRuntimePanel();
-        if (_settingsAnchor == "runtime") runtime.Loaded += (_, _) => { runtime.StartBringIntoView(); _settingsAnchor = null; };
-        panel.Children.Add(SettingsSection(L("独立 CLI"), L("管理独立安装的命令行工具。"), Card(cli), runtime));
-
-        _cliSummary = DataText(L("正在读取本机 CLI 状态…"));
-        var bundled = new StackPanel { Spacing = 8 };
-        bundled.Children.Add(SectionHeading(L("内置入口")));
-        bundled.Children.Add(Secondary(L("内置入口随 App 卸载失效。上方的独立 CLI 接入不使用此入口。")));
-        bundled.Children.Add(_cliSummary);
-        bundled.Children.Add(ActionRow(ActionButton(L("复制内置 CLI 调用"), CopyBundledCli),
-            ActionButton(L("启用内置命令"), EnableBundledCliAsync, operationKey: "cli-enable", busyText: L("启用中…"))));
-        var diagnostics = new StackPanel { Spacing = 8 };
-        diagnostics.Children.Add(SectionHeading(L("引擎与诊断")));
-        diagnostics.Children.Add(ActionRow(DetailsButton(L("查看诊断信息"), () => ShowDetailsAsync(L("本地引擎"), Section(L("本地引擎"),
-            [KeyValue(L("协议"), Text(_state, "protocol_version", "1")), KeyValue(L("路径"), _backend.BackendPath ?? L("未启动"))]))),
-            ActionButton(L("重置服务商健康记录"), ResetProvidersAsync, busyText: L("重置中…"))));
-        panel.Children.Add(SettingsSection(L("高级"), string.Empty, Card(bundled), Card(diagnostics)));
+        updates.Children.Add(ActionRow(ActionButton(L("检查更新"), AppUpdateActionAsync, primary: true,
+            operationKey: "app-update", busyText: L("处理中…"), label: AppUpdateActionLabel), _appCancelButton));
+        panel.Children.Add(SettingsSection(L("App 更新"), string.Empty, updates));
         RenderUpdateState();
-        RenderEnvironmentState();
-        _ = RunOperationAsync("cli-status", LoadCliStatusAsync);
         return Scroll(panel);
     }
 
@@ -145,37 +106,4 @@ public sealed partial class MainWindow
         return language;
     }
 
-    private ContentControl BuildRuntimePanel()
-    {
-        _environmentSummary = Body(string.Empty);
-        _environmentPlan = Body(string.Empty);
-        _environmentDetails = DataText(string.Empty);
-        _environmentSteps = new StackPanel { Spacing = 12 };
-        _environmentProgress = new ProgressBar { Minimum = 0, Maximum = 100, Visibility = Visibility.Collapsed };
-        var content = new StackPanel { Spacing = 8 };
-        content.Children.Add(SectionHeading(L("运行环境")));
-        content.Children.Add(_environmentSummary);
-        content.Children.Add(_environmentProgress);
-        content.Children.Add(_environmentPlan);
-        content.Children.Add(ActionRow(
-            ActionButton(L("检测环境"), () => EnvironmentRequestAsync("environment.check"), operationKey: "environment-check", busyText: L("检测中…")),
-            ActionButton(L("安装缺少的组件"), PrepareEnvironmentAsync, primary: true, operationKey: "environment-install", busyText: L("准备中…"), label: EnvironmentActionLabel),
-            ActionButton(L("验证可用性"), () => EnvironmentRequestAsync("environment.verify"), operationKey: "environment-verify", busyText: L("验证中…")),
-            ActionButton(L("取消下载"), () => EnvironmentRequestAsync("environment.cancel"), operationKey: "environment-cancel")));
-        content.Children.Add(ActionRow(DetailsButton(L("安装位置与检查详情"), () =>
-        {
-            var details = new StackPanel { Spacing = 12 };
-            foreach (var step in Items(Property(_environment, "steps")))
-                details.Children.Add(Section(Text(step, "name"), [Body(Text(step, "status_label")), Secondary(Text(step, "message"))]));
-            details.Children.Add(DataText(_environmentDetails.Text));
-            return ShowDetailsAsync(L("安装位置与检查详情"), details);
-        }), ActionButton(L("复制 AI 测试指引"), CopyEnvironmentTestAsync, operationKey: "environment-copy")));
-        return Card(content);
-    }
-
-    private Task OpenRuntimeSettingsAsync()
-    {
-        _settingsAnchor = "runtime";
-        return NavigateToAsync("settings");
-    }
 }

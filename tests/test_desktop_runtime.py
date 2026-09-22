@@ -27,6 +27,27 @@ from smart_search import desktop_worker
 from smart_search.desktop_catalog import command_catalog
 
 
+@pytest.mark.parametrize("arguments", [[], ["search", "not executed"], ["--help"], ["--desktop-capabilities"]])
+def test_app_helper_does_not_export_public_cli(monkeypatch, capsys, arguments):
+    from smart_search import desktop_entry
+    monkeypatch.setattr(sys, "argv", ["app-helper", *arguments])
+    monkeypatch.setattr(cli, "main", lambda: pytest.fail("private App helper exposed CLI"))
+    assert desktop_entry.main() == 2
+    output = capsys.readouterr()
+    assert not output.out and "Install the Smart Search CLI separately" in output.err
+
+
+@pytest.mark.asyncio
+async def test_app_no_longer_exposes_cli_or_publishes_bundled_path(tmp_path, monkeypatch):
+    monkeypatch.setattr("smart_search.desktop_backend.shutil.which", lambda *args, **kwargs: None)
+    monkeypatch.setattr("smart_search.desktop_backend.managed_cli_info", lambda *args: None)
+    backend = Backend(lambda _: None)
+    backend.initialized, backend.directory = True, str(tmp_path)
+    assert "bundled_path" not in backend.cli_status()
+    with pytest.raises(ValueError):
+        await backend.handle("cli.enable", {"confirm": True})
+
+
 def test_cli_observation_preserves_stdout_exit_and_privacy(tmp_path):
     query = "私密查询-do-not-store"
     env = dict(os.environ, SMART_SEARCH_CONFIG_DIR=str(tmp_path), SMART_SEARCH_MINIMUM_PROFILE="off")
@@ -213,7 +234,7 @@ async def test_backend_protocol_catalog_and_real_worker(tmp_path):
             await backend.handle("initialize", {"protocol_version": version})
     state = await backend.handle("initialize", {"protocol_version": 1, "config_dir": str(tmp_path)})
     catalog = {item["id"]: item for item in state["commands"]}
-    assert {"search", "research", "deep", "sciverse-relations", "diagnose", "model/current"} <= catalog.keys()
+    assert set(catalog) == {"search", "fetch", "context7-library", "context7-docs", "route", "smoke"}
     assert not {"config/set", "skills/update", "setup", "ui"} & catalog.keys()
     fields = {f["name"] for f in catalog["search"]["fields"]}
     assert {"stream", "no_stream"} <= fields

@@ -46,7 +46,7 @@ private struct LocalizedCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .appSettings) {
-            Button(L("设置与关于")) {
+            Button(L("设置")) {
                 model.selectedDestination = .settings
                 showMainWindow()
             }.keyboardShortcut(",", modifiers: .command)
@@ -54,18 +54,16 @@ private struct LocalizedCommands: Commands {
         }
         CommandMenu(L("导航")) {
             Group {
-                Button(L("概览")) { model.selectedDestination = .overview }.keyboardShortcut("1", modifiers: .command)
-                Button(L("服务商")) { model.selectedDestination = .providers }.keyboardShortcut("2", modifiers: .command)
-                Button(L("搜索与研究")) { model.selectedDestination = .search }.keyboardShortcut("3", modifiers: .command)
-                Button(L("活动")) { model.selectedDestination = .activity }.keyboardShortcut("4", modifiers: .command)
-                Button(L("更新 Skills")) { model.selectedDestination = .integration }.keyboardShortcut("5", modifiers: .command)
-                Button(L("设置与关于")) { model.selectedDestination = .settings }.keyboardShortcut("6", modifiers: .command)
+                Button(L("配置")) { model.selectedDestination = .providers }.keyboardShortcut("1", modifiers: .command)
+                Button(L("测试")) { model.selectedDestination = .search }.keyboardShortcut("2", modifiers: .command)
+                Button(L("CLI 与 Skills")) { model.selectedDestination = .integration }.keyboardShortcut("3", modifiers: .command)
+                Button(L("设置")) { model.selectedDestination = .settings }.keyboardShortcut("4", modifiers: .command)
             }
             .id(model.languagePreference)
             .environment(\.locale, model.interfaceLocale)
         }
         CommandGroup(after: .appInfo) {
-            Button(L("刷新状态")) { Task { await model.refreshState() } }.keyboardShortcut("r", modifiers: .command)
+            Button(L("重新读取配置")) { Task { await model.refreshState() } }.keyboardShortcut("r", modifiers: .command)
             .id(model.languagePreference)
         }
     }

@@ -191,20 +191,58 @@ class Skills:
                 self.state.update(can_sync=False, error=tr('Skills 检查或完整性校验失败；保留原文件，请重试。'))
             self.changed()
 
-    def sync(self, params):
-        if self.state["busy"] or self.state["checking"]:
-            raise ValueError(tr('Skills 操作正在进行，请等待完成。'))
-        self.refresh()
+    @staticmethod
+    def selected_targets(params):
         targets = params.get("targets")
         if (params.get("confirm") is not True or not isinstance(targets, list) or not targets
                 or any(not isinstance(t, str) or t not in skills.SKILL_TARGET_BY_ID for t in targets)):
             raise ValueError(tr('请确认并选择有效的 Skills 目标。'))
+        return list(dict.fromkeys(targets))
+
+    def update(self, params):
+        targets = self.selected_targets(params)
+        if self.state["busy"] or self.state["checking"]:
+            raise ValueError(tr('Skills 操作正在进行，请等待完成。'))
+        self.refresh()
+        before = {row["target"]: (row["path"], row["installed_hash"])
+                  for row in self.state["targets"] if row["target"] in targets}
+        self.state["result"] = None
+        self.check()
+        if self.state["checking"]:
+            check_task = self.task
+            self.state["busy"] = True
+            self.task = asyncio.create_task(self._update_checked(check_task, targets, before))
+            self.changed()
+        return self.state
+
+    async def _update_checked(self, check_task, targets, before):
+        try:
+            await check_task
+            self.refresh()
+            if not self.state["can_sync"]:
+                return
+            current = {row["target"]: (row["path"], row["installed_hash"])
+                       for row in self.state["targets"] if row["target"] in targets}
+            if current != before or len(current) != len(targets):
+                raise ValueError(tr('所选 Skills 文件在检查期间发生变化，请重试。'))
+            await self._sync(targets, dict(self.expected_files), self.context[0])
+        except ValueError as error:
+            self.state["error"] = str(error)
+        finally:
+            self.state["busy"] = False
+            self.changed()
+
+    def sync(self, params):
+        if self.state["busy"] or self.state["checking"]:
+            raise ValueError(tr('Skills 操作正在进行，请等待完成。'))
+        self.refresh()
+        targets = self.selected_targets(params)
         if not self.state["can_sync"] or params.get("plan_id") != self.state["plan_id"]:
             raise ValueError(tr('Skills 来源或本机状态已变化，请重新检查后确认更新。'))
         env = self.context[0]
         files = dict(self.expected_files)
         self.state.update(busy=True, result=None)
-        self.task = asyncio.create_task(self._sync(list(dict.fromkeys(targets)), files, env))
+        self.task = asyncio.create_task(self._sync(targets, files, env))
         self.changed()
         return self.state
 

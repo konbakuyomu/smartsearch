@@ -125,7 +125,7 @@ class Backend:
         data.update(protocol_version=PROTOCOL_VERSION, version=cli._get_version(), generation=self.generation,
                     config_dir=self.directory, default_config_dir=str(default_directory),
                     is_default_config_dir=config._same_config_dir(Path(self.directory), default_directory),
-                    commands=command_catalog(), activity=self.activity(), cli=self.cli_status(),
+                    commands=command_catalog(), cli=self.cli_status(),
                     updates=self.updates.state, environment=self.environment.state, skills=self.skills.state, language=self.language)
         checks = {}
         for run in sorted(self.runs.values(), key=lambda item: item.get("finished_at", 0)):
@@ -151,12 +151,11 @@ class Backend:
         if self.cli_info is not None:
             self.updates.refresh_installed(self.cli_info)
             return self.cli_info
-        bundled = sys.executable if getattr(sys, "frozen", False) else " ".join(engine_command())
         external = shutil.which("smart-search")
         managed = managed_cli_info(manager_environment(self.directory), self.environment.directory)
         if not external and managed:
             external = managed["external_path"]
-        data = {"bundled_path": bundled, "external_path": external, "version": cli._get_version(),
+        data = {"external_path": external, "version": cli._get_version(),
                 "external_version": None, "activity_protocol_version": 1, "external_activity_protocol_version": None,
                 "external_runtime_verified": False,
                 "manager": "none", "manager_label": tr('未安装独立 CLI'), "can_update": False,
@@ -314,40 +313,6 @@ class Backend:
                 log_path.write_text(tail, encoding="utf-8")
             self.updates.changed()
 
-    def enable_cli(self, params):
-        if self.environment.state["busy"]:
-            raise ValueError(tr('环境操作正在进行，请等待完成。'))
-        if params.get("confirm") is not True:
-            raise ValueError(tr('只有用户点击启用后才可配置内置 CLI。'))
-        if not getattr(sys, "frozen", False):
-            raise ValueError(tr('请从已打包的 App 启用 CLI；开发环境不更改 PATH。'))
-        existing = shutil.which("smart-search")
-        executable = Path(sys.executable).resolve()
-        if existing and Path(existing).resolve() != executable:
-            raise ValueError(tr('已存在同名 CLI。请保留原命令或直接复制内置路径，不会覆盖。'))
-        if os.name == "nt":
-            import winreg
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
-                try:
-                    current, value_type = winreg.QueryValueEx(key, "Path")
-                except FileNotFoundError:
-                    current, value_type = "", winreg.REG_EXPAND_SZ
-                parts = current.split(";") if current else []
-                directory = str(executable.parent)
-                if directory.casefold() not in {part.casefold() for part in parts}:
-                    winreg.SetValueEx(key, "Path", 0, value_type, ";".join([*parts, directory]))
-            self.cli_info = None
-            return {"ok": True, "path": str(executable), "message": tr('已加入当前用户 PATH，请重新打开终端。')}
-        target = Path.home() / ".local" / "bin" / "smart-search"
-        if target.exists() or target.is_symlink():
-            if target.resolve() != executable:
-                raise ValueError(tr('~/.local/bin/smart-search 已存在，不会覆盖。'))
-        else:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.symlink_to(executable)
-        self.cli_info = None
-        return {"ok": True, "path": str(target), "message": tr('已创建用户 CLI 入口。若 ~/.local/bin 不在 PATH，请使用所示完整路径。')}
-
     def start(self, method, params):
         if method == "skills.install" and self.environment.state["busy"]:
             raise ValueError(tr('环境操作正在配置接入文件，请等待完成。'))
@@ -493,7 +458,7 @@ class Backend:
             return render_messages(await self._handle(method, params), self.language)
 
     async def _handle(self, method, params):
-        if self.skills.state["busy"] and method in {"profile.select", "language.set", "cli.update", "cli.enable", "environment.install", "environment.check", "environment.verify", "skills.install", "app.update-prepare", "shutdown"}:
+        if self.skills.state["busy"] and method in {"profile.select", "language.set", "cli.update", "environment.install", "environment.prepare", "environment.check", "environment.verify", "skills.install", "app.update-prepare", "shutdown"}:
             raise ValueError(tr('Skills 操作正在进行，请等待完成。'))
         if method == "ping":
             return {"protocol_version": 1, "version": cli._get_version(), "generation": self.generation}
@@ -539,7 +504,7 @@ class Backend:
                 return ui_api.reset_health(params)
             if method == "skills.status":
                 return ui_api.skills_status(params.get("targets"))
-            if method in {"skills.catalog", "skills.check", "skills.sync", "skills.auto"}:
+            if method in {"skills.catalog", "skills.check", "skills.sync", "skills.update", "skills.auto"}:
                 if method == "skills.auto":
                     if type(params.get("enabled")) is not bool:
                         raise ValueError(tr('enabled 必须为布尔值。'))
@@ -547,16 +512,16 @@ class Backend:
                     self.skills.save()
                     self.skills.changed()
                     return self.skills.state
-                if method in {"skills.catalog", "skills.check", "skills.sync"}:
+                if method in {"skills.catalog", "skills.check", "skills.sync", "skills.update"}:
                     if self.environment.state["busy"] or self.updates.state["cli_update"]["status"] == "running":
                         raise ValueError(tr('环境操作或 CLI 更新正在进行，请等待完成。'))
                     self.cli_info = None
                     info = self.cli_status()
                     await asyncio.to_thread(self.skills.snapshot, manager_environment(self.directory), info, self.directory)
-                if method == "skills.sync":
+                if method in {"skills.sync", "skills.update"}:
                     if any(run["command"] == "skills.install" and run["status"] in {"running", "cancelling"} for run in self.runs.values()):
                         raise ValueError(tr('Skills 操作正在进行，请等待完成。'))
-                    return self.skills.sync(params)
+                    return self.skills.update(params) if method == "skills.update" else self.skills.sync(params)
                 return self.skills.check() if method == "skills.check" else self.skills.state
             if method == "activity.list":
                 return self.activity(params)
@@ -592,26 +557,27 @@ class Backend:
                 return current
             if method == "environment.status":
                 return self.environment.state
-            if method in {"environment.check", "environment.verify", "environment.install"}:
+            if method in {"environment.check", "environment.verify", "environment.install", "environment.prepare"}:
                 if self.updates.state["cli_update"]["status"] == "running":
                     raise ValueError(tr('CLI 正在更新，请等待完成。'))
                 self.cli_info = None
                 info = self.cli_status()
                 env = manager_environment(self.directory)
                 minimum_ok = bool(ui_api.state().get("minimum_profile", {}).get("ok"))
-                if method != "environment.install":
+                if method not in {"environment.install", "environment.prepare"}:
                     return self.environment.start_check(env, info, self.directory, minimum_ok, verify=method == "environment.verify")
                 if any(run["status"] in {"running", "cancelling"} for run in self.runs.values()) or any(
                     row.get("origin") == "cli" and row.get("status") in {"running", "cancelling"} for row in self.activity().get("runs", [])):
                     raise ValueError(tr('请先等待 App 和当前配置目录的 CLI 任务完成，再准备环境。'))
                 def refresh_cli():
                     self.cli_info = None
-                    return self.cli_status()
-                return self.environment.install(params, env, info, self.directory, minimum_ok, refresh_cli)
+                    current = self.cli_status()
+                    self.updates.changed()
+                    return current
+                action = self.environment.prepare if method == "environment.prepare" else self.environment.install
+                return action(params, env, info, self.directory, minimum_ok, refresh_cli)
             if method == "environment.cancel":
                 return await self.environment.cancel()
-            if method == "cli.enable":
-                return self.enable_cli(params)
             if method == "cli.update":
                 return self.update_cli(params)
             if method == "cli.update-check":
@@ -653,7 +619,7 @@ async def serve():
         while not backend.stopping:
             await asyncio.sleep(1)
             if backend.initialized and not backend.app_update_pending:
-                backend.event("activity", backend.activity())
+                backend.event("tick", {})
                 backend.updates.auto_check(backend.cli_status())
                 if backend.updates.enabled:
                     backend.skills.auto_check(manager_environment(backend.directory), backend.cli_status(), backend.directory)

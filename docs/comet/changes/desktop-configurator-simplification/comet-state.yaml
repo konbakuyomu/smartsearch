@@ -1,0 +1,117 @@
+schema: comet.native.v4
+name: desktop-configurator-simplification
+language: zh-CN
+phase: build
+status: active
+state_version: 5
+brief: brief.md
+shape_confirmation_hash: caebe108ca61fbdc1db7fb99f692732693629e659039e835c90e0cecddfdd1a9
+spec_changes:
+  - capability: desktop-configurator
+    operation: create
+    source: specs/desktop-configurator/spec.md
+workspace:
+  isolation: worktree
+  change_branch: codex/desktop-configurator-simplification
+  target_branch: main
+  finish: null
+loop:
+  stage: building
+  goal_cycle: 2
+  iteration: 1
+  attempt: 0
+  retry_epoch: 0
+  failed_iteration_count: 0
+  no_progress_count: 0
+  execution_failure_count: 0
+  previous_unresolved_ids: []
+  next_action: submit-builder-candidate
+acceptance:
+  - id: A1
+    source: specs/desktop-configurator/spec.md
+    text: App 和用户 CLI 独立 WHEN 使用 App 配置、安装 CLI 和生成 Skills，THEN 外部调用指向已核实的 App
+      目录外安装；App 不再有启用/复制内置 CLI 的入口，私有程序不能回退执行公开 CLI 搜索命令；App 路径不可用时外部 CLI
+      仍能运行。没有外部 CLI 时仍可打开配置并显式测试服务商。
+    result: pending
+    reason: null
+  - id: A2
+    source: specs/desktop-configurator/spec.md
+    text: 日常界面只保留配置器的操作 WHEN 用户依次访问四个页面，THEN 每个页面有明确目的和当前主要操作，找不到旧概览、常驻活动、内置
+      CLI、运行环境管理、开发后端路径/超时等入口；必要配置、测试结果、错误和取消仍可访问。切页和状态刷新不丢草稿、选择或运行进度。
+    result: pending
+    reason: null
+  - id: A3
+    source: specs/desktop-configurator/spec.md
+    text: 选择立即决定主按钮状态 WHEN 在首次启动、仅有旧缓存或目标未安装/已有相同内容的状态下选择 OpenCode 或其他目标，THEN
+      选择数和主按钮立即更新；无需刷新页面。取消最后一项后停止提交并提示选择目标；取消勾选不删除任何文件。Windows/macOS 一致。
+      点击主操作后，App 内部取得并校验官方 stable
+      来源、重新核对所选目标、建立必要备份并同步；阶段连续显示为一个操作。来源检查失败显示可重试原因，不修改已安装文件。完成后刷新状态并保持选择；相同内容明确显示已是最新且不重复写入/备份。后台检查和页面刷新不能把用户选择改回默认值。
+    result: pending
+    reason: null
+  - id: A4
+    source: specs/desktop-configurator/spec.md
+    text: 一次操作完成可信检查与安装更新 WHEN 选定目标并点击安装/更新，THEN 无需另外执行检查最新
+      Skills、刷新本机状态或准备运行环境即可得到完成/无变化/失败结果；请求仅处理点击时选定的目标，失败可从同一操作重试。未选目标、额外文件和其他
+      Skills 保留，来源及目标过期变化被重新核对。
+    result: pending
+    reason: null
+  - id: A5
+    source: specs/desktop-configurator/spec.md
+    text: CLI 准备不需要手动检测步骤 WHEN CLI 缺失、正常、过旧、运行时损坏或来源冲突，THEN
+      页面显示准确状态和一个适用动作；点击安装/更新后按已验证计划完成并读回版本。健康组件不重装，App 与用户原
+      PATH/管理器/其他程序保持独立；下载失败或安装失败不显示成功。
+    result: pending
+    reason: null
+  - id: A6
+    source: specs/desktop-configurator/spec.md
+    text: 更新流程简单且状态真实 WHEN 检查或执行 App 更新，THEN
+      用户只需使用当前主操作，能区分检查中、可更新、进行中、成功/失败；下载完成不冒充安装完成。设置里没有常驻旧版迁移与内置引擎控制。App
+      更新不升级或替换外部 CLI；必要异常只在发生时说明。
+    result: pending
+    reason: null
+  - id: A7
+    source: specs/desktop-configurator/spec.md
+    text: 精简不破坏用户文件和进行中的工作 WHEN 有草稿、并发写入、目标变化、不安全路径、无权限、离线或取消请求，THEN
+      必要保护仍生效，状态和错误就地可见，操作可安全重试；原配置/Key、未选 Skills 和外部 CLI 不被静默覆盖、迁移、卸载或强杀。
+    result: pending
+    reason: null
+  - id: A8
+    source: specs/desktop-configurator/spec.md
+    text: 两端界面一致且可操作 WHEN 切换平台、语言、主题或缩小至支持的窗口尺寸，THEN
+      四页目的、选择语义、主操作和反馈一致，长文案能换行，草稿与选择不被重置；必要说明不依赖颜色或鼠标悬停才可理解。
+    result: pending
+    reason: null
+  - id: A9
+    source: specs/desktop-configurator/spec.md
+    text: 交付可验证且原功能保持 WHEN 完成候选，THEN Skills 选择/首次检查/失败重试/无变化回归、App/CLI 解耦、适用
+      Python/native 测试与构建有当前版本证据；文档无旧流程矛盾。独立 Verifier 逐项核验，用户得到精简 GUI
+      操作清单；未经授权不替换正式安装或发布稳定版。
+    result: pending
+    reason: null
+builder_handoff: null
+blockers: []
+verification: null
+history:
+  - goal_cycle: 1
+    iteration: 0
+    attempt: 0
+    outcome: recovery
+    unresolved_ids: []
+    summary:
+      text: Native Shape artifacts changed
+      truncated: false
+    completed_at: 2026-09-22T05:14:15.318Z
+history_overflow:
+  dropped_entries: 0
+  first_dropped_at: null
+  last_dropped_at: null
+  outcome_counts:
+    pass: 0
+    fail: 0
+    blocked: 0
+    execution-error: 0
+    recovery: 0
+verification_result: pending
+verification_report: null
+archived: false
+created_at: 2026-09-22T05:05:17.072Z

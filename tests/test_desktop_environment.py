@@ -73,6 +73,60 @@ async def test_check_coalesces_and_verify_cannot_repair_missing_runtime(tmp_path
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("blocked", ["", "Unrecognized existing installation"])
+async def test_prepare_cli_builds_its_plan_and_never_selects_skills(tmp_path, monkeypatch, blocked):
+    environment = isolated(tmp_path, monkeypatch)
+    calls = []
+    monkeypatch.setattr(environment, "inspect", lambda *args: {"plan_id": "fresh-plan", "blocked": blocked})
+
+    async def install(plan, targets, replace, *args):
+        calls.append((plan, targets, replace))
+        environment.changed(status="ready", busy=False)
+
+    monkeypatch.setattr(environment, "_install", install)
+    with pytest.raises(ValueError):
+        environment.prepare({}, {}, {}, str(tmp_path), False, lambda: {})
+    environment.prepare({"confirm": True}, {}, {}, str(tmp_path), False, lambda: {})
+    task = environment.task
+    environment.prepare({"confirm": True}, {}, {}, str(tmp_path), False, lambda: {})
+    assert environment.task is task and environment.state["busy"]
+    await task
+    assert not environment.state["busy"]
+    assert calls == ([] if blocked else [("fresh-plan", [], False)])
+    assert not environment.directory.exists()
+    if blocked:
+        assert environment.state["status"] == "failed" and environment.state["error"] == blocked
+
+
+@pytest.mark.asyncio
+async def test_prepare_completion_publishes_refreshed_cli_update_state(tmp_path, monkeypatch):
+    events = []
+    backend = Backend(events.append)
+    backend.directory, backend.initialized = str(tmp_path), True
+    info = {"external_version": "0.1.22", "external_runtime_verified": False, "can_update": True,
+            "manager": "npm", "manager_command": ["npm"]}
+    backend.updates.state["cli"].update(latest_version="0.1.22", checked_at=1, cached=False, error="")
+
+    def current():
+        backend.updates.refresh_installed(info)
+        return info
+
+    def prepare(params, env, cli_info, config_dir, minimum_ok, refresh_cli):
+        assert backend.updates.state["cli"]["available"]  # Same-version runtime repair.
+        info["external_runtime_verified"] = True
+        refresh_cli()
+        return {"status": "ready"}
+
+    monkeypatch.setattr(backend, "cli_status", current)
+    monkeypatch.setattr(backend, "activity", lambda: {"runs": []})
+    monkeypatch.setattr(backend.environment, "prepare", prepare)
+    await backend.handle("environment.prepare", {"confirm": True})
+    published = [event["data"] for event in events if event["event"] == "updates"]
+    assert published and not published[-1]["cli"]["available"]
+    assert published[-1]["installed_cli"]["external_runtime_verified"]
+
+
+@pytest.mark.asyncio
 async def test_skill_conflicts_keep_custom_content_and_back_up_explicit_replace(tmp_path, monkeypatch):
     environment = isolated(tmp_path, monkeypatch)
     node = environment.probe_node({})
@@ -201,7 +255,7 @@ async def test_backend_blocks_conflicting_mutations_during_setup(tmp_path):
     backend = Backend(lambda *_: None)
     backend.directory, backend.initialized = str(tmp_path), True
     backend.environment.state.update(busy=True, status="installing", can_cancel=False)
-    for method, params in [("cli.update", {"confirm": True}), ("cli.enable", {"confirm": True}), ("app.update-prepare", {}),
+    for method, params in [("cli.update", {"confirm": True}), ("skills.update", {"confirm": True, "targets": ["codex"]}), ("app.update-prepare", {}),
                             ("profile.select", {"config_dir": str(tmp_path / "other")}), ("skills.install", {"targets": ["codex"]}), ("shutdown", {})]:
         with pytest.raises(ValueError, match="环境|安装|准备"):
             await backend.handle(method, params)

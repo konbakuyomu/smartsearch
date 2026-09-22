@@ -16654,5 +16654,445 @@
   "下载已取消，请重新检查更新。": [
     "下载已取消，请重新检查更新。",
     "Download cancelled. Check for updates again to retry."
+  ],
+  "CLI 与 Skills": [
+    "CLI 与 Skills",
+    "CLI & Skills"
+  ],
+  "CLI & Skills": [
+    "CLI 与 Skills",
+    "CLI & Skills"
+  ],
+  "CLI 安装未完成。": [
+    "CLI 安装未完成。",
+    "CLI installation did not complete."
+  ],
+  "CLI installation did not complete.": [
+    "CLI 安装未完成。",
+    "CLI installation did not complete."
+  ],
+  "CLI 未就绪，安装时会自动准备所需组件。": [
+    "CLI 未就绪，安装时会自动准备所需组件。",
+    "The CLI is not ready. Installation will prepare the required components."
+  ],
+  "The CLI is not ready. Installation will prepare the required components.": [
+    "CLI 未就绪，安装时会自动准备所需组件。",
+    "The CLI is not ready. Installation will prepare the required components."
+  ],
+  "Skills 有可用更新，可在“CLI 与 Skills”中安装。": [
+    "Skills 有可用更新，可在“CLI 与 Skills”中安装。",
+    "Skills updates are available. Install them in CLI & Skills."
+  ],
+  "Skills updates are available. Install them in CLI & Skills.": [
+    "Skills 有可用更新，可在“CLI 与 Skills”中安装。",
+    "Skills updates are available. Install them in CLI & Skills."
+  ],
+  "{0} → {1}。现在更新，或稍后在设置中处理。": [
+    "{0} → {1}。现在更新，或稍后在设置中处理。",
+    "{0} → {1}. Update now or later in Settings."
+  ],
+  "{0} → {1}. Update now or later in Settings.": [
+    "{0} → {1}。现在更新，或稍后在设置中处理。",
+    "{0} → {1}. Update now or later in Settings."
+  ],
+  "下载安装版": [
+    "下载安装版",
+    "Download installer"
+  ],
+  "下载正式版": [
+    "下载正式版",
+    "Download release"
+  ],
+  "Download release": [
+    "下载正式版",
+    "Download release"
+  ],
+  "修复 CLI": [
+    "修复 CLI",
+    "Repair CLI"
+  ],
+  "Repair CLI": [
+    "修复 CLI",
+    "Repair CLI"
+  ],
+  "勾选要安装或更新的 Agent。取消勾选不会卸载文件。": [
+    "勾选要安装或更新的 Agent。取消勾选不会卸载文件。",
+    "Select Agents to install or update. Clearing a checkbox does not uninstall files."
+  ],
+  "Select Agents to install or update. Clearing a checkbox does not uninstall files.": [
+    "勾选要安装或更新的 Agent。取消勾选不会卸载文件。",
+    "Select Agents to install or update. Clearing a checkbox does not uninstall files."
+  ],
+  "发现可更新的 Skills，请到“CLI 与 Skills”页选择目标。": [
+    "发现可更新的 Skills，请到“CLI 与 Skills”页选择目标。",
+    "Skills updates are available. Select targets in CLI & Skills."
+  ],
+  "Skills updates are available. Select targets in CLI & Skills.": [
+    "发现可更新的 Skills，请到“CLI 与 Skills”页选择目标。",
+    "Skills updates are available. Select targets in CLI & Skills."
+  ],
+  "发现新版时提醒我": [
+    "发现新版时提醒我",
+    "Notify me about new versions"
+  ],
+  "Notify me about new versions": [
+    "发现新版时提醒我",
+    "Notify me about new versions"
+  ],
+  "取消测试": [
+    "取消测试",
+    "Cancel test"
+  ],
+  "Cancel test": [
+    "取消测试",
+    "Cancel test"
+  ],
+  "可更新到 {0}": [
+    "可更新到 {0}",
+    "Update available: {0}"
+  ],
+  "Update available: {0}": [
+    "可更新到 {0}",
+    "Update available: {0}"
+  ],
+  "安装 CLI": [
+    "安装 CLI",
+    "Install CLI"
+  ],
+  "Install CLI": [
+    "安装 CLI",
+    "Install CLI"
+  ],
+  "安装/更新所选 Skills": [
+    "安装/更新所选 Skills",
+    "Install/update selected Skills"
+  ],
+  "Install/update selected Skills": [
+    "安装/更新所选 Skills",
+    "Install/update selected Skills"
+  ],
+  "尚未检查更新": [
+    "尚未检查更新",
+    "Updates have not been checked"
+  ],
+  "Updates have not been checked": [
+    "尚未检查更新",
+    "Updates have not been checked"
+  ],
+  "已安装 {0}": [
+    "已安装 {0}",
+    "Installed: {0}"
+  ],
+  "已是最新版本": [
+    "已是最新版本",
+    "Up to date"
+  ],
+  "已更新 {0} 个，失败 {1} 个。": [
+    "已更新 {0} 个，失败 {1} 个。",
+    "Updated {0}; failed {1}."
+  ],
+  "Updated {0}; failed {1}.": [
+    "已更新 {0} 个，失败 {1} 个。",
+    "Updated {0}; failed {1}."
+  ],
+  "已读取所选目录的配置。": [
+    "已读取所选目录的配置。",
+    "Configuration loaded from the selected directory."
+  ],
+  "Configuration loaded from the selected directory.": [
+    "已读取所选目录的配置。",
+    "Configuration loaded from the selected directory."
+  ],
+  "开始测试": [
+    "开始测试",
+    "Start test"
+  ],
+  "Start test": [
+    "开始测试",
+    "Start test"
+  ],
+  "当前是测试包，安装版可在 App 内更新。": [
+    "当前是测试包，安装版可在 App 内更新。",
+    "This is a test build. Installed releases support in-app updates."
+  ],
+  "This is a test build. Installed releases support in-app updates.": [
+    "当前是测试包，安装版可在 App 内更新。",
+    "This is a test build. Installed releases support in-app updates."
+  ],
+  "所选 Skills 已是最新。": [
+    "所选 Skills 已是最新。",
+    "Selected Skills are up to date."
+  ],
+  "Selected Skills are up to date.": [
+    "所选 Skills 已是最新。",
+    "Selected Skills are up to date."
+  ],
+  "所选 Skills 文件在检查期间发生变化，请重试。": [
+    "所选 Skills 文件在检查期间发生变化，请重试。",
+    "Selected Skill files changed during the check. Please retry."
+  ],
+  "Selected Skill files changed during the check. Please retry.": [
+    "所选 Skills 文件在检查期间发生变化，请重试。",
+    "Selected Skill files changed during the check. Please retry."
+  ],
+  "更新": [
+    "更新",
+    "Update"
+  ],
+  "Update": [
+    "更新",
+    "Update"
+  ],
+  "更新 App": [
+    "更新 App",
+    "Update App"
+  ],
+  "Update App": [
+    "更新 App",
+    "Update App"
+  ],
+  "检查并安装 App 的新版本。": [
+    "检查并安装 App 的新版本。",
+    "Check for and install App updates."
+  ],
+  "Check for and install App updates.": [
+    "检查并安装 App 的新版本。",
+    "Check for and install App updates."
+  ],
+  "正在准备 CLI…": [
+    "正在准备 CLI…",
+    "Preparing CLI…"
+  ],
+  "Preparing CLI…": [
+    "正在准备 CLI…",
+    "Preparing CLI…"
+  ],
+  "正在安装/更新 Skills…": [
+    "正在安装/更新 Skills…",
+    "Installing/updating Skills…"
+  ],
+  "Installing/updating Skills…": [
+    "正在安装/更新 Skills…",
+    "Installing/updating Skills…"
+  ],
+  "正在更新 CLI…": [
+    "正在更新 CLI…",
+    "Updating CLI…"
+  ],
+  "Updating CLI…": [
+    "正在更新 CLI…",
+    "Updating CLI…"
+  ],
+  "正在更新：{0}%": [
+    "正在更新：{0}%",
+    "Updating: {0}%"
+  ],
+  "Updating: {0}%": [
+    "正在更新：{0}%",
+    "Updating: {0}%"
+  ],
+  "正在检查更新…": [
+    "正在检查更新…",
+    "Checking for updates…"
+  ],
+  "Checking for updates…": [
+    "正在检查更新…",
+    "Checking for updates…"
+  ],
+  "正在检查最新 Skills…": [
+    "正在检查最新 Skills…",
+    "Checking the latest Skills…"
+  ],
+  "Checking the latest Skills…": [
+    "正在检查最新 Skills…",
+    "Checking the latest Skills…"
+  ],
+  "正在等待服务商响应…": [
+    "正在等待服务商响应…",
+    "Waiting for the provider…"
+  ],
+  "Waiting for the provider…": [
+    "正在等待服务商响应…",
+    "Waiting for the provider…"
+  ],
+  "每天自动检查更新": [
+    "每天自动检查更新",
+    "Check for updates daily"
+  ],
+  "Check for updates daily": [
+    "每天自动检查更新",
+    "Check for updates daily"
+  ],
+  "测试已开始，结果会显示在此页。": [
+    "测试已开始，结果会显示在此页。",
+    "Test started. Results will appear on this page."
+  ],
+  "Test started. Results will appear on this page.": [
+    "测试已开始，结果会显示在此页。",
+    "Test started. Results will appear on this page."
+  ],
+  "测试选项": [
+    "测试选项",
+    "Test options"
+  ],
+  "Test options": [
+    "测试选项",
+    "Test options"
+  ],
+  "测试选项…": [
+    "测试选项…",
+    "Test options…"
+  ],
+  "Test options…": [
+    "测试选项…",
+    "Test options…"
+  ],
+  "测试项目": [
+    "测试项目",
+    "Test"
+  ],
+  "点击安装/更新后自动检查最新内容；已有修改会先备份。": [
+    "点击安装/更新后自动检查最新内容；已有修改会先备份。",
+    "Install/update checks the latest content and backs up existing changes first."
+  ],
+  "Install/update checks the latest content and backs up existing changes first.": [
+    "点击安装/更新后自动检查最新内容；已有修改会先备份。",
+    "Install/update checks the latest content and backs up existing changes first."
+  ],
+  "设置": [
+    "设置",
+    "Settings"
+  ],
+  "Settings": [
+    "设置",
+    "Settings"
+  ],
+  "请先保存修改并结束当前操作，再更新 App。": [
+    "请先保存修改并结束当前操作，再更新 App。",
+    "Save your changes and finish current operations before updating the App."
+  ],
+  "Save your changes and finish current operations before updating the App.": [
+    "请先保存修改并结束当前操作，再更新 App。",
+    "Save your changes and finish current operations before updating the App."
+  ],
+  "请点击安装或修复 CLI 后重试。": [
+    "请点击安装或修复 CLI 后重试。",
+    "Select Install CLI or Repair CLI to retry."
+  ],
+  "Select Install CLI or Repair CLI to retry.": [
+    "请点击安装或修复 CLI 后重试。",
+    "Select Install CLI or Repair CLI to retry."
+  ],
+  "请选择要安装或更新的 Agent": [
+    "请选择要安装或更新的 Agent",
+    "Select Agents to install or update"
+  ],
+  "Select Agents to install or update": [
+    "请选择要安装或更新的 Agent",
+    "Select Agents to install or update"
+  ],
+  "连接已断开，安装结果尚未确认；请重新连接后重试。": [
+    "连接已断开，安装结果尚未确认；请重新连接后重试。",
+    "Connection lost. Installation is unconfirmed; reconnect and retry."
+  ],
+  "Connection lost. Installation is unconfirmed; reconnect and retry.": [
+    "连接已断开，安装结果尚未确认；请重新连接后重试。",
+    "Connection lost. Installation is unconfirmed; reconnect and retry."
+  ],
+  "连接已断开，操作结果尚未确认；请重新打开 App 后重试。": [
+    "连接已断开，操作结果尚未确认；请重新打开 App 后重试。",
+    "Connection lost. The result is unconfirmed; reopen the App and retry."
+  ],
+  "Connection lost. The result is unconfirmed; reopen the App and retry.": [
+    "连接已断开，操作结果尚未确认；请重新打开 App 后重试。",
+    "Connection lost. The result is unconfirmed; reopen the App and retry."
+  ],
+  "连接异常，安装结果尚未确认；请重新连接后重试。": [
+    "连接异常，安装结果尚未确认；请重新连接后重试。",
+    "Connection error. Installation is unconfirmed; reconnect and retry."
+  ],
+  "Connection error. Installation is unconfirmed; reconnect and retry.": [
+    "连接异常，安装结果尚未确认；请重新连接后重试。",
+    "Connection error. Installation is unconfirmed; reconnect and retry."
+  ],
+  "选择测试项目，运行一次请求以确认配置。": [
+    "选择测试项目，运行一次请求以确认配置。",
+    "Choose a test and run a request to verify your configuration."
+  ],
+  "Choose a test and run a request to verify your configuration.": [
+    "选择测试项目，运行一次请求以确认配置。",
+    "Choose a test and run a request to verify your configuration."
+  ],
+  "选择要测试的功能，填写输入后开始测试。": [
+    "选择要测试的功能，填写输入后开始测试。",
+    "Choose a function, enter its input, and start the test."
+  ],
+  "Choose a function, enter its input, and start the test.": [
+    "选择要测试的功能，填写输入后开始测试。",
+    "Choose a function, enter its input, and start the test."
+  ],
+  "配置": [
+    "配置",
+    "Configuration"
+  ],
+  "Configuration": [
+    "配置",
+    "Configuration"
+  ],
+  "重新读取配置": [
+    "重新读取配置",
+    "Reload configuration"
+  ],
+  "Reload configuration": [
+    "重新读取配置",
+    "Reload configuration"
+  ],
+  "重试": [
+    "重试",
+    "Retry"
+  ],
+  "Retry": [
+    "重试",
+    "Retry"
+  ],
+  "安装来源或接入文件已变化，请重试。": [
+    "安装来源或接入文件已变化，请重试。",
+    "The installation source or integration files changed. Please retry."
+  ],
+  "The installation source or integration files changed. Please retry.": [
+    "安装来源或接入文件已变化，请重试。",
+    "The installation source or integration files changed. Please retry."
+  ],
+  "独立 CLI 的实际运行验证未通过，请重试。": [
+    "独立 CLI 的实际运行验证未通过，请重试。",
+    "The independent CLI did not pass execution verification. Please retry."
+  ],
+  "The independent CLI did not pass execution verification. Please retry.": [
+    "独立 CLI 的实际运行验证未通过，请重试。",
+    "The independent CLI did not pass execution verification. Please retry."
+  ],
+  "独立 CLI 已就绪。": [
+    "独立 CLI 已就绪。",
+    "The independent CLI is ready."
+  ],
+  "The independent CLI is ready.": [
+    "独立 CLI 已就绪。",
+    "The independent CLI is ready."
+  ],
+  "下载已取消，已安装组件保留；可重试。": [
+    "下载已取消，已安装组件保留；可重试。",
+    "Download cancelled. Installed components were kept; you can retry."
+  ],
+  "Download cancelled. Installed components were kept; you can retry.": [
+    "下载已取消，已安装组件保留；可重试。",
+    "Download cancelled. Installed components were kept; you can retry."
+  ],
+  "网络或安装操作未完成，请重试。": [
+    "网络或安装操作未完成，请重试。",
+    "The network or installation operation did not complete. Please retry."
+  ],
+  "The network or installation operation did not complete. Please retry.": [
+    "网络或安装操作未完成，请重试。",
+    "The network or installation operation did not complete. Please retry."
   ]
 }

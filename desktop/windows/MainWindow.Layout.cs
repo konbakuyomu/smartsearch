@@ -271,15 +271,16 @@ public sealed partial class MainWindow
         UpdateConnectionStatus();
         WorkspaceTitle.Text = _currentPage switch
         {
-            "providers" => L("服务商"), "search" => L("搜索与研究"), "activity" => L("活动"),
-            "ai" => L("更新 Skills"), "settings" => L("设置与关于"), _ => L("概览")
+            "providers" => L("配置"), "search" => L("测试"),
+            "ai" => L("CLI 与 Skills"), "settings" => L("设置"), _ => L("配置")
         };
         FeedbackHeading.Text = L("操作提示");
         ClearFeedbackButton.Content = L("清除提示");
         AutomationProperties.SetName(FeedbackButton, L("操作提示"));
         ToolTipService.SetToolTip(FeedbackButton, L("查看操作提示"));
-        AutomationProperties.SetName(RefreshWorkspaceButton, L("刷新本机状态"));
-        ToolTipService.SetToolTip(RefreshWorkspaceButton, L("刷新本机状态"));
+        RefreshWorkspaceButton.Visibility = _currentPage == "providers" || !_backend.IsConnected ? Visibility.Visible : Visibility.Collapsed;
+        AutomationProperties.SetName(RefreshWorkspaceButton, _backend.IsConnected ? L("重新读取配置") : L("重新连接"));
+        ToolTipService.SetToolTip(RefreshWorkspaceButton, _backend.IsConnected ? L("重新读取配置") : L("重新连接"));
     }
 
     private void UpdateConnectionStatus()

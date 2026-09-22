@@ -18,7 +18,7 @@
 
 ## What is Smart Search?
 
-Smart Search connects search and page-reading services to AI tools such as Codex and Claude Code. Use the desktop App to configure your services and run searches. Once connected, you can also ask your AI to use Smart Search directly.
+Smart Search connects search and page-reading services to AI tools such as Codex and Claude Code. Use the App to configure and test services and install CLI/Skills. Your AI or terminal uses the independent CLI for everyday searches.
 
 You choose the providers and supply their API keys. The App manages configuration; the independent command-line tool runs AI requests even after you close the App.
 
@@ -34,9 +34,9 @@ These tasks need information from the web and a way to trace it back to its sour
 ## Get started in the App
 
 1. **Download and open Smart Search.** Choose the package for your system from [Releases](https://github.com/konbakuyomu/smartsearch/releases/latest). The App includes its own runtime.
-2. **Open Providers.** Add services for the three required jobs: answering searches, finding documentation, and reading pages. The page shows what is still missing and where to obtain each key. Check or test the settings, then save them.
-3. **Open Update Skills.** Prepare the command-line tool under Shared independent CLI environment, then check the latest stable Skills, select your Agents, and confirm backup and sync. Codex, Claude Code, Cursor and 14 other targets are supported. Install and sign in to the Agent applications yourself.
-4. **Copy the AI test instructions.** Paste them into a new AI conversation. First check that the command runs; then try a search.
+2. **Open Configuration.** Add services for the three required jobs: answering searches, finding documentation, and reading pages. The page shows what is still missing and where to obtain each key. Check or test the settings, then save them.
+3. **Open CLI & Skills.** Install the CLI; the App prepares missing dependencies and verifies its version. Select Agents and choose Install/update selected Skills to check the source, back up changes and sync.
+4. **Reopen the Agent session.** Ask it to run `smart-search --version`, then try a search. Install and sign into Agent applications yourself.
 
 Provider tests and searches may use your providers' paid quota. Opening the App or checking the local environment does not run a paid search.
 
@@ -46,7 +46,7 @@ Version 0.1.24 combines the refreshed native interface with Velopack on Windows 
 
 ## Everyday use
 
-**In the App:** open Search & research, enter a question or URL, and review the result and its sources. Activity shows what is running and which provider it used. You can copy or export the result.
+**Verify configuration in the App:** use Test for search, page reading, Context7, route preview or offline smoke. Results and cancellation stay on that page. Use the CLI for full search and research workflows.
 
 **In your AI tool:** ask naturally, for example:
 
@@ -56,7 +56,7 @@ Version 0.1.24 combines the refreshed native interface with Velopack on Windows 
 
 The App can stay closed. Your AI calls the independent CLI using the installed integration instructions.
 
-**Language:** the App follows your system by default. Change it in Settings & about → Language. The CLI has its own saved preference and a one-command `--lang en` / `--lang zh` override. These settings change the tool's interface and messages, not the text of a source page.
+**Language:** the App follows your system by default. Change it in Settings → Language. The CLI has its own saved preference and a one-command `--lang en` / `--lang zh` override. These settings change the tool's interface and messages, not the text of a source page.
 
 ## Prefer the terminal?
 

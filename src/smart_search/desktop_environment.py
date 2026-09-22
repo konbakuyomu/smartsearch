@@ -378,6 +378,26 @@ class Environment:
                                                      env, cli_info, config_dir, minimum_ok, refresh_cli))
         return self.state
 
+    def prepare(self, params, env, cli_info, config_dir, minimum_ok, refresh_cli):
+        if params.get("confirm") is not True:
+            raise ValueError(tr('请点击安装或修复 CLI 后重试。'))
+        if self.state["busy"]:
+            return self.state
+        self.changed(status="installing", operation="install", busy=True, can_cancel=False,
+                     error="", message=tr('正在准备 CLI…'), log="")
+        self.task = asyncio.create_task(self._prepare(env, cli_info, config_dir, minimum_ok, refresh_cli))
+        return self.state
+
+    async def _prepare(self, env, cli_info, config_dir, minimum_ok, refresh_cli):
+        try:
+            current = await asyncio.to_thread(self.inspect, env, cli_info, config_dir, minimum_ok)
+            if current["blocked"]:
+                raise ValueError(current["blocked"])
+            await self._install(current["plan_id"], [], False, env, cli_info, config_dir, minimum_ok, refresh_cli)
+        except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+            message = sanitize_provider_error_message(str(error))
+            self.changed(status="failed", busy=False, can_cancel=False, error=message, message=message)
+
     async def run(self, argv, env):
         process = await asyncio.create_subprocess_exec(*argv, cwd=self.directory, env=env,
             stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
@@ -557,7 +577,7 @@ class Environment:
         try:
             current = await asyncio.to_thread(self.inspect, env, cli_info, config_dir, minimum_ok)
             if current["plan_id"] != plan_id or current["blocked"]:
-                raise ValueError(tr('安装来源或接入文件已变化，请重新检测并确认。'))
+                raise ValueError(tr('安装来源或接入文件已变化，请重试。'))
             if depends_on_app(self.directory):
                 raise ValueError(tr('运行环境目录必须独立于 App 程序目录。'))
             self.directory.mkdir(parents=True, exist_ok=True)
@@ -593,24 +613,25 @@ class Environment:
             self.changed(message=tr('正在验证独立 CLI 启动链…'), can_cancel=False)
             cli_info = await asyncio.to_thread(refresh_cli)
             if not cli_info.get("external_runtime_verified") or cli_info.get("manager") == "bundled":
-                raise ValueError(tr('独立 CLI 的实际运行验证未通过，请重新检测。'))
+                raise ValueError(tr('独立 CLI 的实际运行验证未通过，请重试。'))
             output = await asyncio.to_thread(read_command, [*self.invocation(node, cli_info), "--version"], clean)
             if output != "smart-search " + str(cli_info.get("external_version")):
                 raise ValueError(tr('独立 CLI 的版本读回不一致。'))
-            self.changed(message=tr('正在配置所选 AI 接入…'))
+            if targets:
+                self.changed(message=tr('正在配置所选 AI 接入…'))
             notes = await self.install_skills(targets, replace, node, cli_info, env, config_dir)
             notes.append(self.expose_cli(node, cli_info))
             result = await asyncio.to_thread(self.inspect, env, cli_info, config_dir, minimum_ok)
             pending = any(row["status"] not in {"up_to_date", "extra_files"} for row in result["targets"] if row["target"] in targets)
             result["message"] = (tr('独立 CLI 已就绪；部分接入需要处理。') if pending else tr('环境与所选接入已准备好；AI 内实际调用待验证。')) + "\n" + "\n".join(notes)
             if not targets:
-                result["message"] = tr('独立 CLI 已就绪；请在“更新 Skills”页面同步所需 Agent。') + "\n" + "\n".join(notes)
+                result["message"] = tr('独立 CLI 已就绪。') + "\n" + "\n".join(notes)
             result["steps"][1]["message"] = tr('独立 CLI 完整启动链已通过本地验证')
             self.changed(**result, status="ready", busy=False, can_cancel=False)
         except asyncio.CancelledError:
-            self.changed(status="cancelled", busy=False, can_cancel=False, plan_id="", message=tr('下载已取消，已安装组件保留；请重新检测。'))
+            self.changed(status="cancelled", busy=False, can_cancel=False, plan_id="", message=tr('下载已取消，已安装组件保留；可重试。'))
         except Exception as error:
-            message = sanitize_provider_error_message(str(error)) if isinstance(error, ValueError) else tr('网络或安装操作未完成，请查看详情并重新检测。')
+            message = sanitize_provider_error_message(str(error)) if isinstance(error, ValueError) else tr('网络或安装操作未完成，请重试。')
             self.changed(status="failed", busy=False, can_cancel=False, plan_id="", error=message, message=message)
 
     async def cancel(self):
