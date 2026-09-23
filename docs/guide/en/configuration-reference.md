@@ -87,7 +87,11 @@ Generated from current configuration metadata. All saved keys appear below. See 
 | `SMART_SEARCH_JEV_SUFFICIENCY_THRESHOLD` | From 0 to 1. Stop retrieving when evidence reaches this sufficiency score; higher values demand more evidence. | `float` | `0.75` |
 | `SMART_SEARCH_JEV_FILTER_RESULTS` | Adds judgment calls; overall cost savings are not guaranteed. | `bool` | `false` |
 | `SMART_SEARCH_JEV_FILTER_THRESHOLD` | From 0 to 1, used only when evidence filtering is enabled. Results below this relevance score are filtered. | `float` | `0.1` |
-| `SMART_SEARCH_JEV_SYNTHESIZE` | false returns evidence; auto decides whether to summarize; true uses the configured main model. | `false, auto, true` | `false` |
+| `SMART_SEARCH_JEV_SYNTHESIZE` | false returns evidence; auto decides whether to summarize; true always summarizes. Synthesis only uses the dedicated model. | `false, auto, true` | `false` |
+| `SMART_SEARCH_JEV_SYNTHESIS_API_URL` | Optional separate OpenAI-compatible endpoint. Also provide its key and model. | `url` | Not set |
+| `SMART_SEARCH_JEV_SYNTHESIS_API_KEY` | Used only for JEV final synthesis, not retrieval or Jev judgments. | `secret` | Not set |
+| `SMART_SEARCH_JEV_SYNTHESIS_MODEL` | Dedicated synthesis model; URL, key and model must be set together. | `text` | Not set |
+| `SMART_SEARCH_JEV_SYNTHESIS_API_MODE` | Choose chat-completions or responses for the dedicated synthesis endpoint; it must match the service API. | `chat-completions, responses` | `chat-completions` |
 | `INTENT_EMBEDDING_API_URL` | Optional full embedding endpoint including /v1/embeddings. It identifies required capabilities, not search answers. Enabled in hybrid mode when URL, key and model are all set. | `url` | Not set |
 | `INTENT_EMBEDDING_API_KEY` | Key issued by the embedding service. It must match the endpoint and model; leave empty to disable embedding-based routing. | `secret` | Not set |
 | `INTENT_EMBEDDING_MODEL` | Exact embedding model identifier, for example BAAI/bge-m3. This is not a chat model; use an identifier supported by the endpoint. | `text` | Not set |

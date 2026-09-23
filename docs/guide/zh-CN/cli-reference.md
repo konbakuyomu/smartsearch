@@ -1112,6 +1112,10 @@
                       [--openai-compatible-fallback-models OPENAI_COMPATIBLE_FALLBACK_MODELS]
                       [--openai-compatible-api-mode OPENAI_COMPATIBLE_API_MODE]
                       [--openai-compatible-stream OPENAI_COMPATIBLE_STREAM]
+                      [--jev-synthesis-api-url JEV_SYNTHESIS_API_URL]
+                      [--jev-synthesis-api-key JEV_SYNTHESIS_API_KEY]
+                      [--jev-synthesis-model JEV_SYNTHESIS_MODEL]
+                      [--jev-synthesis-api-mode JEV_SYNTHESIS_API_MODE]
                       [--validation-level VALIDATION_LEVEL]
                       [--fallback-mode FALLBACK_MODE]
                       [--minimum-profile MINIMUM_PROFILE]
@@ -1188,6 +1192,14 @@
                         responses）。
   --openai-compatible-stream OPENAI_COMPATIBLE_STREAM
                         保存 OPENAI_COMPATIBLE_STREAM。
+  --jev-synthesis-api-url JEV_SYNTHESIS_API_URL
+                        Save SMART_SEARCH_JEV_SYNTHESIS_API_URL.
+  --jev-synthesis-api-key JEV_SYNTHESIS_API_KEY
+                        Save SMART_SEARCH_JEV_SYNTHESIS_API_KEY.
+  --jev-synthesis-model JEV_SYNTHESIS_MODEL
+                        Save SMART_SEARCH_JEV_SYNTHESIS_MODEL.
+  --jev-synthesis-api-mode JEV_SYNTHESIS_API_MODE
+                        Save SMART_SEARCH_JEV_SYNTHESIS_API_MODE.
   --validation-level VALIDATION_LEVEL
                         保存 SMART_SEARCH_VALIDATION_LEVEL。
   --fallback-mode FALLBACK_MODE
@@ -1279,7 +1291,7 @@
   --output OUTPUT       将渲染后的输出写入文件。
 ```
 
-解析器默认值：`--non-interactive` = `False`; `--advanced` = `False`; `--skip-skills` = `False`; `--install-skills` = ``; `--skills-root` = ``; `--xai-api-url` = ``; `--xai-api-key` = ``; `--xai-model` = ``; `--xai-tools-explicit` = ``; `--openai-compatible-api-url` = ``; `--openai-compatible-api-key` = ``; `--openai-compatible-model` = ``; `--openai-compatible-fallback-models` = ``; `--openai-compatible-api-mode` = ``; `--openai-compatible-stream` = ``; `--validation-level` = ``; `--fallback-mode` = ``; `--minimum-profile` = ``; `--intent-router` = ``; `--search-timeout / --search-timeout-seconds` = ``; `--intent-embedding-api-url` = ``; `--intent-embedding-api-key` = ``; `--intent-embedding-model` = ``; `--intent-embedding-threshold` = ``; `--intent-embedding-margin` = ``; `--intent-classifier-api-url` = ``; `--intent-classifier-api-key` = ``; `--intent-classifier-model` = ``; `--intent-router-timeout` = ``; `--provider-cooldown / --provider-cooldown-seconds` = ``; `--provider-failure-threshold` = ``; `--exa-key` = ``; `--context7-key` = ``; `--zhipu-key` = ``; `--zhipu-api-url` = ``; `--zhipu-search-engine` = ``; `--zhipu-mcp-key` = ``; `--zhipu-mcp-search-api-url` = ``; `--zhipu-mcp-reader-api-url` = ``; `--zhipu-mcp-zread-api-url` = ``; `--zhipu-mcp-timeout` = ``; `--jina-key` = ``; `--jina-reader-api-url` = ``; `--jina-respond-with` = ``; `--jina-timeout` = ``; `--tavily-api-url` = ``; `--tavily-key` = ``; `--firecrawl-api-url` = ``; `--firecrawl-key` = ``; `--tinyfish-key` = ``; `--tinyfish-search-api-url` = ``; `--tinyfish-fetch-api-url` = ``; `--tinyfish-timeout` = ``; `--anysearch-api-url` = ``; `--anysearch-key` = ``; `--anysearch-timeout` = ``; `--sciverse-api-url` = ``; `--sciverse-token` = ``; `--sciverse-timeout` = ``; `--format` = `json`; `--output` = ``.
+解析器默认值：`--non-interactive` = `False`; `--advanced` = `False`; `--skip-skills` = `False`; `--install-skills` = ``; `--skills-root` = ``; `--xai-api-url` = ``; `--xai-api-key` = ``; `--xai-model` = ``; `--xai-tools-explicit` = ``; `--openai-compatible-api-url` = ``; `--openai-compatible-api-key` = ``; `--openai-compatible-model` = ``; `--openai-compatible-fallback-models` = ``; `--openai-compatible-api-mode` = ``; `--openai-compatible-stream` = ``; `--jev-synthesis-api-url` = ``; `--jev-synthesis-api-key` = ``; `--jev-synthesis-model` = ``; `--jev-synthesis-api-mode` = ``; `--validation-level` = ``; `--fallback-mode` = ``; `--minimum-profile` = ``; `--intent-router` = ``; `--search-timeout / --search-timeout-seconds` = ``; `--intent-embedding-api-url` = ``; `--intent-embedding-api-key` = ``; `--intent-embedding-model` = ``; `--intent-embedding-threshold` = ``; `--intent-embedding-margin` = ``; `--intent-classifier-api-url` = ``; `--intent-classifier-api-key` = ``; `--intent-classifier-model` = ``; `--intent-router-timeout` = ``; `--provider-cooldown / --provider-cooldown-seconds` = ``; `--provider-failure-threshold` = ``; `--exa-key` = ``; `--context7-key` = ``; `--zhipu-key` = ``; `--zhipu-api-url` = ``; `--zhipu-search-engine` = ``; `--zhipu-mcp-key` = ``; `--zhipu-mcp-search-api-url` = ``; `--zhipu-mcp-reader-api-url` = ``; `--zhipu-mcp-zread-api-url` = ``; `--zhipu-mcp-timeout` = ``; `--jina-key` = ``; `--jina-reader-api-url` = ``; `--jina-respond-with` = ``; `--jina-timeout` = ``; `--tavily-api-url` = ``; `--tavily-key` = ``; `--firecrawl-api-url` = ``; `--firecrawl-key` = ``; `--tinyfish-key` = ``; `--tinyfish-search-api-url` = ``; `--tinyfish-fetch-api-url` = ``; `--tinyfish-timeout` = ``; `--anysearch-api-url` = ``; `--anysearch-key` = ``; `--anysearch-timeout` = ``; `--sciverse-api-url` = ``; `--sciverse-token` = ``; `--sciverse-timeout` = ``; `--format` = `json`; `--output` = ``.
 
 ## `smart-search config`
 

@@ -578,9 +578,9 @@ async def test_real_http_contract_retries_throttling_and_masks_errors(monkeypatc
 async def test_synthesis_modes_use_only_filtered_evidence(monkeypatch, configured, mode, probability, should_synthesize):
     monkeypatch.setenv("SMART_SEARCH_JEV_FILTER_RESULTS", "true")
     monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIZE", mode)
-    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "grok-secret")
-    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.org/v1")
-    monkeypatch.setenv("OPENAI_COMPATIBLE_MODEL", "grok-4.6")
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_API_KEY", "summary-secret")
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_API_URL", "https://summary.example.org/v1")
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_MODEL", "summary-model")
     calls = scripted_jev(
         monkeypatch, [{"exa:search"}], [{"useful": 0.95, "sufficient": 0.95}] * 2,
         filter_score=lambda group: 0.95 if any("needed" in item["content"] for item in group) else 0.0,
@@ -603,7 +603,7 @@ async def test_synthesis_modes_use_only_filtered_evidence(monkeypatch, configure
     assert result["synthesis"]["enabled"] is should_synthesize
     assert len(payloads) == int(should_synthesize)
     if should_synthesize:
-        assert result["model"] == "grok-4.6"
+        assert result["model"] == "summary-model"
         assert "tools" not in payloads[0]
         assert "needed fact" in json.dumps(payloads[0])
         assert "advertisement" not in json.dumps(payloads[0])
@@ -619,21 +619,89 @@ async def test_synthesis_modes_use_only_filtered_evidence(monkeypatch, configure
         assert result["synthesis"]["decision_source"] == "jev"
     else:
         assert not decisions
-    assert "grok-secret" not in json.dumps(result)
+    assert "summary-secret" not in json.dumps(result)
     assert result["providers_used"] == ["exa"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("api_mode", ["chat-completions", "responses"])
+@pytest.mark.parametrize("providers", ["auto", "exa,jev-synthesis"])
+async def test_dedicated_synthesis_ignores_main_model_and_request_override(monkeypatch, configured, api_mode, providers):
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIZE", "true")
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_API_URL", "https://summary.example.org/v1")
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_API_KEY", "summary-secret")
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_MODEL", "summary-model")
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_API_MODE", api_mode)
+    monkeypatch.setenv("XAI_API_KEY", "main-secret")
+    monkeypatch.setenv("XAI_MODEL", "main-model")
+    scripted_jev(monkeypatch, [{"exa:search"}], [{"useful": 0.95, "sufficient": 0.95}])
+    requests = []
+
+    async def exa(*args, **kwargs):
+        return {"ok": True, "results": [hit("Independent evidence")]}
+
+    async def complete(self, headers, payload, ctx=None):
+        requests.append((self.api_url, self.api_key, self.model, self.api_mode, payload))
+        return "Dedicated answer"
+
+    monkeypatch.setattr(service, "exa_search", exa)
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "_execute_with_transport_fallback", complete)
+    result = await service.search("question", model="request-model", providers=providers)
+
+    assert result["ok"] and result["content"] == "Dedicated answer"
+    assert result["model"] == result["synthesis"]["model"] == "summary-model"
+    assert len(requests) == 1
+    url, key, model, mode, payload = requests[0]
+    assert (url, key, model, mode) == ("https://summary.example.org/v1", "summary-secret", "summary-model", api_mode)
+    assert "tools" not in payload
+    assert "main-secret" not in json.dumps(result)
+    assert "summary-secret" not in json.dumps(result)
+
+
+@pytest.mark.asyncio
+async def test_incomplete_dedicated_synthesis_never_calls_main_model(monkeypatch, configured):
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIZE", "true")
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_MODEL", "summary-model")
+    monkeypatch.setenv("XAI_API_KEY", "main-secret")
+    scripted_jev(monkeypatch, [{"exa:search"}], [{"useful": 0.95, "sufficient": 0.95}])
+    calls = []
+
+    async def exa(*args, **kwargs):
+        return {"ok": True, "results": [hit("Evidence remains available")]}
+
+    async def complete(*args, **kwargs):
+        calls.append(True)
+        return "Unexpected answer"
+
+    monkeypatch.setattr(service, "exa_search", exa)
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "_execute_with_transport_fallback", complete)
+    result = await service.search("question")
+
+    assert result["ok"] and not calls
+    assert result["synthesis"]["status"] == "failed"
+    assert result["synthesis"]["error_type"] == "parameter_error"
+    assert "Evidence remains available" in result["content"]
 
 
 @pytest.mark.asyncio
 async def test_synthesis_failure_preserves_returned_evidence(monkeypatch, configured):
     monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIZE", "true")
+    monkeypatch.setenv("XAI_API_KEY", "main-secret")
     scripted_jev(monkeypatch, [{"exa:search"}], [{"useful": 0.95, "sufficient": 0.95}])
+    model_calls = []
 
     async def exa(*args, **kwargs):
         return {"ok": True, "results": [hit("Evidence remains available without a main model")]}
 
+    async def complete(*args, **kwargs):
+        model_calls.append(True)
+        return "Unexpected answer"
+
     monkeypatch.setattr(service, "exa_search", exa)
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "_execute_with_transport_fallback", complete)
     result = await service.search("question")
     assert result["ok"]
+    assert not model_calls
     assert result["synthesis"]["status"] == "failed"
     assert "Evidence remains available" in result["content"]
     assert result["warnings"]
@@ -765,26 +833,29 @@ async def test_slow_channel_is_cancelled_while_other_evidence_is_retained(monkey
     assert cancelled.is_set()
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("rejected", [False, True])
-@pytest.mark.parametrize("mode", ["false", "auto"])
-async def test_doctor_checks_jev_without_requiring_a_main_model(monkeypatch, configured, rejected, mode):
-    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIZE", mode)
+def stub_doctor_probes(monkeypatch, *, rejected=False):
     async def probe(*args, **kwargs):
         return {"status": "ok", "message": "fixture"}
-
-    for name in (
-        "_test_exa_connection", "_test_tavily_connection", "_test_jina_connection",
-        "_test_zhipu_connection", "_test_zhipu_mcp_connection", "_test_context7_connection",
-    ):
-        monkeypatch.setattr(service, name, probe)
 
     async def request(self, state, questions, timeout):
         if rejected:
             raise ProviderCallError("auth_error", "TypeSafe rejected credentials")
         return answer_payload(questions, {key: 0.99 for key in questions})
 
+    for name in (
+        "_test_exa_connection", "_test_tavily_connection", "_test_jina_connection",
+        "_test_zhipu_connection", "_test_zhipu_mcp_connection", "_test_context7_connection",
+    ):
+        monkeypatch.setattr(service, name, probe)
     monkeypatch.setattr(JevClient, "_request", request)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rejected", [False, True])
+@pytest.mark.parametrize("mode", ["false", "auto"])
+async def test_doctor_checks_jev_without_requiring_a_main_model(monkeypatch, configured, rejected, mode):
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIZE", mode)
+    stub_doctor_probes(monkeypatch, rejected=rejected)
     result = await service.doctor()
     assert result["ok"] is not rejected
     assert result["intent_router_status"]["mode"] == "jev"
@@ -795,13 +866,79 @@ async def test_doctor_checks_jev_without_requiring_a_main_model(monkeypatch, con
 
 
 @pytest.mark.asyncio
+async def test_doctor_checks_dedicated_synthesis_independently_of_main_model(monkeypatch, configured):
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIZE", "true")
+    monkeypatch.setenv("XAI_API_KEY", "main-secret")
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_API_URL", "https://summary.example.org/v1")
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_API_KEY", "summary-secret")
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_MODEL", "summary-model")
+
+    async def synthesis_probe(provider_config):
+        assert provider_config["provider"] == "jev-synthesis"
+        assert provider_config["model"] == "summary-model"
+        return {"status": "ok", "message": "fixture"}
+
+    stub_doctor_probes(monkeypatch)
+    monkeypatch.setattr(service, "_safe_test_main_provider_connection", synthesis_probe)
+
+    result = await service.doctor()
+    assert result["ok"]
+    assert result["jev_synthesis_connection_test"]["status"] == "ok"
+    assert result["primary_connection_test"]["status"] == "not_required"
+    assert result["main_search_connection_tests"] == {}
+    assert "summary-secret" not in json.dumps(result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("dedicated_model,expected_status", [
+    ("", "not_configured"), ("summary-model", "config_error"),
+])
+async def test_doctor_rejects_missing_dedicated_synthesis_even_with_main_model(monkeypatch, configured, dedicated_model, expected_status):
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIZE", "true")
+    monkeypatch.setenv("XAI_API_KEY", "main-secret")
+    if dedicated_model:
+        monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_MODEL", dedicated_model)
+
+    stub_doctor_probes(monkeypatch)
+
+    result = await service.doctor()
+    assert not result["ok"] and result["error_type"] == "config_error"
+    assert result["jev_synthesis_connection_test"]["status"] == expected_status
+    assert result["primary_connection_test"]["status"] == "not_required"
+    assert result["main_search_connection_tests"] == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode,expected_status,expected_ok", [
+    ("true", "config_error", False), ("auto", "skipped", True),
+])
+async def test_doctor_skips_disabled_dedicated_synthesis_provider(monkeypatch, configured, mode, expected_status, expected_ok):
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIZE", mode)
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_API_URL", "https://summary.example.org/v1")
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_API_KEY", "summary-secret")
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_MODEL", "summary-model")
+    monkeypatch.setenv("SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS", "jev-synthesis")
+    stub_doctor_probes(monkeypatch)
+
+    async def unexpected_probe(provider_config):
+        raise AssertionError("Disabled synthesis provider must not be probed")
+
+    monkeypatch.setattr(service, "_safe_test_main_provider_connection", unexpected_probe)
+    result = await service.doctor()
+    assert result["ok"] is expected_ok
+    assert result["jev_synthesis_connection_test"]["status"] == expected_status
+    assert result["jev_synthesis_connection_test"]["reason"] == "provider_disabled"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("judgment,error_type", [
     (httpx.ReadTimeout("Jev unavailable"), "timeout"), ("invalid", "parse_error"),
 ])
 async def test_auto_synthesis_judgment_failure_keeps_evidence(monkeypatch, configured, judgment, error_type):
     monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIZE", "auto")
-    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "grok-secret")
-    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.org/v1")
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_API_KEY", "summary-secret")
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_API_URL", "https://summary.example.org/v1")
+    monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_MODEL", "summary-model")
     scripted_jev(monkeypatch, [{"exa:search"}], [{"useful": 0.95, "sufficient": 0.95}], synthesis_score=judgment)
     model_calls = []
 
@@ -828,13 +965,15 @@ async def test_auto_synthesis_judgment_failure_keeps_evidence(monkeypatch, confi
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("restriction", ["missing", "disabled", "provider_filter"])
-async def test_auto_synthesis_skips_without_an_allowed_main_model(monkeypatch, configured, restriction):
+async def test_auto_synthesis_skips_without_an_allowed_synthesis_model(monkeypatch, configured, restriction):
     monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIZE", "auto")
+    monkeypatch.setenv("XAI_API_KEY", "main-secret")
     if restriction != "missing":
-        monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "grok-secret")
-        monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://relay.example.org/v1")
+        monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_API_KEY", "summary-secret")
+        monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_API_URL", "https://summary.example.org/v1")
+        monkeypatch.setenv("SMART_SEARCH_JEV_SYNTHESIS_MODEL", "summary-model")
     if restriction == "disabled":
-        monkeypatch.setenv("SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS", "openai-compatible")
+        monkeypatch.setenv("SMART_SEARCH_RESEARCH_DISABLED_PROVIDERS", "jev-synthesis")
     calls = scripted_jev(monkeypatch, [{"exa:search"}], [{"useful": 0.95, "sufficient": 0.95}])
 
     async def exa(*args, **kwargs):
@@ -844,7 +983,7 @@ async def test_auto_synthesis_skips_without_an_allowed_main_model(monkeypatch, c
     result = await service.search("question", providers="exa" if restriction == "provider_filter" else "auto")
     assert result["ok"]
     assert len(calls) == 2
-    assert result["synthesis"]["reason"] == "no_allowed_main_model"
+    assert result["synthesis"]["reason"] == "no_allowed_synthesis_model"
     assert result["synthesis"]["enabled"] is False
     assert "Useful evidence" in result["content"]
 
@@ -883,6 +1022,16 @@ def test_synthesis_mode_loads_existing_booleans_and_new_enum(monkeypatch, config
 def test_invalid_synthesis_mode_is_rejected(configured, invalid):
     with pytest.raises(ValueError, match="true, false, or auto"):
         service.config.set_config_value("SMART_SEARCH_JEV_SYNTHESIZE", invalid)
+
+
+@pytest.mark.parametrize("key,value", [
+    ("SMART_SEARCH_JEV_SYNTHESIS_API_URL", "file:///private/summary"),
+    ("SMART_SEARCH_JEV_SYNTHESIS_API_URL", "https://user:pass@summary.example.org/v1"),
+    ("SMART_SEARCH_JEV_SYNTHESIS_API_MODE", "unsupported"),
+])
+def test_invalid_dedicated_synthesis_connection_is_rejected(configured, key, value):
+    with pytest.raises(ValueError, match="Invalid SMART_SEARCH_JEV_SYNTHESIS_"):
+        service.config.set_config_value(key, value)
 
 
 @pytest.mark.asyncio

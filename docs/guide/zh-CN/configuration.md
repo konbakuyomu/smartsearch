@@ -51,7 +51,7 @@
 | `SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS` | 可选 provider 连续失败后被跳过的时长，默认 `900`；设为 `0` 关闭冷却 |
 | `SMART_SEARCH_PROVIDER_FAILURE_THRESHOLD` | 可选 provider 进入冷却前允许的连续软失败次数，默认 `2` |
 
-`jev` 是推荐的可选语义路由，默认仍为 `hybrid`。它结合渠道专长和已有 provider 偏好选择搜索引擎，判断累计证据是否相关、有用和足够，再选择新查询、另一引擎或阅读已发现的网页。research 保留计划、预算、报告及“实际读正文后才能引用”的约束；可选过滤改变内容后重新判断。TypeSafe 故障时按允许的固定能力兜底并标记降级，不隐藏调用旧远程分类器。最终汇总保留 `true/false/auto` 三态，默认直接返回证据。`route --router-mode jev` 是本地候选预览，只有显式 `--remote` 才调用可能计费的 TypeSafe 判断。配置、限制和诊断见 [Jev 路由与过滤](../../jev-routing.md)。
+`jev` 是推荐的可选语义路由，默认仍为 `hybrid`。它结合渠道专长和已有 provider 偏好选择搜索引擎，判断累计证据是否相关、有用和足够，再选择新查询、另一引擎或阅读已发现的网页。research 保留计划、预算、报告及“实际读正文后才能引用”的约束；可选过滤改变内容后重新判断。TypeSafe 故障时按允许的固定能力兜底并标记降级，不隐藏调用旧远程分类器。最终汇总保留 `true/false/auto` 三态，默认直接返回证据；启用时只调用独立配置的 JEV 汇总模型，与主搜索模型无关。`route --router-mode jev` 是本地候选预览，只有显式 `--remote` 才调用可能计费的 TypeSafe 判断。配置、限制和诊断见 [Jev 路由与过滤](../../jev-routing.md)。
 
 默认 `hybrid` 是 fail-open：embeddings 或 classifier 没配置、超时或失败时，会在 `degraded_reason` 里说明，然后自动退回本地规则。语义路由只有在 top1 相似度达到 `INTENT_EMBEDDING_THRESHOLD`，并且 top1 与第二名差值达到 `INTENT_EMBEDDING_MARGIN` 时，才会直接添加 capability；否则只记录 ambiguous 信号。classifier 可以补充 capability，但未知 capability 和 provider 名会被忽略；provider 仍然只能由 capability-first 注册表选择。
 

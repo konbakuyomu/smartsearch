@@ -101,10 +101,17 @@ async def verify_auto_synthesis(include_synthesis: bool) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--synthesis", action="store_true", help="Also call the configured main model for evidence-only synthesis")
+    parser.add_argument("--synthesis", action="store_true", help="Also call the configured dedicated JEV model for evidence-only synthesis")
     parser.add_argument("--auto-synthesis-only", action="store_true", help="Verify automatic synthesis judgments using controlled retained evidence")
     parser.add_argument("--output", default=".smart-search/jev-tests/live-report.json")
     args = parser.parse_args()
+    if args.synthesis:
+        try:
+            dedicated = service.config.jev_settings().dedicated_synthesis_config()
+        except ValueError as exc:
+            parser.error(str(exc))
+        if dedicated is None:
+            parser.error("Configure SMART_SEARCH_JEV_SYNTHESIS_API_URL, _API_KEY and _MODEL before --synthesis")
     report = asyncio.run(verify_auto_synthesis(args.synthesis) if args.auto_synthesis_only else verify(args.synthesis))
     path = Path(args.output)
     path.parent.mkdir(parents=True, exist_ok=True)

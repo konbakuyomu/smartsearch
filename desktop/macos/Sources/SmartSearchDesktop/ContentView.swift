@@ -550,6 +550,8 @@ private struct IntentRoutingEditor: View {
     private var mode: String { modeField.map(selectedValue) ?? "" }
     private let resultProcessingKeys: Set<String> = [
         "SMART_SEARCH_JEV_FILTER_RESULTS", "SMART_SEARCH_JEV_FILTER_THRESHOLD", "SMART_SEARCH_JEV_SYNTHESIZE",
+        "SMART_SEARCH_JEV_SYNTHESIS_API_URL", "SMART_SEARCH_JEV_SYNTHESIS_API_KEY",
+        "SMART_SEARCH_JEV_SYNTHESIS_MODEL", "SMART_SEARCH_JEV_SYNTHESIS_API_MODE",
     ]
     private var filteringEnabled: Bool {
         guard let field = fields.first(where: { $0.key == "SMART_SEARCH_JEV_FILTER_RESULTS" }) else { return false }

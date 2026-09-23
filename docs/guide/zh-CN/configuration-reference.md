@@ -87,7 +87,11 @@
 | `SMART_SEARCH_JEV_SUFFICIENCY_THRESHOLD` | 0 到 1。证据充分概率达到此值时停止继续检索；调高要求更充分的证据。 | `float` | `0.75` |
 | `SMART_SEARCH_JEV_FILTER_RESULTS` | 会增加判断请求；无法保证总费用减少。 | `bool` | `false` |
 | `SMART_SEARCH_JEV_FILTER_THRESHOLD` | 0 到 1，仅启用证据过滤时生效；低于此相关性阈值的结果会被过滤。 | `float` | `0.1` |
-| `SMART_SEARCH_JEV_SYNTHESIZE` | false 返回证据；auto 按需汇总；true 使用已配置主模型汇总。 | `false, auto, true` | `false` |
+| `SMART_SEARCH_JEV_SYNTHESIZE` | false 返回证据；auto 按需汇总；true 始终汇总。汇总只使用独立配置的模型。 | `false, auto, true` | `false` |
+| `SMART_SEARCH_JEV_SYNTHESIS_API_URL` | 可选的独立 OpenAI 兼容接口。填写后还需提供 Key 和模型名。 | `url` | 未设置 |
+| `SMART_SEARCH_JEV_SYNTHESIS_API_KEY` | 只用于 JEV 最终汇总，不用于检索或 JEV 判断。 | `secret` | 未设置 |
+| `SMART_SEARCH_JEV_SYNTHESIS_MODEL` | 独立汇总模型名；地址、Key、模型名需要一起填写。 | `text` | 未设置 |
+| `SMART_SEARCH_JEV_SYNTHESIS_API_MODE` | 选择独立汇总接口的调用模式：chat-completions 或 responses；需与服务商接口一致。 | `chat-completions, responses` | `chat-completions` |
 | `INTENT_EMBEDDING_API_URL` | 可选的向量模型完整接口地址，须包含 /v1/embeddings；用来判断问题需要哪类能力，不负责生成搜索答案。hybrid 模式中与 Key、模型名配齐后启用。 | `url` | 未设置 |
 | `INTENT_EMBEDDING_API_KEY` | 向量模型服务提供的 Key，需与上方接口地址和模型属于同一服务。留空则不启用向量判断。 | `secret` | 未设置 |
 | `INTENT_EMBEDDING_MODEL` | 向量模型的准确名称，例如 BAAI/bge-m3；不是聊天模型。由接口服务商提供。 | `text` | 未设置 |

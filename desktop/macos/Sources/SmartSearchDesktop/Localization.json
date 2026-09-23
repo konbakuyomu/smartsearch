@@ -17690,5 +17690,29 @@
   "错误详情": [
     "错误详情",
     "Error details"
+  ],
+  "Invalid {0}: expected chat-completions or responses.": [
+    "无效的 {0}：应为 chat-completions 或 responses。",
+    "Invalid {0}: expected chat-completions or responses."
+  ],
+  "Invalid {0}: expected an HTTP(S) base URL without credentials or query parameters.": [
+    "无效的 {0}：需要不含凭据和查询参数的 HTTP(S) 基础地址。",
+    "Invalid {0}: expected an HTTP(S) base URL without credentials or query parameters."
+  ],
+  "Jev synthesis requires API URL, API key, and model when dedicated synthesis is configured.": [
+    "配置独立 Jev 汇总时，必须同时填写 API 地址、Key 和模型名。",
+    "Jev synthesis requires API URL, API key, and model when dedicated synthesis is configured."
+  ],
+  "Jev synthesis requires an allowed configured synthesis model": [
+    "Jev 结果汇总需要配置允许使用的独立汇总模型",
+    "Jev synthesis requires an allowed configured synthesis model"
+  ],
+  "Jev synthesis is disabled": [
+    "Jev 结果汇总已关闭",
+    "Jev synthesis is disabled"
+  ],
+  "Jev synthesis model is not configured": [
+    "尚未配置 Jev 独立汇总模型",
+    "Jev synthesis model is not configured"
   ]
 }

@@ -221,19 +221,21 @@ class ChannelExecutor:
         return [{"url": f"context7:{library['id']}", "title": library.get("title", ""), "content": content}]
 
     def synthesis_config(self, providers: str) -> dict | None:
-        configs = self.svc._main_search_provider_configs(model_override=self.model, providers=providers)
         disabled = set(self.svc.config.research_disabled_providers)
-        return next((item for item in configs if item["provider"] not in disabled
-                     and self.svc._provider_health_status(item["provider"]).get("state") != "cooldown"), None)
+        dedicated = self.client.settings.dedicated_synthesis_config()
+        if dedicated is None or "jev-synthesis" in disabled:
+            return None
+        provider_filter = self.svc._parse_provider_filter(providers)
+        if provider_filter is not None and "jev-synthesis" not in provider_filter:
+            return None
+        return dedicated
 
     async def synthesize(self, query: str, evidence: list[dict], providers: str) -> tuple[str, str]:
         cfg = self.synthesis_config(providers)
         if cfg is None:
-            raise ProviderCallError("provider_error", source_message('Jev synthesis requires an allowed configured main model'))
-        # Both native xAI and relays accept Responses; no search tools are attached.
+            raise ProviderCallError("provider_error", source_message('Jev synthesis requires an allowed configured synthesis model'))
         provider = self.svc.OpenAICompatibleSearchProvider(
-            cfg["api_url"], cfg["api_key"], cfg["model"], False,
-            "responses" if cfg["provider"] == "xai-responses" else cfg["api_mode"],
+            cfg["api_url"], cfg["api_key"], cfg["model"], False, cfg["api_mode"],
         )
         provider.set_search_deadline(self.client.deadline)
         content = await provider.synthesize(query, evidence)
@@ -489,7 +491,7 @@ async def search(
         phase_start = time.monotonic()
         try:
             if executor.synthesis_config(providers) is None:
-                synthesis["reason"] = "no_allowed_main_model"
+                synthesis["reason"] = "no_allowed_synthesis_model"
             else:
                 synthesis["decision_source"] = "jev"
                 synthesis.update(await decide_synthesis(client, query, answer_evidence, assessment))
@@ -507,7 +509,7 @@ async def search(
             content, synthesis_model = await asyncio.wait_for(executor.synthesize(query, answer_evidence, providers), budget.remaining_seconds())
             synthesis.update(status="ok", model=synthesis_model)
         except Exception as exc:
-            error_type, error = classify_provider_exception(exc)
+            error_type, error = ("parameter_error", str(exc)) if isinstance(exc, ValueError) else classify_provider_exception(exc)
             synthesis.update(status="failed", error_type=error_type, error=error)
             warnings.append("Synthesis failed; returning retrieved evidence: " + error)
 

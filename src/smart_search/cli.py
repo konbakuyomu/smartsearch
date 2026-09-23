@@ -1754,10 +1754,10 @@ def _merge_setup_values(current: dict[str, str], values: dict[str, str]) -> dict
     return merged
 
 
-def _write_setup_status(status: dict[str, Any], lang: str, *, final: bool = False) -> None:
+def _write_setup_status(status: dict[str, Any], lang: str, *, final: bool = False, router_mode: str = "hybrid") -> None:
     title = _t(lang, "最低配置检查", "Minimum profile check") if final else _t(lang, "当前状态", "Current status")
     _write_stderr(f"\n{title}:\n")
-    required = {"main_search", "docs_search", "web_fetch"}
+    required = set() if router_mode == "jev" else {"main_search", "docs_search", "web_fetch"}
     labels = {
         "main_search": _t(lang, "main_search 主搜索", "main_search primary search"),
         "docs_search": _t(lang, "docs_search 文档搜索", "docs_search documentation search"),
@@ -1998,14 +1998,20 @@ def _setup_choice(prompt: str, choices: set[str], default: str) -> str:
 
 
 def _prompt_main_search(values: dict[str, str], current: dict[str, str], lang: str) -> None:
-    status = _setup_status_from_values(_merge_setup_values(current, values))
+    merged = _merge_setup_values(current, values)
+    status = _setup_status_from_values(merged)
     configured = status["main_search"]["configured"]
-    default_selected = configured or ["xai-responses"]
+    jev_mode = merged.get("SMART_SEARCH_INTENT_ROUTER") == "jev"
+    default_selected = configured or ([] if jev_mode else ["xai-responses"])
+    if jev_mode:
+        heading = _t(lang, "[可选] main_search 主搜索", "[Optional] main_search primary search")
+    else:
+        heading = _t(lang, "[1/3 必选] main_search 主搜索", "[1/3 Required] main_search primary search")
     _write_stderr(
-        _t(
+        f"\n{heading}\n" + _t(
             lang,
-            "\n[1/3 必选] main_search 主搜索\n用途: 负责综合搜索回答和最终合成。\n推荐: 有 xAI key 选 xai；有中转服务选 openai；两者都配可以同能力兜底。\n",
-            "\n[1/3 Required] main_search primary search\nPurpose: broad search answers and final synthesis.\nRecommended: choose xai for an xAI key, openai for a relay, or both for same-capability fallback.\n",
+            "用途: 负责非 JEV 模式的搜索回答。JEV 模式可跳过，结果汇总使用独立配置。\n推荐: 有 xAI key 选 xai；有中转服务选 openai；两者都配可以同能力兜底。\n",
+            "Purpose: search answers outside JEV mode. Skip this in JEV mode; JEV synthesis has separate settings.\nRecommended: choose xai for an xAI key, openai for a relay, or both for same-capability fallback.\n",
         )
     )
     selected = _prompt_provider_multi_select(
@@ -2415,14 +2421,34 @@ def _prompt_intent_router(values: dict[str, str], current: dict[str, str], lang:
         if synthesis_default not in {"true", "false", "auto"}:
             synthesis_default = "false"
         values["SMART_SEARCH_JEV_SYNTHESIZE"] = _prompt_select(
-            _t(lang, "选择主模型汇总模式", "Choose main-model synthesis mode"),
+            _t(lang, "选择 JEV 结果汇总模式", "Choose JEV synthesis mode"),
             [
-                {"name": _t(lang, "true: 使用主模型汇总", "true: synthesize with the main model"), "value": "true"},
+                {"name": _t(lang, "true: 使用独立模型汇总", "true: synthesize with the dedicated model"), "value": "true"},
                 {"name": _t(lang, "false: 直接返回证据", "false: return evidence directly"), "value": "false"},
                 {"name": _t(lang, "auto: 由 Jev 判断是否需要汇总", "auto: let Jev decide whether synthesis is needed"), "value": "auto"},
             ],
             synthesis_default,
         )
+        if values["SMART_SEARCH_JEV_SYNTHESIZE"] != "false":
+            synthesis_keys = (
+                "SMART_SEARCH_JEV_SYNTHESIS_API_URL", "SMART_SEARCH_JEV_SYNTHESIS_API_KEY",
+                "SMART_SEARCH_JEV_SYNTHESIS_MODEL",
+            )
+            configured = any(merged.get(key) for key in synthesis_keys)
+            if values["SMART_SEARCH_JEV_SYNTHESIZE"] == "true" or _prompt_yes_no(
+                _t(lang, "配置独立汇总模型?", "Configure a dedicated synthesis model?"), default=configured,
+            ):
+                for key, label in (
+                    ("SMART_SEARCH_JEV_SYNTHESIS_API_URL", _t(lang, "汇总 API 地址", "Synthesis API URL")),
+                    ("SMART_SEARCH_JEV_SYNTHESIS_API_KEY", _t(lang, "汇总 API Key", "Synthesis API key")),
+                    ("SMART_SEARCH_JEV_SYNTHESIS_MODEL", _t(lang, "汇总模型", "Synthesis model")),
+                ):
+                    values[key] = _prompt_value(key, label, merged.get(key, ""), lang=lang)
+                values["SMART_SEARCH_JEV_SYNTHESIS_API_MODE"] = _prompt_select(
+                    _t(lang, "选择汇总接口模式", "Choose synthesis API mode"),
+                    [{"name": mode, "value": mode} for mode in ("chat-completions", "responses")],
+                    merged.get("SMART_SEARCH_JEV_SYNTHESIS_API_MODE", "chat-completions"),
+                )
         return
     if mode != "hybrid":
         return
@@ -2524,12 +2550,14 @@ def _write_setup_examples(lang: str) -> None:
             "  docs_search: 文档/API 优先 Context7；官方域名、论文和低噪声发现再配 Exa。\n"
             "  web_fetch: Tavily 官方地址是 https://api.tavily.com；号池填 https://<host>/api/tavily。\n"
             "  intent embeddings: 推荐 SiliconFlow + Qwen/Qwen3-Embedding-8B，setup 会自动补 threshold=0.475、margin=0.053。\n"
+            "  jev: 可跳过 main_search，配置 TypeSafe Key 和至少一个检索渠道；汇总模型单独配置。\n"
             "  key 都填你自己控制台里的；Zhipu / Firecrawl 可以之后再补。\n",
             "\nIf unsure: first configure main_search + docs_search + web_fetch.\n"
             "  main_search: xAI Responses, or OpenAI-compatible (example: https://api.openai.com/v1)\n"
             "  docs_search: Context7 for docs/API first; add Exa for official domains, papers, and low-noise discovery.\n"
             "  web_fetch: official Tavily endpoint is https://api.tavily.com; pooled endpoints use https://<host>/api/tavily.\n"
             "  intent embeddings: recommended SiliconFlow + Qwen/Qwen3-Embedding-8B; setup auto-fills threshold=0.475 and margin=0.053.\n"
+            "  jev: skip main_search; configure a TypeSafe key and at least one retrieval channel. Synthesis uses separate settings.\n"
             "  Use keys from your own provider consoles. Zhipu / Firecrawl can be added later.\n",
         )
     )
@@ -2549,14 +2577,15 @@ def _run_guided_setup_prompts(
     _write_panel(
         _t(
             lang,
-            f"\nSmart Search 配置向导\n配置文件: {config_file}\n\n目标: standard 最低可用配置\n操作: 方向键移动，空格勾选，回车确认；API key 输入不显示。\n最低要求: main_search + docs_search + web_fetch 各至少一个 provider。\n",
-            f"\nSmart Search setup wizard\nConfig file: {config_file}\n\nGoal: standard minimum profile\nKeys: move with arrow keys, select with Space, confirm with Enter; API key input is hidden.\nMinimum: at least one provider in each of main_search + docs_search + web_fetch.\n",
+            f"\nSmart Search 配置向导\n配置文件: {config_file}\n\n目标: standard 最低可用配置\n操作: 方向键移动，空格勾选，回车确认；API key 输入不显示。\n最低要求: main_search + docs_search + web_fetch 各至少一个 provider；JEV 模式只需 TypeSafe Key 和至少一个检索渠道。\n",
+            f"\nSmart Search setup wizard\nConfig file: {config_file}\n\nGoal: standard minimum profile\nKeys: move with arrow keys, select with Space, confirm with Enter; API key input is hidden.\nMinimum: at least one provider in each of main_search + docs_search + web_fetch; JEV mode needs a TypeSafe key and one retrieval channel instead.\n",
         ),
         lang,
     )
     _write_setup_keep_note(lang)
     _write_setup_examples(lang)
-    _write_setup_status(_setup_status_from_values(_merge_setup_values(current, values)), lang)
+    merged = _merge_setup_values(current, values)
+    _write_setup_status(_setup_status_from_values(merged), lang, router_mode=merged.get("SMART_SEARCH_INTENT_ROUTER", "hybrid"))
     if skill_targets is not None:
         skill_targets[:] = _prompt_skill_targets(lang)
     _prompt_main_search(values, current, lang)
@@ -2602,6 +2631,10 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
         ("OPENAI_COMPATIBLE_FALLBACK_MODELS", "OpenAI-compatible fallback models (comma-separated)", True),
         ("OPENAI_COMPATIBLE_API_MODE", "OpenAI-compatible API mode (chat-completions/responses)", True),
         ("OPENAI_COMPATIBLE_STREAM", "OpenAI-compatible stream mode (true/false)", True),
+        ("SMART_SEARCH_JEV_SYNTHESIS_API_URL", "JEV synthesis API URL", True),
+        ("SMART_SEARCH_JEV_SYNTHESIS_API_KEY", "JEV synthesis API key", True),
+        ("SMART_SEARCH_JEV_SYNTHESIS_MODEL", "JEV synthesis model", True),
+        ("SMART_SEARCH_JEV_SYNTHESIS_API_MODE", "JEV synthesis API mode (chat-completions/responses)", True),
         ("SMART_SEARCH_VALIDATION_LEVEL", "Validation level (fast/balanced/strict)", True),
         ("SMART_SEARCH_FALLBACK_MODE", "Fallback mode (auto/off)", True),
         ("SMART_SEARCH_MINIMUM_PROFILE", "Minimum profile (standard/off)", True),
@@ -3028,6 +3061,10 @@ def _run_setup(args: argparse.Namespace) -> int:
         "OPENAI_COMPATIBLE_FALLBACK_MODELS": args.openai_compatible_fallback_models,
         "OPENAI_COMPATIBLE_API_MODE": args.openai_compatible_api_mode,
         "OPENAI_COMPATIBLE_STREAM": args.openai_compatible_stream,
+        "SMART_SEARCH_JEV_SYNTHESIS_API_URL": args.jev_synthesis_api_url,
+        "SMART_SEARCH_JEV_SYNTHESIS_API_KEY": args.jev_synthesis_api_key,
+        "SMART_SEARCH_JEV_SYNTHESIS_MODEL": args.jev_synthesis_model,
+        "SMART_SEARCH_JEV_SYNTHESIS_API_MODE": args.jev_synthesis_api_mode,
         "SMART_SEARCH_VALIDATION_LEVEL": args.validation_level,
         "SMART_SEARCH_FALLBACK_MODE": args.fallback_mode,
         "SMART_SEARCH_MINIMUM_PROFILE": args.minimum_profile,
@@ -3144,7 +3181,8 @@ def _run_setup(args: argparse.Namespace) -> int:
         _write_stderr(_t(lang, "\n保存完成。\n", "\nSaved.\n"))
         if skill_result is not None:
             _write_skill_install_summary(skill_result, lang)
-        _write_setup_status(final_status, lang, final=True)
+        router_mode = final_values.get("SMART_SEARCH_INTENT_ROUTER") or service.config.intent_router_mode
+        _write_setup_status(final_status, lang, final=True, router_mode=router_mode)
         missing = [capability for capability in ("main_search", "docs_search", "web_fetch") if not final_status[capability]["ok"]]
         if service.config.intent_router_mode == "jev":
             missing = service.validate_minimum_profile().get("missing", [])
@@ -3712,6 +3750,10 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--openai-compatible-fallback-models", default="", help="Save OPENAI_COMPATIBLE_FALLBACK_MODELS.")
     setup_parser.add_argument("--openai-compatible-api-mode", default="", help="Save OPENAI_COMPATIBLE_API_MODE (chat-completions or responses).")
     setup_parser.add_argument("--openai-compatible-stream", default="", help="Save OPENAI_COMPATIBLE_STREAM.")
+    setup_parser.add_argument("--jev-synthesis-api-url", default="", help="Save SMART_SEARCH_JEV_SYNTHESIS_API_URL.")
+    setup_parser.add_argument("--jev-synthesis-api-key", default="", help="Save SMART_SEARCH_JEV_SYNTHESIS_API_KEY.")
+    setup_parser.add_argument("--jev-synthesis-model", default="", help="Save SMART_SEARCH_JEV_SYNTHESIS_MODEL.")
+    setup_parser.add_argument("--jev-synthesis-api-mode", default="", help="Save SMART_SEARCH_JEV_SYNTHESIS_API_MODE.")
     setup_parser.add_argument("--validation-level", default="", help="Save SMART_SEARCH_VALIDATION_LEVEL.")
     setup_parser.add_argument("--fallback-mode", default="", help="Save SMART_SEARCH_FALLBACK_MODE.")
     setup_parser.add_argument("--minimum-profile", default="", help="Save SMART_SEARCH_MINIMUM_PROFILE.")

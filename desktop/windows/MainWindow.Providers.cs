@@ -241,7 +241,9 @@ public sealed partial class MainWindow
             }
             else if (mode == "jev")
             {
-                string[] processing = ["SMART_SEARCH_JEV_FILTER_RESULTS", "SMART_SEARCH_JEV_FILTER_THRESHOLD", "SMART_SEARCH_JEV_SYNTHESIZE"];
+                string[] processing = ["SMART_SEARCH_JEV_FILTER_RESULTS", "SMART_SEARCH_JEV_FILTER_THRESHOLD", "SMART_SEARCH_JEV_SYNTHESIZE",
+                    "SMART_SEARCH_JEV_SYNTHESIS_API_URL", "SMART_SEARCH_JEV_SYNTHESIS_API_KEY",
+                    "SMART_SEARCH_JEV_SYNTHESIS_MODEL", "SMART_SEARCH_JEV_SYNTHESIS_API_MODE"];
                 AddFields(L("JEV 连接"), routing.Where(field => Text(field, "key").StartsWith("TYPESAFE_")));
                 AddFields(L("检索与判断"), routing.Where(field => Text(field, "key").StartsWith("SMART_SEARCH_JEV_") && !processing.Contains(Text(field, "key"))));
                 AddFields(L("结果处理"), routing.Where(field => processing.Contains(Text(field, "key")) &&
