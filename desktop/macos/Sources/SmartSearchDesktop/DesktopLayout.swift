@@ -21,12 +21,14 @@ enum DesktopAppearance {
 struct DesktopPage<Content: View>: View {
     let title: String
     let subtitle: String
+    let secondarySubtitle: String
     let content: Content
 
-    init(_ title: String, subtitle: String,
+    init(_ title: String, subtitle: String, secondarySubtitle: String = "",
          @ViewBuilder content: () -> Content) {
         self.title = title
         self.subtitle = subtitle
+        self.secondarySubtitle = secondarySubtitle
         self.content = content()
     }
 
@@ -39,6 +41,12 @@ struct DesktopPage<Content: View>: View {
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    if !secondarySubtitle.isEmpty {
+                        Text(secondarySubtitle)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 content

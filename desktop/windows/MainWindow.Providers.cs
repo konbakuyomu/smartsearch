@@ -108,6 +108,7 @@ public sealed partial class MainWindow
             AddItem("section:routing", L("意图路由"), ChoiceLabel("SMART_SEARCH_INTENT_ROUTER", EffectiveConfigurationValue("SMART_SEARCH_INTENT_ROUTER")));
         var providers = fields.Where(field => Text(field, "provider").Length > 0).GroupBy(field => Text(field, "provider"))
             .Where(group => Matches(group.Key + " " + ProviderLabel(group.Key) + " " + ProviderPurpose(group.Key, group)
+                + " " + ProviderDescription(group.Key, "guidance_")
                 + " " + string.Join(" ", ProviderCapabilities(group.Key, group))))
             .ToList();
         var categories = providers.Select(group => ProviderCapabilities(group.Key, group).FirstOrDefault() ?? "other").Distinct().ToList();
@@ -163,13 +164,31 @@ public sealed partial class MainWindow
             .Where(value => value.Length > 0).Distinct().ToList();
     }
 
+    private string ProviderDescription(string provider, string prefix)
+    {
+        var profile = Property(Property(_state, "provider_profiles"), provider);
+        var descriptions = Property(profile, "descriptions");
+        var sentences = new List<string>();
+        foreach (var operation in new[] { "search", "fetch", "site_map", "synthesis" })
+        {
+            var translations = Property(descriptions, operation);
+            var description = Text(translations, prefix + Localization.Language, Text(translations, prefix + "en"));
+            if (description.Length > 0) sentences.Add(description);
+        }
+        return string.Join(" ", sentences);
+    }
+
     private string ProviderPurpose(string provider, IEnumerable<JsonElement> fields)
     {
         var profile = Property(Property(_state, "provider_profiles"), provider);
-        var capabilities = string.Join(L("、"), ProviderCapabilities(provider, fields).Select(CapabilityLabel));
-        var strengths = string.Join(L("、"), Items(profile, "strengths").Select(item => L(item.GetString() ?? string.Empty)));
         var sentences = new List<string>();
-        if (capabilities.Length > 0) sentences.Add(strengths.Length > 0 ? L("用于{0}，侧重{1}。", capabilities, strengths) : L("用于{0}。", capabilities));
+        var description = ProviderDescription(provider, "");
+        if (description.Length > 0) sentences.Add(description);
+        if (description.Length == 0)
+        {
+            var capabilities = string.Join(L("、"), ProviderCapabilities(provider, fields).Select(CapabilityLabel));
+            if (capabilities.Length > 0) sentences.Add(L("用于{0}。", capabilities));
+        }
         if (Bool(profile, "experimental")) sentences.Add(L("实验性能力。"));
         if (Bool(profile, "explicit_only")) sentences.Add(L("仅在明确指定时调用。"));
         else if (Property(profile, "route_enabled").ValueKind == JsonValueKind.False) sentences.Add(L("不参与自动路由。"));
@@ -208,6 +227,8 @@ public sealed partial class MainWindow
             var selected = fields.Where(field => Text(field, "provider") == provider).ToList();
             panel.Children.Add(PageTitle(ProviderLabel(provider)));
             panel.Children.Add(Secondary(ProviderPurpose(provider, selected)));
+            var guidance = ProviderDescription(provider, "guidance_");
+            if (guidance.Length > 0) panel.Children.Add(Secondary(guidance));
             foreach (var enableField in selected.Where(field => Bool(field, "provider_toggle")))
                 panel.Children.Add(Card(BuildFieldEditor(enableField, _providerDraft)));
             AddFields(L("连接设置"), selected.Where(field => !Bool(field, "provider_toggle") && !IsAdvanced(field)));

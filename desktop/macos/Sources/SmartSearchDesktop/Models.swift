@@ -261,7 +261,21 @@ struct ProviderFieldGroup: Identifiable {
         return available.filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
-    var strengths: [String] { profile.array("strengths").compactMap(\.stringValue) }
+    var purposeDescriptions: [String] {
+        localizedDescriptions("")
+    }
+
+    var purposeGuidance: [String] {
+        localizedDescriptions("guidance_")
+    }
+
+    private func localizedDescriptions(_ prefix: String) -> [String] {
+        let descriptions = profile["descriptions"]?.objectValue ?? [:]
+        return ["search", "fetch", "site_map", "synthesis"].compactMap { operation in
+            let translations = descriptions[operation]?.objectValue ?? [:]
+            return translations[prefix + Localization.language]?.stringValue ?? translations[prefix + "en"]?.stringValue
+        }
+    }
     var isExperimental: Bool { profile.bool("experimental") == true }
     var isExplicitOnly: Bool { profile.bool("explicit_only") == true }
     var isRoutingDisabled: Bool { profile.bool("route_enabled") == false }

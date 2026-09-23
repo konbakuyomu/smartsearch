@@ -11,6 +11,7 @@ from dataclasses import replace
 from typing import Any
 
 from .jev import JevClient, assess_evidence, decide_synthesis, filter_evidence, has_source_evidence, noul, select_channels
+from .provider_descriptions import PROVIDER_DESCRIPTIONS
 from .provider_errors import ProviderCallError, classify_provider_exception
 
 
@@ -35,20 +36,18 @@ def available_channels(svc: Any, query: str, evidence: list[dict], providers: st
             if capability == "site_map":
                 continue
             operation = "fetch" if capability == "web_fetch" else "search"
+            description = PROVIDER_DESCRIPTIONS[provider][operation]
             targets = [{"url": url, "query": query, "reason": source_message('read discovered source'), "subquestion_id": ""} for url in urls] if operation == "fetch" else queries
             for target in targets:
                 actual_query, url = target["query"], target.get("url", "")
                 identity = url if operation == "fetch" else (actual_query if actual_query != query else "")
                 suffix = ":" + hashlib.sha256(identity.encode()).hexdigest()[:12] if identity else ""
-                strengths = list(profile["strengths"])
-                if provider == "exa":
-                    strengths.append("news and current web-page discovery")
                 channels.append({
                     "id": f"{provider}:{operation}{suffix}", "provider": provider,
                     "operation": operation, "capability": capability, "url": url,
                     "query": actual_query, "reason": target["reason"], "subquestion_id": target["subquestion_id"],
                     "preference_rank": preferred.index(provider) if provider in preferred else len(preferred),
-                    "strengths": strengths, "exclusions": profile["exclusions"],
+                    "description": description["en"], "guidance": description["guidance_en"],
                 })
     return channels
 

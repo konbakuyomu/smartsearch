@@ -454,6 +454,7 @@ private struct ProvidersView: View {
         case .provider(let id):
             if let group = state.providerGroups.first(where: { $0.id == id }) {
                 ConfigurationEditor(model: model, title: id, subtitle: providerPurpose(group),
+                                    secondarySubtitle: group.purposeGuidance.joined(separator: " "),
                                     fields: group.fields, section: id)
                     .id(ConfigurationRoute.provider(id))
             }
@@ -520,7 +521,8 @@ private struct ProvidersView: View {
     private func groups(_ state: DesktopState) -> [ProviderFieldGroup] {
         state.providerGroups
             .filter { group in
-                matches(group.id) || matches(providerPurpose(group)) || group.capabilities.contains { matches($0) }
+                matches(group.id) || matches(providerPurpose(group)) ||
+                    matches(group.purposeGuidance.joined(separator: " ")) || group.capabilities.contains { matches($0) }
             }
             .sorted {
                 let left = providerIsConfigured($0, state: state)
@@ -679,12 +681,13 @@ private struct ConfigurationEditor: View {
     @ObservedObject var model: AppModel
     let title: String
     var subtitle: String = L("修改先保留为草稿；测试使用当前填写的值。")
+    var secondarySubtitle: String = ""
     let fields: [ConfigField]
     let section: String
 
     var body: some View {
         if let state = model.state {
-            DesktopPage(title, subtitle: subtitle) {
+            DesktopPage(title, subtitle: subtitle, secondarySubtitle: secondarySubtitle) {
                 ProviderSection(model: model, state: state, section: section, fields: fields)
             }
         }
@@ -698,16 +701,14 @@ private func capabilityName(_ value: String) -> String {
 }
 
 private func providerPurpose(_ group: ProviderFieldGroup) -> String {
-    let capabilities = group.capabilities.map(capabilityName).joined(separator: L("、"))
-    let strengths = group.strengths.map { L($0) }.joined(separator: L("、"))
-    var sentences: [String] = []
-    if !capabilities.isEmpty {
-        let purpose = strengths.isEmpty
-            ? L("用于{0}。", capabilities)
-            : L("用于{0}，侧重{1}。", capabilities, strengths)
-        sentences.append(purpose)
-    } else if let help = group.fields.first(where: { !$0.help.isEmpty })?.help {
-        sentences.append(help)
+    var sentences = group.purposeDescriptions
+    if sentences.isEmpty {
+        let capabilities = group.capabilities.map(capabilityName).joined(separator: L("、"))
+        if !capabilities.isEmpty {
+            sentences.append(L("用于{0}。", capabilities))
+        } else if let help = group.fields.first(where: { !$0.help.isEmpty })?.help {
+            sentences.append(help)
+        }
     }
     if group.isExperimental { sentences.append(L("实验性能力。")) }
     if group.isExplicitOnly {

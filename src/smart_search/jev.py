@@ -237,7 +237,7 @@ async def select_channels(client: JevClient, query: str, candidates: list[dict],
     questions = {
         f"channel_{index}": noul(
             f"Should available_channels[{index}] be called now to obtain evidence needed for question? "
-            "Consider question difficulty, language, freshness, each channel's capabilities, existing evidence, and failed attempts. "
+            "Consider question difficulty, language, freshness, each channel's English description, suitability guidance and capability, existing evidence, and failed attempts. "
             "Choose complementary channels when the question needs several kinds of evidence; prefer fewer for a simple question. "
             "Each action includes its actual query or URL and the user's preference rank; use preferences only for relevant capable actions. "
             "For follow-up searches target missing evidence using a new query, another provider, or page reading. "

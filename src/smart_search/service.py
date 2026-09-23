@@ -59,6 +59,7 @@ from .provider_errors import (
     provider_call_error,
     sanitize_provider_error_message,
 )
+from .provider_descriptions import PROVIDER_DESCRIPTIONS
 from .provider_health import provider_fingerprint, provider_health
 from .sciverse_schema import (
     SciverseParameterError,
@@ -195,8 +196,6 @@ RESEARCH_PROFILE_ORDER = {
 PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
     "xai-responses": {
         "capability": "main_search",
-        "strengths": ["broad synthesis", "web_search", "x_search"],
-        "exclusions": ["evidence proof without fetch"],
         "fallback_group": "main_search",
         "minimum_profile_role": "main_search",
         "quality_filters": ["source extraction required for high-risk claims"],
@@ -204,8 +203,6 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
     },
     "openai-compatible": {
         "capability": "main_search",
-        "strengths": ["broad synthesis", "relay compatibility"],
-        "exclusions": ["xAI server tools"],
         "fallback_group": "main_search",
         "minimum_profile_role": "main_search",
         "quality_filters": ["source extraction required for high-risk claims"],
@@ -213,8 +210,6 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
     },
     "context7": {
         "capability": "docs_search",
-        "strengths": ["library docs", "API docs", "framework docs", "versioned snippets"],
-        "exclusions": ["general news", "generic web facts"],
         "fallback_group": "docs_search",
         "minimum_profile_role": "docs_search",
         "quality_filters": ["library id required", "content required before citation"],
@@ -222,8 +217,6 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
     },
     "exa": {
         "capability": "docs_search",
-        "strengths": ["official domains", "papers", "product pages", "trusted low-noise discovery", "similar pages"],
-        "exclusions": ["default second hop for every high-risk claim"],
         "fallback_group": "docs_search",
         "minimum_profile_role": "docs_search",
         "quality_filters": ["URL required", "fetch before proof citation"],
@@ -231,8 +224,6 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
     },
     "zhipu": {
         "capability": "web_search",
-        "strengths": ["Chinese", "domestic China", "current", "policy", "announcements", "recency filters"],
-        "exclusions": ["web_fetch", "chat model selection"],
         "fallback_group": "web_search",
         "minimum_profile_role": "",
         "quality_filters": ["URL required", "fetch before proof citation"],
@@ -240,8 +231,6 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
     },
     "zhipu-mcp": {
         "capability": "web_search",
-        "strengths": ["Coding Plan quota", "remote MCP web_search_prime"],
-        "exclusions": ["Zhipu REST Web Search API"],
         "fallback_group": "web_search",
         "minimum_profile_role": "",
         "quality_filters": ["URL required", "fetch before proof citation"],
@@ -250,8 +239,6 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
     "tavily": {
         "capability": "web_search",
         "capabilities": ["web_search", "web_fetch", "site_map"],
-        "strengths": ["broad source discovery", "site map", "URL extract"],
-        "exclusions": ["docs semantic replacement"],
         "fallback_group": "web_search/web_fetch/site_map",
         "minimum_profile_role": "web_fetch",
         "quality_filters": ["non-empty normalized result", "non-empty extracted content"],
@@ -259,8 +246,6 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
     },
     "jina": {
         "capability": "web_fetch",
-        "strengths": ["known public URL", "PDF", "arXiv", "clean markdown", "ReaderLM-v2 with key"],
-        "exclusions": ["general search provider", "anonymous standard minimum profile"],
         "fallback_group": "web_fetch",
         "minimum_profile_role": "web_fetch_with_key",
         "quality_filters": ["non-empty markdown", "challenge page rejection", "ReaderLM-v2 requires key"],
@@ -268,8 +253,6 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
     },
     "zhipu-mcp-reader": {
         "capability": "web_fetch",
-        "strengths": ["Coding Plan quota", "remote MCP webReader"],
-        "exclusions": ["Zhipu REST Web Search API"],
         "fallback_group": "web_fetch",
         "minimum_profile_role": "",
         "quality_filters": ["non-empty reader content"],
@@ -278,8 +261,6 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
     "firecrawl": {
         "capability": "web_fetch",
         "capabilities": ["web_search", "web_fetch"],
-        "strengths": ["robust scrape fallback", "JS-heavy pages", "dynamic pages", "OCR/PDF/structured extraction"],
-        "exclusions": ["docs semantic replacement"],
         "fallback_group": "web_search/web_fetch",
         "minimum_profile_role": "web_fetch",
         "quality_filters": ["non-empty normalized result", "non-empty extracted content"],
@@ -288,8 +269,6 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
     "tinyfish": {
         "capability": "web_search",
         "capabilities": ["web_search", "web_fetch"],
-        "strengths": ["broad web discovery", "clean markdown extraction", "news and locale hints", "research-paper domain type"],
-        "exclusions": ["docs semantic replacement", "browser automation"],
         "fallback_group": "web_search/web_fetch",
         "minimum_profile_role": "",
         "quality_filters": ["non-empty normalized result", "non-empty extracted content", "challenge page rejection"],
@@ -297,8 +276,6 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
     },
     "anysearch": {
         "capability": "vertical_search",
-        "strengths": ["CVE", "finance", "legal", "academic", "code/docs", "structured vertical domains"],
-        "exclusions": ["generic default fallback", "standard minimum profile"],
         "fallback_group": "vertical_search",
         "minimum_profile_role": "",
         "quality_filters": ["vertical intent required", "URL required before evidence citation"],
@@ -307,8 +284,6 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
     },
     "sciverse": {
         "capability": "vertical_search",
-        "strengths": ["academic literature", "semantic paper search", "citation relations", "paper content snippets"],
-        "exclusions": ["generic default fallback", "standard minimum profile", "docs_search"],
         "fallback_group": "vertical_search",
         "minimum_profile_role": "",
         "quality_filters": ["explicit command required", "unique_id required for relations", "doc_id required for content"],
@@ -319,8 +294,6 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
     },
     "main-search": {
         "capability": "synthesis",
-        "strengths": ["evidence-only final synthesis"],
-        "exclusions": ["live source discovery during research synthesis"],
         "fallback_group": "synthesis",
         "minimum_profile_role": "",
         "quality_filters": ["fetched evidence only", "no provider calls during synthesis"],
@@ -1165,9 +1138,15 @@ def _fallback_used(attempts: list[dict]) -> bool:
 
 
 def provider_profiles() -> dict[str, dict[str, Any]]:
-    return {provider: {**profile, "enabled": config.provider_enabled(provider),
-                       "enabled_key": config.provider_enabled_key(provider)}
-            for provider, profile in PROVIDER_PROFILES.items()}
+    return {
+        provider: {
+            **profile,
+            "descriptions": PROVIDER_DESCRIPTIONS[provider],
+            "enabled": config.provider_enabled(provider),
+            "enabled_key": config.provider_enabled_key(provider),
+        }
+        for provider, profile in PROVIDER_PROFILES.items()
+    }
 
 
 def intent_router_status() -> dict[str, Any]:

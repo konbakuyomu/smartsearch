@@ -792,6 +792,23 @@ def test_research_provider_profiles_are_registered_with_capability_boundaries():
     assert profiles["anysearch"]["experimental"] is True
 
 
+def test_provider_descriptions_cover_each_declared_operation_in_both_languages():
+    profiles = service.provider_profiles()
+    operation_for_capability = {
+        "main_search": "search", "docs_search": "search", "web_search": "search",
+        "vertical_search": "search", "web_fetch": "fetch", "site_map": "site_map",
+        "synthesis": "synthesis",
+    }
+
+    for provider, profile in profiles.items():
+        capabilities = profile.get("capabilities") or [profile["capability"]]
+        operations = {operation_for_capability[capability] for capability in capabilities}
+        assert set(profile["descriptions"]) == operations, provider
+        for translations in profile["descriptions"].values():
+            assert set(translations) == {"en", "zh", "guidance_en", "guidance_zh"}, provider
+            assert all(text.strip() for text in translations.values()), provider
+
+
 def test_research_router_prefers_context7_for_docs_and_keeps_anysearch_out(monkeypatch):
     _configure_research_minimum(monkeypatch)
 

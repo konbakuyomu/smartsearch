@@ -75,10 +75,30 @@ async def test_only_allowed_configured_operations_reach_jev(monkeypatch, configu
     assert result["ok"]
     assert result["executed_search"] is False
     assert [item["id"] for item in calls[0][0]["available_channels"]] == ["exa:search"]
+    candidate = calls[0][0]["available_channels"][0]
+    assert candidate["description"] == service.provider_profiles()["exa"]["descriptions"]["search"]["en"]
+    assert candidate["guidance"] == service.provider_profiles()["exa"]["descriptions"]["search"]["guidance_en"]
+    assert "strengths" not in candidate and "exclusions" not in candidate
     payload = json.dumps(calls)
     for secret in ("jev-test-secret", "exa-test-secret", "tavily-secret", "context7-secret"):
         assert secret not in payload
     assert result["jev_usage"]["input_tokens"] == 50
+
+
+def test_search_and_fetch_candidates_use_distinct_english_descriptions(monkeypatch, configured):
+    monkeypatch.setenv("TAVILY_API_KEY", "tavily-secret")
+
+    candidates = available_channels(service, "Read https://example.org/guide", [])
+    tavily = {item["operation"]: item for item in candidates if item["provider"] == "tavily"}
+    descriptions = service.provider_profiles()["tavily"]["descriptions"]
+
+    assert set(tavily) == {"search", "fetch"}
+    assert tavily["search"]["description"] == descriptions["search"]["en"]
+    assert tavily["fetch"]["description"] == descriptions["fetch"]["en"]
+    assert tavily["search"]["guidance"] == descriptions["search"]["guidance_en"]
+    assert tavily["fetch"]["guidance"] == descriptions["fetch"]["guidance_en"]
+    assert descriptions["fetch"]["zh"] not in json.dumps(tavily, ensure_ascii=False)
+    assert descriptions["fetch"]["guidance_zh"] not in json.dumps(tavily, ensure_ascii=False)
 
 
 @pytest.mark.asyncio
@@ -120,7 +140,6 @@ async def test_tinyfish_registration_can_search_then_fetch_new_evidence(monkeypa
     # contract without requiring that PR to be merged before Jev.
     monkeypatch.setitem(service.PROVIDER_PROFILES, "tinyfish", {
         "capability": "web_search", "capabilities": ["web_search", "web_fetch"],
-        "strengths": ["web search", "URL extraction"], "exclusions": [],
     })
     original_configured = service._provider_configured
     monkeypatch.setattr(service, "_provider_configured", lambda provider: provider == "tinyfish" or original_configured(provider))

@@ -49,6 +49,10 @@ h2 { font-size: 20px; margin: 0 0 6px; }
 }
 .card h3 { margin: 0 0 2px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
 .card .note { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+.card .provider-guidance {
+  color: var(--muted); font-size: 12px; margin: 0 0 12px; padding: 8px 10px;
+  border-left: 2px solid var(--accent); background: var(--bg); border-radius: 4px;
+}
 .banner { border-left: 3px solid var(--accent); }
 .banner.ok { border-left-color: var(--ok); }
 .banner.bad { border-left-color: var(--bad); }
@@ -419,6 +423,18 @@ details.more[open] > summary::before { content: "▾ "; }
         el("span", { class: "pill", id: "res-" + provider, text: "" })
       ])
     ];
+    var profile = (state.provider_profiles || {})[provider] || {};
+    var descriptions = profile.descriptions || {};
+    function localizedDescriptions(prefix) {
+      return ["search", "fetch", "site_map", "synthesis"].map(function (operation) {
+        var translations = descriptions[operation] || {};
+        return translations[prefix + lang] || translations[prefix + "en"] || "";
+      }).filter(Boolean).join(" ");
+    }
+    var intro = localizedDescriptions("");
+    var guidance = localizedDescriptions("guidance_");
+    if (intro) kids.push(el("p", { class: "note", text: intro }));
+    if (guidance) kids.push(el("p", { class: "provider-guidance", text: guidance }));
     var upfront = fields.filter(function (f) { return f.tier !== "advanced"; });
     var advanced = fields.filter(function (f) { return f.tier === "advanced"; });
     if (!upfront.length) { upfront = advanced; advanced = []; }
