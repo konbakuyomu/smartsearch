@@ -4,11 +4,26 @@
 
 Windows 正式发布的安装器使用 Smart Search 的**自签名代码签名证书**。新构建命名为 `SmartSearch-vX.Y.Z-windows-Setup-{x86_64,arm64}.exe`，签名状态不再放进文件名；正式发布仍要求签名和验签成功，候选的状态查看构建 `result.json`。旧 `-signed.exe` 包使用同一自签名身份，旧 `-unsigned-test.exe` 包仍未签名，请以对应版本的验签结果为准。macOS 的维护者固定证书配置见 [macOS 签名](macos-signing.md)，仍不具备 Apple Developer ID 或公证；Sparkle EdDSA 只验证更新包。
 
-Windows 默认不信任自签名证书。请从[官方 GitHub Releases](https://github.com/konbakuyomu/smartsearch/releases)下载并核对来源。如果 SmartScreen 显示提示，且系统策略提供“更多信息 → 仍要运行”，可以在确认来源后自行选择；这只是运行选择，不是永久信任证书。不保证只提示一次，受管理设备也可能禁止继续。无需关闭 SmartScreen，也不要为使用 App 自动导入根证书。
+Windows 默认不信任自签名证书。请从[官方 GitHub Releases](https://github.com/konbakuyomu/smartsearch/releases)下载并核对来源。如果 SmartScreen 显示提示，且系统策略提供“更多信息 → 仍要运行”，可以在确认来源后自行选择；这只是运行选择，不是永久信任证书。不保证只提示一次，受管理设备也可能禁止继续。无需关闭 SmartScreen。App 和安装器永远不会自动导入根证书；只有你自己的电脑可以按下文“在自己的电脑上信任”手动选择。
 
 Published Windows installers use Smart Search's **self-signed code-signing certificate**. New builds are named `SmartSearch-vX.Y.Z-windows-Setup-{x86_64,arm64}.exe`; signing status is recorded in the build `result.json` and release notes, rather than the filename. Publication still requires successful signing and verification. Older `-signed.exe` files use the same identity; older `-unsigned-test.exe` files remain unsigned. See [macOS signing](macos-signing.md) for its maintainer-owned fixed certificate, without Developer ID or notarization. Sparkle EdDSA verifies update packages separately.
 
-Windows does not trust this certificate by default. Download from the official Releases page and verify the source. If SmartScreen offers **More info → Run anyway**, decide whether to continue after checking the source. This is a run choice, not permanent certificate trust; future downloads may prompt again, and managed devices may prohibit it. Do not disable SmartScreen or automatically import a root certificate.
+Windows does not trust this certificate by default. Download from the official Releases page and verify the source. If SmartScreen offers **More info → Run anyway**, decide whether to continue after checking the source. This is a run choice, not permanent certificate trust; future downloads may prompt again, and managed devices may prohibit it. Do not disable SmartScreen. The App and installer never import a root certificate by themselves; on your own machines you may opt in manually, see "Trusting it on your own machine".
+
+## 在自己的电脑上信任（可选）/ Trusting it on your own machine (opt-in)
+
+维护者或只在自己电脑上使用的人，可以让当前 Windows 账户信任这个证书。脚本只导入仓库里的公开 CER（先检查不含私钥、仅限代码签名、仍在有效期），写入当前用户的“受信任的根证书颁发机构”和“受信任的发布者”；添加根证书时 Windows 会弹窗确认。之后本机对 Smart Search 签名文件的验证结果为 `Valid`，UAC 和属性页显示已验证的发布者 `Smart Search`。
+
+For your own machines only: the script imports the public CER (after checking it has no private key, is limited to code signing and is within its validity) into the current user's Trusted Root and Trusted Publishers stores. Windows asks for confirmation. Afterwards Smart Search signatures verify as `Valid` on that machine.
+
+```powershell
+./desktop/scripts/Trust-WindowsSigningCertificate.ps1          # 信任 / trust
+./desktop/scripts/Trust-WindowsSigningCertificate.ps1 -Remove  # 撤销 / undo
+```
+
+- 先核对下方的 SHA-256 指纹再运行。/ Compare the SHA-256 below first.
+- 这不会产生 SmartScreen 信誉：浏览器下载的安装器仍可能提示；本地构建安装、App 内更新不经过 SmartScreen。/ This creates no SmartScreen reputation: browser downloads may still prompt; local installs and in-app updates are not checked by SmartScreen.
+- 代价：信任后，任何拿到这把私钥的人签的程序在这台电脑上也会被视为受信任，所以私钥只放在受保护的本机目录和 GitHub Secrets。/ Trade-off: anything signed with this private key becomes trusted on that machine, so the key stays in the protected local directory and GitHub Secrets only.
 
 ## 公开身份 / Public identity
 
