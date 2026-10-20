@@ -199,7 +199,7 @@ All commands: [Complete command reference](https://github.com/konbakuyomu/smarts
 <details>
 <summary><strong>How many providers do I need?</strong></summary>
 
-One working retrieval channel is enough to search. The App's **Check configuration** and Overview ask for main search, documentation search and page fetching; with all three, routing has enough channels to choose from and page reading has a dedicated fetcher.
+One enabled retrieval channel is enough to search, and the App's Overview and **Check configuration** apply the same rule: with none configured, they show "To configure: Retrieval channel". With main search, documentation search and page fetching all configured, routing has enough channels to choose from and page reading has a dedicated fetcher.
 
 </details>
 
