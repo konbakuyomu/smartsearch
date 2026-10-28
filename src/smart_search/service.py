@@ -3599,15 +3599,10 @@ async def test_provider_connection(
     async def _run() -> dict[str, Any]:
         nonlocal probe_model
         if kind == "main":
-            if overrides:
-                provider_config = _main_search_override_config(provider, overrides)
-                if provider_config is None:
-                    return {"status": "config_error", "message": source_message('{0} 覆盖参数不完整', provider)}
-            else:
-                configs = _main_search_provider_configs(providers=provider)
-                if not configs:
-                    return {"status": "not_configured", "message": source_message('{0} 未配置', provider)}
-                provider_config = configs[0]
+            configs = _main_search_provider_configs(providers=provider)
+            if not configs:
+                return {"status": "not_configured", "message": source_message('{0} 未配置', provider)}
+            provider_config = configs[0]
             probe_model = str(provider_config.get("model", ""))
             activity.progress("provider.test", provider, probe_model)
             return await _safe_test_main_provider_connection(provider_config)
@@ -3656,34 +3651,6 @@ async def test_provider_connection(
             f"{result['message']} (与 {recorded_as} 共用同一组凭据)" if result["message"] else f"与 {recorded_as} 共用同一组凭据"
         )
     return result
-
-
-def _main_search_override_config(provider: str, overrides: dict[str, str]) -> dict[str, Any] | None:
-    """Build a main-search provider config from unsaved form values."""
-    get = lambda key, fallback="": str(overrides.get(key) or fallback).strip()  # noqa: E731
-    if provider == "xai-responses":
-        api_key = get("XAI_API_KEY", config.xai_api_key)
-        if not api_key:
-            return None
-        return {
-            "provider": "xai-responses",
-            "mode": "xai-responses",
-            "api_url": get("XAI_API_URL", config.xai_api_url),
-            "api_key": api_key,
-            "model": get("XAI_MODEL", config.xai_model),
-        }
-    api_url = get("OPENAI_COMPATIBLE_API_URL", config.openai_compatible_api_url)
-    api_key = get("OPENAI_COMPATIBLE_API_KEY", config.openai_compatible_api_key)
-    if not api_url or not api_key:
-        return None
-    return {
-        "provider": "openai-compatible",
-        "mode": "openai-compatible",
-        "api_url": api_url,
-        "api_key": api_key,
-        "model": get("OPENAI_COMPATIBLE_MODEL", config.openai_compatible_model),
-        "api_mode": get("OPENAI_COMPATIBLE_API_MODE", config.openai_compatible_api_mode),
-    }
 
 
 async def doctor() -> dict[str, Any]:
