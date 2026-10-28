@@ -11,7 +11,7 @@ API_URL = "https://wsa.tencentcloudapi.com"
 SECRET_ID, SECRET_KEY = "AKIDEXAMPLE", "Gu5t9xGARNpq86cd98joQYCN3EXAMPLE"
 
 
-def answer(monkeypatch, body):
+def answer_wsa(monkeypatch, body):
     """Answer every request with one wsa JSON body and record the requests."""
     requests = []
     original_client = httpx.AsyncClient
@@ -39,8 +39,8 @@ async def search(query="query", **kwargs):
     ("元宝搜索", '{"Query": "\\u5143\\u5b9d\\u641c\\u7d22"}', "6f7b8ece26a931e68160929c02dd4eb2f9d01b3accf899753fbc525e767bef4b"),
 ])
 async def test_requests_are_signed_like_the_official_sdk(monkeypatch, query, body, signature):
-    monkeypatch.setattr(yuanbao.time, "time", lambda: 1761638400)
-    requests = answer(monkeypatch, {"Response": {"Pages": [], "RequestId": "r"}})
+    monkeypatch.setattr(yuanbao, "_timestamp", lambda: 1761638400)
+    requests = answer_wsa(monkeypatch, {"Response": {"Pages": [], "RequestId": "r"}})
 
     await search(query)
 
@@ -56,7 +56,7 @@ async def test_requests_are_signed_like_the_official_sdk(monkeypatch, query, bod
 
 @pytest.mark.asyncio
 async def test_pages_become_search_results(monkeypatch):
-    answer(monkeypatch, {"Response": {"Pages": [page(
+    answer_wsa(monkeypatch, {"Response": {"Pages": [page(
         date="2026/10/21 22:30:00", site="腾讯新闻", passage="Standard summary", content="Dynamic summary", score=0.73,
     )], "Version": "standard", "RequestId": "r"}})
 
@@ -71,7 +71,7 @@ async def test_pages_become_search_results(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_results_stop_at_max_results(monkeypatch):
-    answer(monkeypatch, {"Response": {"Pages": [page(passage=str(index)) for index in range(3)], "RequestId": "r"}})
+    answer_wsa(monkeypatch, {"Response": {"Pages": [page(passage=str(index)) for index in range(3)], "RequestId": "r"}})
 
     data = await search(max_results=2)
 
@@ -86,7 +86,7 @@ async def test_results_stop_at_max_results(monkeypatch):
     ("InternalError", "provider_error"),
 ])
 async def test_api_errors_keep_their_code_and_are_classified(monkeypatch, code, error_type):
-    answer(monkeypatch, {"Response": {"Error": {"Code": code, "Message": "details"}, "RequestId": "r"}})
+    answer_wsa(monkeypatch, {"Response": {"Error": {"Code": code, "Message": "details"}, "RequestId": "r"}})
 
     data = await search()
 
@@ -96,8 +96,38 @@ async def test_api_errors_keep_their_code_and_are_classified(monkeypatch, code, 
 
 @pytest.mark.asyncio
 async def test_missing_credentials_are_a_config_error_without_a_request(monkeypatch):
-    requests = answer(monkeypatch, {"Response": {"Pages": []}})
+    requests = answer_wsa(monkeypatch, {"Response": {"Pages": []}})
 
     data = json.loads(await YuanbaoSearchProvider(API_URL, SECRET_ID, "").search("query"))
 
     assert (data["ok"], data["error_type"], requests) == (False, "config_error", [])
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_page_is_skipped(monkeypatch):
+    answer_wsa(monkeypatch, {"Response": {"Pages": [page(passage="good"), "{not json"], "RequestId": "r"}})
+
+    data = await search()
+
+    assert [item["description"] for item in data["results"]] == ["good"]
+
+
+@pytest.mark.asyncio
+async def test_an_error_without_a_message_is_its_code(monkeypatch):
+    answer_wsa(monkeypatch, {"Response": {"Error": {"Code": "InternalError"}, "RequestId": "r"}})
+
+    data = await search()
+
+    assert data["error"] == "InternalError"
+
+
+@pytest.mark.asyncio
+async def test_errors_do_not_leak_the_credentials(monkeypatch):
+    answer_wsa(monkeypatch, {"Response": {"Error": {
+        "Code": "AuthFailure.SecretIdNotFound", "Message": f"unknown {SECRET_ID} signed with {SECRET_KEY}",
+    }, "RequestId": "r"}})
+
+    data = await search()
+
+    assert data["error_type"] == "auth_error"
+    assert SECRET_ID not in data["error"] and SECRET_KEY not in data["error"]

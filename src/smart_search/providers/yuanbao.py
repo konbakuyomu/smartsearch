@@ -16,7 +16,6 @@ from urllib.parse import urlparse
 
 import httpx
 
-from .base import BaseSearchProvider
 from ..provider_errors import ProviderCallError, classify_provider_exception
 
 SERVICE = "wsa"
@@ -33,6 +32,10 @@ ERROR_TYPES = (
 
 def _elapsed_ms(start: float) -> float:
     return round((time.time() - start) * 1000, 2)
+
+
+def _timestamp() -> int:
+    return int(time.time())
 
 
 def _signed_headers(secret_id: str, secret_key: str, host: str, body: str, timestamp: int) -> dict[str, str]:
@@ -62,11 +65,15 @@ def _signed_headers(secret_id: str, secret_key: str, host: str, body: str, times
 def _api_error(error: dict[str, Any], secrets: tuple[str, ...]) -> ProviderCallError:
     code = str(error.get("Code") or "UnknownError")
     error_type = next((kind for prefixes, kind in ERROR_TYPES if code.startswith(prefixes)), "provider_error")
-    return ProviderCallError(error_type, f"{code}: {error.get('Message') or ''}".strip(), additional_secrets=secrets)
+    message = error.get("Message")
+    return ProviderCallError(error_type, f"{code}: {message}" if message else code, additional_secrets=secrets)
 
 
 def _normalize_page(raw: Any) -> dict[str, Any] | None:
-    page = json.loads(raw) if isinstance(raw, str) else raw
+    try:
+        page = json.loads(raw) if isinstance(raw, str) else raw
+    except ValueError:
+        return None
     if not isinstance(page, dict) or not page.get("url"):
         return None
     out: dict[str, Any] = {
@@ -85,10 +92,11 @@ def _normalize_page(raw: Any) -> dict[str, Any] | None:
     return out
 
 
-class YuanbaoSearchProvider(BaseSearchProvider):
+class YuanbaoSearchProvider:
     def __init__(self, api_url: str, secret_id: str, secret_key: str, timeout: float = 30.0):
-        super().__init__(api_url.rstrip("/"), secret_key)
+        self.api_url = api_url.rstrip("/")
         self.secret_id = secret_id or ""
+        self.secret_key = secret_key or ""
         self.timeout = timeout
 
     def get_provider_name(self) -> str:
@@ -96,7 +104,7 @@ class YuanbaoSearchProvider(BaseSearchProvider):
 
     async def search(self, query: str, max_results: int = 10, ctx=None) -> str:
         start = time.time()
-        if not (self.secret_id and self.api_key):
+        if not (self.secret_id and self.secret_key):
             return json.dumps(
                 {
                     "ok": False,
@@ -109,10 +117,10 @@ class YuanbaoSearchProvider(BaseSearchProvider):
                 ensure_ascii=False,
                 indent=2,
             )
-        secrets = (self.secret_id, self.api_key)
+        secrets = (self.secret_id, self.secret_key)
         # Sign exactly these bytes: json.dumps defaults, as the official SDK sends them.
         body = json.dumps({"Query": query})
-        headers = _signed_headers(self.secret_id, self.api_key, urlparse(self.api_url).netloc, body, int(time.time()))
+        headers = _signed_headers(self.secret_id, self.secret_key, urlparse(self.api_url).netloc, body, _timestamp())
         try:
             timeout = httpx.Timeout(connect=6.0, read=self.timeout, write=10.0, pool=None)
             async with httpx.AsyncClient(timeout=timeout) as client:

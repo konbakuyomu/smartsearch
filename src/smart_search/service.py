@@ -41,8 +41,8 @@ from .providers.openai_compatible import (
 )
 from .providers.sciverse import SciverseProvider
 from .providers.tinyfish import TinyFishFetchProvider, TinyFishSearchProvider
-from .providers.yuanbao import YuanbaoSearchProvider
 from .providers.xai_responses import XAIResponsesSearchProvider
+from .providers.yuanbao import YuanbaoSearchProvider
 from .providers.zhipu import ZhipuWebSearchProvider
 from .providers.zhipu_mcp import ZhipuMCPProvider
 from .provider_errors import (
@@ -2097,17 +2097,18 @@ async def call_tinyfish_search(query: str, max_results: int = 6) -> list[dict] |
     return [item for item in results if isinstance(item, dict)]
 
 
+def _yuanbao_provider() -> YuanbaoSearchProvider:
+    return YuanbaoSearchProvider(
+        config.yuanbao_api_url, config.yuanbao_secret_id or "", config.yuanbao_secret_key or "", config.yuanbao_timeout,
+    )
+
+
 async def call_yuanbao_search(query: str, max_results: int = 6) -> list[dict] | None:
     """Return normalized Yuanbao Search candidates; a provider failure raises like TinyFish's."""
     if not _provider_configured("yuanbao"):
         return None
     data = await _decode_provider_json(
-        await YuanbaoSearchProvider(
-            config.yuanbao_api_url,
-            config.yuanbao_secret_id,
-            config.yuanbao_secret_key,
-            config.yuanbao_timeout,
-        ).search(query, max_results=max_results),
+        await _yuanbao_provider().search(query, max_results=max_results),
         provider="yuanbao",
     )
     if not data.get("ok"):
@@ -3508,9 +3509,7 @@ async def _test_yuanbao_connection() -> dict[str, Any]:
     if not (config.yuanbao_secret_id and config.yuanbao_secret_key):
         return {"status": "not_configured", "message": source_message('YUANBAO_SECRET_ID 或 YUANBAO_SECRET_KEY 未设置，元宝搜索不可用')}
     start = time.time()
-    data = json.loads(await YuanbaoSearchProvider(
-        config.yuanbao_api_url, config.yuanbao_secret_id, config.yuanbao_secret_key, config.yuanbao_timeout,
-    ).search("元宝搜索", max_results=1))
+    data = json.loads(await _yuanbao_provider().search("元宝搜索", max_results=1))
     if not data.get("ok"):
         error_type = str(data.get("error_type") or "")
         status = error_type if error_type in APPROVED_PROVIDER_ERROR_TYPES else "warning"
@@ -4060,7 +4059,7 @@ async def _smoke_mock(start: float) -> dict[str, Any]:
             "fallback_chain": MAIN_SEARCH_FALLBACK_CHAIN,
             "ok": True,
         },
-        "web_search": {"configured": ["zhipu"], "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek"], "ok": True},
+        "web_search": {"configured": ["zhipu"], "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek", "yuanbao"], "ok": True},
         "docs_search": {"configured": ["context7"], "fallback_chain": ["context7", "exa"], "ok": True},
         "web_fetch": {"configured": ["tavily"], "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish", "deepseek"], "ok": True},
         "vertical_search": {
@@ -4291,7 +4290,7 @@ async def _smoke_mock(start: float) -> dict[str, Any]:
         **minimum_status,
         "web_search": {
             "configured": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish"],
-            "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek"],
+            "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek", "yuanbao"],
             "ok": True,
         },
         "docs_search": {"configured": ["context7", "exa"], "fallback_chain": ["context7", "exa"], "ok": True},
