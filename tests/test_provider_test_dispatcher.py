@@ -1,7 +1,9 @@
 """Single-provider connection testing, the thing `doctor` could only do all at once."""
 
 import asyncio
+import json
 
+import httpx
 import pytest
 
 from smart_search import service
@@ -210,3 +212,66 @@ async def test_doctor_xai_test_sends_the_configured_reasoning_effort(isolated, m
 
     assert xai_requests[0]["reasoning"] == {"effort": "medium"}
     assert info["main_search_connection_tests"]["xai-responses"]["sent"]["reasoning_effort"] == "medium"
+
+
+@pytest.mark.asyncio
+async def test_xai_stream_test_reports_an_error_event_after_http_200(isolated, monkeypatch):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("XAI_STREAM", "true")
+    event = {"type": "error", "error": {"message": "reasoning.effort is not supported"}}
+    original_client = httpx.AsyncClient
+
+    def handler(request):
+        return httpx.Response(200, headers={"Content-Type": "text/event-stream"}, text=f"data: {json.dumps(event)}\n\n")
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+
+    result = await service.test_provider_connection("xai-responses")
+
+    assert result["status"] != "ok"
+    assert "reasoning.effort is not supported" in result["message"]
+
+
+def answer_xai(monkeypatch, handler):
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+
+
+@pytest.mark.asyncio
+async def test_xai_stream_test_reports_a_stream_without_text(isolated, monkeypatch):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("XAI_STREAM", "true")
+    completed = {"type": "response.completed", "response": {"status": "completed", "output": []}}
+    answer_xai(monkeypatch, lambda request: httpx.Response(
+        200, headers={"Content-Type": "text/event-stream"}, text=f"data: {json.dumps(completed)}\n\n"))
+
+    result = await service.test_provider_connection("xai-responses")
+
+    assert result["status"] == "warning"
+
+
+@pytest.mark.asyncio
+async def test_xai_test_message_names_the_sent_parameters(isolated, monkeypatch, xai_requests):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("XAI_REASONING_EFFORT", "medium")
+    monkeypatch.setenv("XAI_STREAM", "true")
+
+    result = await service.test_provider_connection("xai-responses")
+
+    assert "reasoning.effort=medium, stream=true, tools=[]" in result["message"]
+
+
+@pytest.mark.asyncio
+async def test_xai_test_reports_sent_parameters_when_it_times_out(isolated, monkeypatch):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("XAI_STREAM", "true")
+
+    def handler(request):
+        raise httpx.ReadTimeout("timed out", request=request)
+
+    answer_xai(monkeypatch, handler)
+
+    result = await service.test_provider_connection("xai-responses")
+
+    assert result["status"] == "timeout"
+    assert result["sent"] == {"reasoning_effort": "", "stream": True, "tools": []}

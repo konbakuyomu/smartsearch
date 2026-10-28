@@ -1099,11 +1099,15 @@ def test_xai_stream_is_saved_and_displayed_by_doctor(monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out)["XAI_STREAM"] is True
 
 
-def test_non_interactive_setup_saves_xai_stream(capsys):
-    code = cli.main(["setup", "--non-interactive", "--xai-api-key", "xai-test", "--xai-stream", "true"])
+@pytest.mark.parametrize(("flag", "expected"), [("--stream", True), ("--no-stream", False)])
+def test_research_cli_stream_flags_override_xai_stream(monkeypatch, tmp_path, capsys, xai_requests, flag, expected):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("XAI_STREAM", "false" if expected else "true")
 
-    assert code == cli.EXIT_OK
-    assert cli.service.config.xai_stream is True
+    cli.main(["research", "Find this source", "--budget", "quick", "--evidence-dir", str(tmp_path), flag, "--format", "json"])
+
+    assert xai_requests and {payload["stream"] for payload in xai_requests} == {expected}
 
 
 def test_real_doctor_ignores_legacy_primary_env_and_returns_config_exit(monkeypatch, capsys):
@@ -1697,6 +1701,8 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
         "xai-model",
         "--xai-tools-explicit",
         "web_search",
+        "--xai-stream",
+        "true",
         "--openai-compatible-api-url",
         "https://relay.example.com/v1",
         "--openai-compatible-api-key",
@@ -1786,6 +1792,7 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
     assert saved["XAI_API_KEY"] == "xai-test-secret"
     assert saved["XAI_MODEL"] == "xai-model"
     assert saved["XAI_TOOLS"] == "web_search"
+    assert saved["XAI_STREAM"] == "true"
     assert saved["OPENAI_COMPATIBLE_API_URL"] == "https://relay.example.com/v1"
     assert saved["OPENAI_COMPATIBLE_API_KEY"] == "relay-test-secret"
     assert saved["OPENAI_COMPATIBLE_MODEL"] == "relay-model"

@@ -3208,25 +3208,18 @@ async def _test_primary_connection(
     return result
 
 
-async def _test_primary_responses(
-    api_url: str, api_key: str, model: str, *, reasoning_effort: str = "", stream: bool = False,
-) -> dict[str, Any]:
-    responses_url = f"{api_url.rstrip('/')}/responses"
-    payload: dict[str, Any] = {
-        "model": model,
-        "input": [{"role": "user", "content": "Reply with exactly: ok"}],
-        "stream": stream,
-    }
-    if reasoning_effort:
-        payload["reasoning"] = {"effort": reasoning_effort}
-    # Same reasoning effort and transport as a search, but no tools, so a test never runs a billed search.
-    sent = {"reasoning_effort": reasoning_effort, "stream": stream, "tools": []}
+async def _test_primary_responses(provider: XAIResponsesSearchProvider) -> dict[str, Any]:
     start = time.time()
     async with httpx.AsyncClient(timeout=20.0) as client:
         response = await client.post(
-            responses_url,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json=payload,
+            f"{provider.api_url}/responses",
+            headers={"Authorization": f"Bearer {provider.api_key}", "Content-Type": "application/json"},
+            # Same transport and reasoning as a search, but no tools, so a test never runs a billed search.
+            json={
+                "model": provider.model,
+                "input": [{"role": "user", "content": "Reply with exactly: ok"}],
+                **provider.request_options(),
+            },
         )
         response_time = _elapsed_ms(start)
         if response.status_code != 200:
@@ -3234,18 +3227,16 @@ async def _test_primary_responses(
                 "status": "warning",
                 "message": source_message('HTTP {0}: {1}', response.status_code, sanitize_provider_error_message(response.text, limit=100)),
                 "response_time_ms": response_time,
-                "sent": sent,
             }
-        return {"status": "ok", "message": source_message('xAI Responses API 可用 (HTTP {0})', response.status_code),
-                "response_time_ms": response_time, "sent": sent}
+        # A stream can still fail after HTTP 200, so read it the way a search does.
+        if provider.stream and not await provider.parse_stream(response):
+            return {"status": "warning", "message": source_message('xAI Responses 流式响应没有返回文本'), "response_time_ms": response_time}
+        return {"status": "ok", "message": source_message('xAI Responses API 可用 (HTTP {0})', response.status_code), "response_time_ms": response_time}
 
 
 async def _test_main_provider_connection(provider_config: dict[str, Any]) -> dict[str, Any]:
     if provider_config["mode"] == "xai-responses":
-        return await _test_primary_responses(
-            provider_config["api_url"], provider_config["api_key"], provider_config["model"],
-            reasoning_effort=provider_config.get("reasoning_effort", ""), stream=provider_config.get("stream", False),
-        )
+        return await _test_primary_responses(_main_search_providers([provider_config], fallback="off")[0])
     api_mode = provider_config.get("api_mode", provider_config.get("mode", "chat-completions"))
     if api_mode == "chat-completions":
         return await _test_primary_connection(provider_config["api_url"], provider_config["api_key"], provider_config["model"])
@@ -3259,19 +3250,26 @@ async def _test_main_provider_connection(provider_config: dict[str, Any]) -> dic
 
 async def _safe_test_main_provider_connection(provider_config: dict[str, Any]) -> dict[str, Any]:
     try:
-        return await _test_main_provider_connection(provider_config)
+        result = await _test_main_provider_connection(provider_config)
     except httpx.TimeoutException:
-        return {"status": "timeout", "message": source_message('{0} 请求超时，请检查网络连接或 API URL', provider_config['provider'])}
+        result = {"status": "timeout", "message": source_message('{0} 请求超时，请检查网络连接或 API URL', provider_config['provider'])}
     except httpx.RequestError as e:
-        return {
+        result = {
             "status": "error",
             "message": source_message('{0} 网络错误: {1}', provider_config['provider'], sanitize_provider_error_message(e)),
         }
     except Exception as e:
-        return {
+        result = {
             "status": "error",
             "message": source_message('{0} 未知错误: {1}', provider_config['provider'], sanitize_provider_error_message(e)),
         }
+    if provider_config["mode"] == "xai-responses":
+        # Name what the test sent in every outcome, so it can be compared with a real search.
+        effort, stream = provider_config.get("reasoning_effort", ""), bool(provider_config.get("stream"))
+        result["sent"] = {"reasoning_effort": effort, "stream": stream, "tools": []}
+        sent = ", ".join(([f"reasoning.effort={effort}"] if effort else []) + [f"stream={str(stream).lower()}", "tools=[]"])
+        result["message"] = source_message('{0}（本次发送：{1}）', result["message"], sent)
+    return result
 
 
 async def _test_exa_connection() -> dict[str, Any]:
@@ -3890,6 +3888,7 @@ def current_model() -> dict[str, Any]:
     return {
         "ok": True,
         "xai_model": config.xai_model,
+        "xai_stream": config.xai_stream,
         "openai_compatible_model": config.openai_compatible_model,
         "openai_compatible_fallback_models": config.openai_compatible_fallback_models,
         "openai_compatible_api_mode": api_mode,

@@ -4635,6 +4635,10 @@
     "OpenAI 兼容 API 模式",
     "openai-compatible API mode"
   ],
+  "xai-responses 流式": [
+    "xai-responses 流式",
+    "xai-responses stream"
+  ],
   "OpenAI 兼容回退": [
     "OpenAI 兼容回退",
     "openai-compatible fallback"
@@ -8419,6 +8423,10 @@
     "OpenAI 兼容 API 模式",
     "openai-compatible API mode"
   ],
+  "xai-responses stream": [
+    "xai-responses 流式",
+    "xai-responses stream"
+  ],
   "openai-compatible fallback": [
     "OpenAI 兼容回退",
     "openai-compatible fallback"
@@ -8679,9 +8687,25 @@
     "xAI Responses API 可用 (HTTP {0})",
     "xAI Responses API is available (HTTP {0})"
   ],
+  "{0} (sent: {1})": [
+    "{0}（本次发送：{1}）",
+    "{0} (sent: {1})"
+  ],
+  "xAI Responses stream returned no text": [
+    "xAI Responses 流式响应没有返回文本",
+    "xAI Responses stream returned no text"
+  ],
   "xAI Responses API 可用 (HTTP {0})": [
     "xAI Responses API 可用 (HTTP {0})",
     "xAI Responses API is available (HTTP {0})"
+  ],
+  "{0}（本次发送：{1}）": [
+    "{0}（本次发送：{1}）",
+    "{0} (sent: {1})"
+  ],
+  "xAI Responses 流式响应没有返回文本": [
+    "xAI Responses 流式响应没有返回文本",
+    "xAI Responses stream returned no text"
   ],
   "xAI Responses model": [
     "xAI 模型",

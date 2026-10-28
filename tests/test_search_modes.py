@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from smart_search import cli, service
+from smart_search import service
 from smart_search.jev import JevClient
 from smart_search.jev_search import ChannelExecutor, FALLBACK_RESERVE_RATIO
 from smart_search.provider_errors import ProviderCallError
@@ -672,17 +672,6 @@ async def test_research_xai_stream_follows_xai_stream_unless_overridden(monkeypa
     monkeypatch.setenv("XAI_STREAM", configured)
 
     await service.research("Find this source", budget="quick", evidence_dir=str(tmp_path), stream=override)
-
-    assert xai_requests and {payload["stream"] for payload in xai_requests} == {expected}
-
-
-@pytest.mark.parametrize(("flag", "expected"), [("--stream", True), ("--no-stream", False)])
-def test_research_cli_stream_flags_override_xai_stream(monkeypatch, tmp_path, capsys, xai_requests, flag, expected):
-    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
-    monkeypatch.setenv("XAI_API_KEY", "xai-test")
-    monkeypatch.setenv("XAI_STREAM", "false" if expected else "true")
-
-    cli.main(["research", "Find this source", "--budget", "quick", "--evidence-dir", str(tmp_path), flag, "--format", "json"])
 
     assert xai_requests and {payload["stream"] for payload in xai_requests} == {expected}
 

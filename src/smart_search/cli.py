@@ -862,6 +862,8 @@ def _format_model_markdown(data: dict[str, Any]) -> str:
     rows = []
     if data.get("xai_model"):
         rows.append(["xai-responses", data.get("xai_model")])
+    if "xai_stream" in data:
+        rows.append([tr('xai-responses stream'), "true" if data["xai_stream"] else "false"])
     if data.get("openai_compatible_model"):
         rows.append(["openai-compatible", data.get("openai_compatible_model")])
     if data.get("openai_compatible_api_mode"):
@@ -1422,6 +1424,12 @@ def _print_result(command: str, data: dict[str, Any], fmt: str, output: str = ""
     if rendered and not rendered.endswith("\n"):
         _write_stdout("\n")
     return _exit_code(data)
+
+
+def _add_stream_args(parser: argparse.ArgumentParser) -> None:
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--stream", dest="stream", action="store_true", default=None, help="Use stream=true for xAI Responses or OpenAI-compatible main search.")
+    group.add_argument("--no-stream", dest="stream", action="store_false", help="Force stream=false for xAI Responses or OpenAI-compatible main search.")
 
 
 def _add_format_args(parser: argparse.ArgumentParser) -> None:
@@ -2944,9 +2952,7 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument("--validation", choices=["fast", "balanced", "strict"], default="")
     search_parser.add_argument("--fallback", choices=["auto", "off"], default="")
     search_parser.add_argument("--providers", default="auto")
-    stream_group = search_parser.add_mutually_exclusive_group()
-    stream_group.add_argument("--stream", dest="stream", action="store_true", default=None, help="Use stream=true for xAI Responses or OpenAI-compatible main search.")
-    stream_group.add_argument("--no-stream", dest="stream", action="store_false", help="Force stream=false for xAI Responses or OpenAI-compatible main search.")
+    _add_stream_args(search_parser)
     search_parser.add_argument(
         "--timeout",
         type=float,
@@ -3266,9 +3272,7 @@ def build_parser() -> argparse.ArgumentParser:
     research_parser.add_argument("--budget", choices=["quick", "standard", "deep"], default="deep")
     research_parser.add_argument("--evidence-dir", default="")
     research_parser.add_argument("--fallback", choices=["auto", "off"], default="auto")
-    research_stream_group = research_parser.add_mutually_exclusive_group()
-    research_stream_group.add_argument("--stream", dest="stream", action="store_true", default=None, help="Use stream=true for xAI Responses or OpenAI-compatible main search.")
-    research_stream_group.add_argument("--no-stream", dest="stream", action="store_false", help="Force stream=false for xAI Responses or OpenAI-compatible main search.")
+    _add_stream_args(research_parser)
     _add_format_args(research_parser)
 
     smoke_parser = sub.add_parser(

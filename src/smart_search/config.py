@@ -746,6 +746,7 @@ class Config:
             return
         enum_allowed = {
             "XAI_REASONING_EFFORT": self._ALLOWED_XAI_REASONING_EFFORTS,
+            "XAI_STREAM": {"true", "false", "1", "0", "yes", "no"},
             "SMART_SEARCH_VALIDATION_LEVEL": self._ALLOWED_VALIDATION_LEVELS,
             "SMART_SEARCH_FALLBACK_MODE": self._ALLOWED_FALLBACK_MODES,
             "SMART_SEARCH_MINIMUM_PROFILE": self._ALLOWED_MINIMUM_PROFILES,

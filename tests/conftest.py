@@ -58,8 +58,7 @@ def xai_requests(monkeypatch):
     ]
 
     def handler(request):
-        if request.url.host != "api.x.ai":
-            return httpx.Response(404)
+        assert str(request.url) == "https://api.x.ai/v1/responses"
         payload = json.loads(request.content)
         requests.append(payload)
         if payload["stream"]:
