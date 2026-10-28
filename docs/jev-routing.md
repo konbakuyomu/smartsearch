@@ -72,7 +72,7 @@ smart-search config set SMART_SEARCH_JEV_SYNTHESIZE auto
 5. 不足时从尚未执行的动作再次选择：已有计划子问题、有限缺口检索词、另一引擎、发现 URL 后阅读正文。同一引擎可以使用不同 query；完全相同的 provider/操作/query/URL 不重复。Jev 判断候选，不生成自由文本查询；原问题仍用于最终证据判断。
 6. 达到轮数、时间上限、没有新候选或持续无新证据时停止，保留部分结果和真实停止原因。Jev 缺 Key、请求失败或无合适选择时，允许 fallback 则使用已配置且允许的固定能力兜底，不调用旧远程 embedding/classifier；无法判断的证据标为 unverified。`--fallback off` 禁止这种兜底和补搜；research 仍可读取首次发现的 URL 以满足引用约束。`--extra-sources N` 设置普通搜索所选渠道的结果数量，上限 20。
 
-支持现有 xAI、OpenAI-compatible、Exa、Context7、Zhipu REST/MCP、Tavily、Jina、Firecrawl、AnySearch 的对应搜索或抓取操作，以及 TinyFish、DeepSeek 的搜索与抓取。候选目录以当前程序实际注册的渠道为准。没有已知 URL 时不提供抓取选项；每轮最多考虑 5 个已知 URL。Sciverse 保留原有 explicit-only 限制，仓库检索和 site map 仍通过独立命令执行。
+支持现有 xAI、OpenAI-compatible、Exa、Context7、Zhipu REST/MCP、Tavily、Jina、Firecrawl、AnySearch 的对应搜索或抓取操作，以及 TinyFish、DeepSeek 的搜索与抓取和元宝搜索的搜索。候选目录以当前程序实际注册的渠道为准。没有已知 URL 时不提供抓取选项；每轮最多考虑 5 个已知 URL。Sciverse 保留原有 explicit-only 限制，仓库检索和 site map 仍通过独立命令执行。
 
 默认直接返回组织好的证据给调用方模型。Grok 只有被选为搜索渠道时才会作为检索模型调用。最后汇总只使用 `SMART_SEARCH_JEV_SYNTHESIS_*` 指定的独立地址、Key、模型和接口模式；`XAI_MODEL`、`OPENAI_COMPATIBLE_MODEL` 和单次搜索的 `--model` 都不影响它。汇总请求只附证据，不附搜索工具；汇总失败时保留检索证据并返回 warning。显式 `--providers` 限制下，需包含 `jev-synthesis` 才允许调用独立汇总模型。
 

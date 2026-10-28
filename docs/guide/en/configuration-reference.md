@@ -56,6 +56,10 @@ Generated from current configuration metadata. Active keys appear below. Retired
 | `TINYFISH_SEARCH_API_URL` | TinyFish search service URL, separate from its page-fetching service. Usually unchanged. | `url` | `https://api.search.tinyfish.ai` |
 | `TINYFISH_FETCH_API_URL` | TinyFish page-fetching service URL, separate from search. Usually unchanged. | `url` | `https://api.fetch.tinyfish.ai` |
 | `TINYFISH_TIMEOUT_SECONDS` | Maximum seconds to wait for one response from this service. A timeout returns an error or uses the configured fallback; normally leave the default. | `float` | `150` |
+| `YUANBAO_SECRET_ID` | The SecretId of a Tencent Cloud API key, filled in together with the SecretKey below. The account needs Yuanbao Search enabled. Testing runs one real search, which counts against the quota. | `secret` | Not set |
+| `YUANBAO_SECRET_KEY` | The SecretKey paired with the SecretId above. | `secret` | Not set |
+| `YUANBAO_API_URL` | Yuanbao Search API URL; requests are signed for its host. Usually unchanged. | `url` | `https://wsa.tencentcloudapi.com` |
+| `YUANBAO_TIMEOUT_SECONDS` | Maximum seconds to wait for one response from this service. A timeout returns an error or uses the configured fallback; normally leave the default. | `float` | `30` |
 | `DEEPSEEK_API_KEY` | The same key as the DeepSeek model API; one key enables web search and page fetching. Billed per successful request. Testing makes one real request for each capability. | `secret` | Not set |
 | `DEEPSEEK_API_URL` | DeepSeek API base URL. /v1/tools/search and /v1/tools/fetch are appended automatically; keep the default for the official service. | `url` | `https://api.deepseek.com` |
 | `DEEPSEEK_TIMEOUT_SECONDS` | Maximum seconds to wait for one response from this service. A timeout returns an error or uses the configured fallback; normally leave the default. | `float` | `60` |
@@ -72,6 +76,7 @@ Generated from current configuration metadata. Active keys appear below. Retired
 | `ZHIPU_MCP_READER_ENABLED` | Disabling keeps the configuration and stops requests. Takes effect after saving changes. | `bool` | `true` |
 | `FIRECRAWL_ENABLED` | Disabling keeps the configuration and stops requests. Takes effect after saving changes. | `bool` | `true` |
 | `TINYFISH_ENABLED` | Disabling keeps the configuration and stops requests. Takes effect after saving changes. | `bool` | `true` |
+| `YUANBAO_ENABLED` | Disabling keeps the configuration and stops requests. Takes effect after saving changes. | `bool` | `true` |
 | `DEEPSEEK_ENABLED` | Disabling keeps the configuration and stops requests. Takes effect after saving changes. | `bool` | `true` |
 | `JINA_ENABLED` | Disabling keeps the configuration and stops requests. Takes effect after saving changes. | `bool` | `true` |
 | `ANYSEARCH_ENABLED` | Disabling keeps the configuration and stops requests. Takes effect after saving changes. | `bool` | `true` |

@@ -34,7 +34,7 @@ For research, `SMART_SEARCH_JEV_SYNTHESIZE` accepts `true`, `false`, and `auto`.
 - Same-capability fallback is allowed; model answers and web search are mutual fallbacks in ordinary search. Context7 is not used for unrelated broad web queries, and page extraction providers are not used as docs search providers.
 - `TAVILY_ENABLED=false` removes Tavily from registered `web_search` and `web_fetch` routes even when its key is present. Direct Tavily search/extract calls, `map`, `doctor`, and smoke must make no Tavily network request; `map` reports a local configuration error. Firecrawl remains independently configured and all fallback stays within its capability.
 - In Jev mode, Jev chooses among allowed capabilities and providers for the question; there is no mandatory main-model call or fixed global provider order. Local routing prioritizes suitable capabilities and configured preferences; a docs question with no docs channel configured uses web search instead of no channel.
-- `main_search` contains xAI Responses and OpenAI-compatible model channels; `web_search` contains Zhipu REST/MCP, Tavily, Firecrawl, TinyFish and DeepSeek; `docs_search` contains Context7 and Exa. Failure fallback stays within the selected capability family; model answers and web search are mutual fallbacks in ordinary search.
+- `main_search` contains xAI Responses and OpenAI-compatible model channels; `web_search` contains Zhipu REST/MCP, Tavily, Firecrawl, TinyFish, DeepSeek and Yuanbao Search; `docs_search` contains Context7 and Exa. Failure fallback stays within the selected capability family; model answers and web search are mutual fallbacks in ordinary search.
 - Ordinary Context7 uses the first library in Context7's ranked candidates, without a second Jev call. Research may use Jev to select the matching library, using the first candidate if Jev fails or no score reaches its threshold. Empty results may fall through to same-capability Exa; explicit Context7 commands remain unchanged.
 - `--extra-sources N` controls the selected channel's result count. It does not add channels, split a budget between providers, or make Tavily/Firecrawl a required extra stage. A known-URL search follows the configured Jev/local routing; local routing prefers page reading.
 - `fetch` tries Tavily first, then Jina with `JINA_API_KEY`, then Zhipu Coding Plan MCP Reader, then Firecrawl, then TinyFish, then DeepSeek.
@@ -56,6 +56,14 @@ DeepSeek:
 - Search results normalize `summary` (falling back to `snippet`) to `description`, `site_name` to `source`, and `date` to `published_date`. Summaries are not page text: fetch a key page before citing it. An empty result set is a successful empty response.
 - Fetch returns the page Markdown. HTTP 403 (URL refused by DeepSeek's safety policy) and 404 (no usable page content, which currently includes PDF links and private network addresses) mean that page has nothing to read: the attempt is `empty`, fallback continues, and the provider is not cooled down. `401` maps to `auth_error`, `402` (insufficient balance) to `provider_error`, `429` to `rate_limited`, `5xx` to `network_error`.
 - DeepSeek bills each successful search or fetch request. `doctor` and `providers test deepseek` send one real request to each.
+
+Yuanbao Search:
+
+- `YUANBAO_SECRET_ID` and `YUANBAO_SECRET_KEY`, a Tencent Cloud API key with Yuanbao Search enabled, register Yuanbao Search for `web_search` only. It never satisfies `main_search`, `docs_search` or `web_fetch`. Jev may select it directly; `search --providers yuanbao` forces it.
+- `YUANBAO_API_URL` defaults to `https://wsa.tencentcloudapi.com`. Each search is one Tencent Cloud API 3.0 `SearchPro` call (version `2025-05-08`) with `{"Query"}`, signed with TC3-HMAC-SHA256 the way the official SDK signs it. Never log or echo either secret.
+- Results normalize `passage` to `description`, the longer `content` summary (standard and flagship tiers only) to `content`, `site` to `source`, and `date` to `published_date`. At most 10 results come back.
+- Errors arrive as HTTP 200 with `Response.Error`. `AuthFailure*` and `UnauthorizedOperation*` map to `auth_error`, `RequestLimitExceeded*` and `LimitExceeded*` to `rate_limited`, `InvalidParameter*`, `MissingParameter*` and `UnknownParameter*` to `parameter_error`, and any other code to `provider_error`; the code stays in the message.
+- Every search counts against the Tencent Cloud quota. `doctor` and `providers test yuanbao` send one real search.
 - `map` currently uses Tavily only.
 - `exa-search` and `exa-similar` use Exa only.
 - `context7-library` and `context7-docs` use Context7 only.

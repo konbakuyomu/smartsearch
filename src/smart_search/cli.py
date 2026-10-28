@@ -628,6 +628,7 @@ def _format_doctor_markdown(data: dict[str, Any]) -> str:
         ("firecrawl", data.get("firecrawl_connection_test") or {}),
         ("tinyfish", data.get("tinyfish_connection_test") or {}),
         ("deepseek", data.get("deepseek_connection_test") or {}),
+        ("yuanbao", data.get("yuanbao_connection_test") or {}),
         ("zhipu", data.get("zhipu_connection_test") or {}),
         ("zhipu-mcp", data.get("zhipu_mcp_connection_test") or {}),
         ("context7", data.get("context7_connection_test") or {}),
@@ -1487,6 +1488,7 @@ def _display_provider(provider: str, lang: str) -> str:
         "tavily": "Tavily",
         "firecrawl": "Firecrawl",
         "tinyfish": "TinyFish",
+        "yuanbao": _t(lang, "元宝搜索", "Yuanbao Search"),
         "deepseek": "DeepSeek",
         "anysearch": "AnySearch",
         "sciverse": "Sciverse",
@@ -2133,14 +2135,14 @@ def _prompt_optional_enhancements(values: dict[str, str], current: dict[str, str
     _write_stderr(
         _t(
             lang,
-            "\n[可选增强] web_search 网页补强\n用途: 中文、国内、时效、域名过滤类来源检索。\n推荐: 中文场景建议配置 Zhipu。\n",
-            "\n[Optional] web_search web reinforcement\nPurpose: Chinese, domestic, current, or domain-filtered source discovery.\nRecommended: configure Zhipu for Chinese/current scenarios.\n",
+            "\n[可选增强] web_search 网页补强\n用途: 中文、国内、时效、域名过滤类来源检索。\n推荐: 中文场景建议配置 Zhipu；需要腾讯新闻等腾讯内容时可加元宝搜索。\n",
+            "\n[Optional] web_search web reinforcement\nPurpose: Chinese, domestic, current, or domain-filtered source discovery.\nRecommended: configure Zhipu for Chinese/current scenarios; add Yuanbao Search for Tencent content such as Tencent News.\n",
         )
     )
-    default_selected = ["zhipu"] if current.get("ZHIPU_API_KEY") else []
+    default_selected = [provider for provider, key in (("zhipu", "ZHIPU_API_KEY"), ("yuanbao", "YUANBAO_SECRET_KEY")) if current.get(key)]
     selected = _prompt_provider_multi_select(
         _t(lang, "选择可选 web_search 增强", "Choose optional web_search reinforcement"),
-        ["zhipu"],
+        ["zhipu", "yuanbao"],
         default_selected,
         lang,
     )
@@ -2148,6 +2150,13 @@ def _prompt_optional_enhancements(values: dict[str, str], current: dict[str, str
         values["ZHIPU_API_KEY"] = _prompt_value("ZHIPU_API_KEY", "Zhipu API key", current.get("ZHIPU_API_KEY", ""), lang=lang)
         _prompt_zhipu_api_url(values, current, lang)
         _prompt_zhipu_search_engine(values, current, lang)
+    if "yuanbao" in selected:
+        values["YUANBAO_SECRET_ID"] = _prompt_value(
+            "YUANBAO_SECRET_ID", "Yuanbao Search SecretId", current.get("YUANBAO_SECRET_ID", ""), lang=lang,
+        )
+        values["YUANBAO_SECRET_KEY"] = _prompt_value(
+            "YUANBAO_SECRET_KEY", "Yuanbao Search SecretKey", current.get("YUANBAO_SECRET_KEY", ""), lang=lang,
+        )
     if _prompt_yes_no(_t(lang, "是否调整验证/兜底默认值?", "Adjust validation/fallback defaults?"), default=False):
         values["SMART_SEARCH_VALIDATION_LEVEL"] = _prompt_value(
             "SMART_SEARCH_VALIDATION_LEVEL",
@@ -2364,6 +2373,10 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
         ("TINYFISH_SEARCH_API_URL", "TinyFish Search API URL", True),
         ("TINYFISH_FETCH_API_URL", "TinyFish Fetch API URL", True),
         ("TINYFISH_TIMEOUT_SECONDS", "TinyFish timeout seconds", True),
+        ("YUANBAO_SECRET_ID", "Yuanbao Search SecretId", True),
+        ("YUANBAO_SECRET_KEY", "Yuanbao Search SecretKey", True),
+        ("YUANBAO_API_URL", "Yuanbao Search API URL", True),
+        ("YUANBAO_TIMEOUT_SECONDS", "Yuanbao Search timeout seconds", True),
         ("DEEPSEEK_API_KEY", "DeepSeek API key", True),
         ("DEEPSEEK_API_URL", "DeepSeek API URL", True),
         ("DEEPSEEK_TIMEOUT_SECONDS", "DeepSeek timeout seconds", True),
@@ -2797,6 +2810,10 @@ def _run_setup(args: argparse.Namespace) -> int:
         "TINYFISH_SEARCH_API_URL": _normalize_custom_base_url(args.tinyfish_search_api_url),
         "TINYFISH_FETCH_API_URL": _normalize_custom_base_url(args.tinyfish_fetch_api_url),
         "TINYFISH_TIMEOUT_SECONDS": args.tinyfish_timeout,
+        "YUANBAO_SECRET_ID": args.yuanbao_secret_id,
+        "YUANBAO_SECRET_KEY": args.yuanbao_secret_key,
+        "YUANBAO_API_URL": _normalize_custom_base_url(args.yuanbao_api_url),
+        "YUANBAO_TIMEOUT_SECONDS": args.yuanbao_timeout,
         "DEEPSEEK_API_KEY": args.deepseek_key,
         "DEEPSEEK_API_URL": _normalize_custom_base_url(args.deepseek_api_url),
         "DEEPSEEK_TIMEOUT_SECONDS": args.deepseek_timeout,
@@ -2910,6 +2927,8 @@ def _run_regression() -> int:
         "tests/test_jina_provider.py",
         "tests/test_tinyfish_provider.py",
         "tests/test_tinyfish_service.py",
+        "tests/test_yuanbao_provider.py",
+        "tests/test_yuanbao_service.py",
         "tests/test_deepseek_provider.py",
         "tests/test_zhipu_mcp_provider.py",
         "tests/test_smoke.py",
@@ -3510,6 +3529,10 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--tinyfish-search-api-url", default="", help="Save TINYFISH_SEARCH_API_URL.")
     setup_parser.add_argument("--tinyfish-fetch-api-url", default="", help="Save TINYFISH_FETCH_API_URL.")
     setup_parser.add_argument("--tinyfish-timeout", default="", help="Save TINYFISH_TIMEOUT_SECONDS.")
+    setup_parser.add_argument("--yuanbao-secret-id", default="", help="Save YUANBAO_SECRET_ID.")
+    setup_parser.add_argument("--yuanbao-secret-key", default="", help="Save YUANBAO_SECRET_KEY.")
+    setup_parser.add_argument("--yuanbao-api-url", default="", help="Save YUANBAO_API_URL.")
+    setup_parser.add_argument("--yuanbao-timeout", default="", help="Save YUANBAO_TIMEOUT_SECONDS.")
     setup_parser.add_argument("--deepseek-key", default="", help="Save DEEPSEEK_API_KEY.")
     setup_parser.add_argument("--deepseek-api-url", default="", help="Save DEEPSEEK_API_URL.")
     setup_parser.add_argument("--deepseek-timeout", default="", help="Save DEEPSEEK_TIMEOUT_SECONDS.")

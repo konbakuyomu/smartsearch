@@ -127,6 +127,14 @@ PROVIDER_DESCRIPTIONS: dict[str, dict[str, dict[str, str]]] = {
             "guidance_zh": "擅长读取已找到的公开网页；不适合发现新来源，也读不了 PDF、需登录的页面或内网地址。",
         },
     },
+    "yuanbao": {
+        "search": {
+            "en": "Searches the web with Tencent Yuanbao Search, which adds Tencent's own content such as Tencent News, and returns titles, links, publish dates and summaries.",
+            "zh": "通过腾讯元宝搜索检索网页，叠加腾讯新闻等腾讯内容，返回标题、链接、发布时间和摘要。",
+            "guidance_en": "Best for Chinese and current-events discovery; summaries are not full page text, so read key pages before citing them. This action passes only the query, so it cannot restrict sites or dates.",
+            "guidance_zh": "擅长中文和时事来源发现；摘要不是网页全文，引用关键结论前应读取原页。此操作只传入查询词，不能限定网站或时间。",
+        },
+    },
     "anysearch": {
         "search": {
             "en": "Searches AnySearch's available domains with a plain query.",

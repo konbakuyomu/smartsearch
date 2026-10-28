@@ -185,6 +185,8 @@ class ChannelExecutor:
             results = await svc.call_tinyfish_search(query, self.count) or []
         elif provider == "deepseek":
             results = await svc.call_deepseek_search(query, self.count) or []
+        elif provider == "yuanbao":
+            results = await svc.call_yuanbao_search(query, self.count) or []
         elif provider == "anysearch":
             results = _check_data(await svc.anysearch_search(query, max_results=self.count)).get("results", [])
         elif provider == "context7":

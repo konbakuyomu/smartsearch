@@ -170,7 +170,7 @@ One provider per capability is enough. Enter keys on the App's **Providers** pag
 | --- | --- | --- |
 | Main search | xAI, OpenAI-compatible API | A model searches the web and answers with citations |
 | Documentation search | Context7, Exa | Library, API and official documentation pages |
-| Web search | Zhipu, Zhipu Coding Plan, Tavily, TinyFish, DeepSeek, Firecrawl | Discovers pages and excerpts |
+| Web search | Zhipu, Zhipu Coding Plan, Tavily, TinyFish, DeepSeek, Firecrawl, Yuanbao Search | Discovers pages and excerpts |
 | Page fetching | Jina, Firecrawl, Zhipu page reading, Tavily, TinyFish, DeepSeek | Reads a known URL as clean text |
 | Vertical retrieval (experimental) | AnySearch, SciVerse | Domain and academic retrieval; SciVerse runs only when named explicitly |
 | Intent routing (optional) | Jev (TypeSafe) | Scores candidate channels and routes |

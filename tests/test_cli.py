@@ -1703,6 +1703,10 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
         "web_search",
         "--xai-stream",
         "true",
+        "--yuanbao-secret-id",
+        "AKIDtest",
+        "--yuanbao-secret-key",
+        "yuanbao-test-secret",
         "--openai-compatible-api-url",
         "https://relay.example.com/v1",
         "--openai-compatible-api-key",
@@ -1793,6 +1797,7 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
     assert saved["XAI_MODEL"] == "xai-model"
     assert saved["XAI_TOOLS"] == "web_search"
     assert saved["XAI_STREAM"] == "true"
+    assert (saved["YUANBAO_SECRET_ID"], saved["YUANBAO_SECRET_KEY"]) == ("AKIDtest", "yuanbao-test-secret")
     assert saved["OPENAI_COMPATIBLE_API_URL"] == "https://relay.example.com/v1"
     assert saved["OPENAI_COMPATIBLE_API_KEY"] == "relay-test-secret"
     assert saved["OPENAI_COMPATIBLE_MODEL"] == "relay-model"
@@ -2476,6 +2481,29 @@ def test_setup_guided_zhipu_optional_reinforcement_saves_url_and_engine(monkeypa
     assert "智谱搜索服务" in captured.err
     assert "zhipu-test-secret" not in captured.out
     assert "zhipu-test-secret" not in captured.err
+
+
+def test_setup_guided_yuanbao_optional_reinforcement_saves_both_secrets(monkeypatch, capsys):
+    saved = {}
+    answers = iter(["skip", "skip", "skip", "yuanbao", "n", "n"])
+    secrets = iter(["AKIDtest", "yuanbao-test-secret"])
+
+    def fake_config_set(key, value):
+        saved[key] = value
+        return {"ok": True, "key": key, "value": "***", "config_file": "C:/tmp/config.json"}
+
+    monkeypatch.setattr(cli.service, "config_set", fake_config_set)
+    monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
+    monkeypatch.setattr(cli.service, "config_list", lambda show_secrets=False: {"ok": True, "values": saved.copy()})
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: next(secrets))
+
+    code = cli.main(["setup", "--skip-skills", "--lang", "zh"])
+    captured = capsys.readouterr()
+
+    assert code == cli.EXIT_OK
+    assert (saved["YUANBAO_SECRET_ID"], saved["YUANBAO_SECRET_KEY"]) == ("AKIDtest", "yuanbao-test-secret")
+    assert "yuanbao-test-secret" not in captured.out + captured.err
 
 
 def test_setup_guided_uses_tui_defaults_for_configured_providers(monkeypatch, capsys):

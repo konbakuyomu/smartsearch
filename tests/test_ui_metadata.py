@@ -96,6 +96,12 @@ def test_xai_reasoning_effort_is_optional_text():
     assert "low / medium / high" in field.help_en
 
 
+def test_yuanbao_fields_form_a_web_search_provider_card():
+    fields = [FIELDS_BY_KEY[key] for key in ("YUANBAO_SECRET_ID", "YUANBAO_SECRET_KEY", "YUANBAO_API_URL", "YUANBAO_TIMEOUT_SECONDS")]
+    assert {(field.provider, field.section, field.capabilities) for field in fields} == {("yuanbao", "providers", ("web_search",))}
+    assert [field.kind for field in fields] == ["secret", "secret", "url", "float"]
+
+
 def test_xai_stream_is_an_advanced_xai_toggle():
     field = FIELDS_BY_KEY["XAI_STREAM"]
     assert (field.kind, field.tier, field.provider, field.default) == ("bool", "advanced", "xai-responses", "false")

@@ -56,6 +56,10 @@
 | `TINYFISH_SEARCH_API_URL` | TinyFish 搜索服务地址，与网页抓取地址不同；通常无需修改。 | `url` | `https://api.search.tinyfish.ai` |
 | `TINYFISH_FETCH_API_URL` | TinyFish 网页抓取服务地址，与搜索地址不同；通常无需修改。 | `url` | `https://api.fetch.tinyfish.ai` |
 | `TINYFISH_TIMEOUT_SECONDS` | 等待此服务单次响应的最长秒数；超时会返回错误或按当前策略兜底，通常保留默认值。 | `float` | `150` |
+| `YUANBAO_SECRET_ID` | 腾讯云 API 密钥的 SecretId，要和下面的 SecretKey 一起填。账号需开通元宝搜索；测试会发起一次真实搜索，计入调用额度。 | `secret` | 未设置 |
+| `YUANBAO_SECRET_KEY` | 与上面的 SecretId 配对的 SecretKey。 | `secret` | 未设置 |
+| `YUANBAO_API_URL` | 元宝搜索接口地址，请求按其中的域名签名；通常无需修改。 | `url` | `https://wsa.tencentcloudapi.com` |
+| `YUANBAO_TIMEOUT_SECONDS` | 等待此服务单次响应的最长秒数；超时会返回错误或按当前策略兜底，通常保留默认值。 | `float` | `30` |
 | `DEEPSEEK_API_KEY` | 与 DeepSeek 模型 API 共用 Key，一个 Key 支持网页搜索和抓取；按成功请求次数计费。测试会各发起一次真实请求。 | `secret` | 未设置 |
 | `DEEPSEEK_API_URL` | DeepSeek API 基础地址，程序会自动拼接 /v1/tools/search 和 /v1/tools/fetch；使用官方服务时保留默认值。 | `url` | `https://api.deepseek.com` |
 | `DEEPSEEK_TIMEOUT_SECONDS` | 等待此服务单次响应的最长秒数；超时会返回错误或按当前策略兜底，通常保留默认值。 | `float` | `60` |
@@ -72,6 +76,7 @@
 | `ZHIPU_MCP_READER_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
 | `FIRECRAWL_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
 | `TINYFISH_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
+| `YUANBAO_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
 | `DEEPSEEK_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
 | `JINA_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
 | `ANYSEARCH_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |

@@ -1447,6 +1447,34 @@
     "TinyFish 搜索与抓取 API 均可用",
     "Both TinyFish search and fetch APIs are available"
   ],
+  "Yuanbao Search API is available": [
+    "元宝搜索 API 可用",
+    "Yuanbao Search API is available"
+  ],
+  "YUANBAO_SECRET_ID or YUANBAO_SECRET_KEY is not set; Yuanbao Search is unavailable": [
+    "YUANBAO_SECRET_ID 或 YUANBAO_SECRET_KEY 未设置，元宝搜索不可用",
+    "YUANBAO_SECRET_ID or YUANBAO_SECRET_KEY is not set; Yuanbao Search is unavailable"
+  ],
+  "Yuanbao Search: {0}": [
+    "元宝搜索：{0}",
+    "Yuanbao Search: {0}"
+  ],
+  "Yuanbao Search API request timed out": [
+    "元宝搜索 API 请求超时",
+    "Yuanbao Search API request timed out"
+  ],
+  "YUANBAO_SECRET_ID and YUANBAO_SECRET_KEY are not configured.": [
+    "YUANBAO_SECRET_ID 和 YUANBAO_SECRET_KEY 未配置。",
+    "YUANBAO_SECRET_ID and YUANBAO_SECRET_KEY are not configured."
+  ],
+  "Yuanbao search response is missing Response": [
+    "元宝搜索响应缺少 Response",
+    "Yuanbao search response is missing Response"
+  ],
+  "Yuanbao search Pages is not a list": [
+    "元宝搜索返回的 Pages 不是列表",
+    "Yuanbao search Pages is not a list"
+  ],
   "Branch or version": [
     "分支或版本",
     "Branch or version"
@@ -7394,6 +7422,34 @@
   "TinyFish 搜索与抓取 API 均可用": [
     "TinyFish 搜索与抓取 API 均可用",
     "Both TinyFish search and fetch APIs are available"
+  ],
+  "元宝搜索 API 可用": [
+    "元宝搜索 API 可用",
+    "Yuanbao Search API is available"
+  ],
+  "YUANBAO_SECRET_ID 或 YUANBAO_SECRET_KEY 未设置，元宝搜索不可用": [
+    "YUANBAO_SECRET_ID 或 YUANBAO_SECRET_KEY 未设置，元宝搜索不可用",
+    "YUANBAO_SECRET_ID or YUANBAO_SECRET_KEY is not set; Yuanbao Search is unavailable"
+  ],
+  "元宝搜索：{0}": [
+    "元宝搜索：{0}",
+    "Yuanbao Search: {0}"
+  ],
+  "元宝搜索 API 请求超时": [
+    "元宝搜索 API 请求超时",
+    "Yuanbao Search API request timed out"
+  ],
+  "YUANBAO_SECRET_ID 和 YUANBAO_SECRET_KEY 未配置。": [
+    "YUANBAO_SECRET_ID 和 YUANBAO_SECRET_KEY 未配置。",
+    "YUANBAO_SECRET_ID and YUANBAO_SECRET_KEY are not configured."
+  ],
+  "元宝搜索响应缺少 Response": [
+    "元宝搜索响应缺少 Response",
+    "Yuanbao search response is missing Response"
+  ],
+  "元宝搜索返回的 Pages 不是列表": [
+    "元宝搜索返回的 Pages 不是列表",
+    "Yuanbao search Pages is not a list"
   ],
   "TinyFish 搜索响应不是 JSON 对象": [
     "TinyFish 搜索响应不是 JSON 对象",

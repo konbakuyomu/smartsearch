@@ -99,6 +99,8 @@ smart-search config set TINYFISH_SEARCH_API_URL "https://api.search.tinyfish.ai"
 smart-search config set TINYFISH_FETCH_API_URL "https://api.fetch.tinyfish.ai" --format json
 smart-search config set DEEPSEEK_API_KEY "key" --format json
 smart-search config set DEEPSEEK_API_URL "https://api.deepseek.com" --format json
+smart-search config set YUANBAO_SECRET_ID "id" --format json
+smart-search config set YUANBAO_SECRET_KEY "key" --format json
 smart-search model current --format json
 smart-search doctor --format json
 smart-search doctor --format markdown
