@@ -96,7 +96,7 @@ Windows 新构建统一使用 `windows-Setup-{架构}.exe`，不以文件名判�
 
 ## App 和 CLI 更新
 
-设置只管理 App 更新，本地环境统一进入概览。App 使用 Sparkle / Velopack，启用自动检查时每次进程启动检查，不再周期轮询。主要按钮从“检查更新”变为“下载更新”；下载进度、取消、原生安装确认和草稿保护保留。macOS 启动检查使用 Sparkle 信息探针，手动操作沿用框架交互。CLI 缺失或损坏不影响 App 检查更新。
+设置只管理 App 更新，本地环境统一进入概览。App 使用 Sparkle / Velopack，启用自动检查时每次进程启动检查，不再周期轮询。主要按钮从“检查更新”变为“下载更新”；下载进度、取消、原生安装确认和草稿保护保留。启动检查发现新版本时弹窗：Windows 在连接后弹出“立即更新 / 稍后”对话框，macOS 由 Sparkle 后台检查并显示更新提示；手动操作沿用框架交互。CLI 缺失或损坏不影响 App 检查更新。
 
 App 更新由 SDK 下载和校验，优先使用适用差分，失败时按框架规则回退完整包。安装前保护草稿、自有任务和 CLI/Skills 写入，关闭 App 自己的协议进程后安装重启。App 更新不替换独立 CLI。
 
@@ -104,7 +104,7 @@ CLI 不可用时，App 原生环境管理仍可操作。自动检测枚举 npm p
 
 ## 环境准备与 App/CLI 解耦
 
-App 不内置 CLI，也不负责搜索或 Skill 规则。概览按“本地环境 → 服务商 → 测试 → 可选 Skills”引导；先复用已发现的安装，环境路径和更新偏好集中在“环境详情”中。缺失时提供 Node.js 下载、重新检测、手动指定 npm 和选择独立 CLI 的入口。独立 ZIP 解压后保留完整目录，再选择 smart-search 可执行文件；这条路径不依赖 Node/npm，由用户管理更新。CLI 平台包自带 Python 解释器和依赖，并隔离用户 Python 环境；App 不下载或配置 Node/Python。
+App 不内置 CLI，也不负责搜索或 Skill 规则。概览按“本地环境 → 服务商 → 测试 → 可选 Skills”引导；先复用已发现的安装，环境路径和更新偏好集中在“环境详情”中。启动时用上次检测结果（Windows 为 SmartSearchTools 下的 `cli-detection.json`，macOS 为偏好设置）直接连接，所选 CLI 文件仍在才采用，随后在后台再检测一次；变化只在需要时提示或切换。右上角刷新和“重新检测”显示检测过程。缺失时提供 Node.js 下载、重新检测、手动指定 npm 和选择独立 CLI 的入口。独立 ZIP 解压后保留完整目录，再选择 smart-search 可执行文件；这条路径不依赖 Node/npm，由用户管理更新。CLI 平台包自带 Python 解释器和依赖，并隔离用户 Python 环境；App 不下载或配置 Node/Python。
 
 `npm-binaries.yml` 为 macOS、Windows、Linux 的 x64/arm64 构建平台包，真实执行 npm tarball 安装与无 Python 环境验证。发布管线待六个平台通过后，先发布平台包，再发布 npm 主包。首次发布需要在 npm 为六个 scoped 平台包配置发布权限/可信发布者；旧 0.1.24 不能覆盖，需使用新版本号。
 

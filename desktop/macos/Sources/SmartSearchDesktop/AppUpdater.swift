@@ -67,8 +67,8 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
                 Task { @MainActor in self?.refreshAvailability() }
             },
         ]
-        // A silent probe updates this App’s button without a scheduled prompt.
-        if automaticallyChecks { updater.checkForUpdateInformation() }
+        // Checked once per launch; Sparkle shows its prompt (Install / Later / Skip) only when an update is found.
+        if automaticallyChecks { updater.checkForUpdatesInBackground() }
         refreshAvailability()
     }
 

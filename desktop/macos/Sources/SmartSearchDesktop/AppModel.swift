@@ -123,7 +123,13 @@ final class AppModel: ObservableObject {
         appUpdater.start()
         cliManager.startAutomaticChecks()
         Task {
-            await connect()
+            // The last detection connects at once; the environment is detected again in the background later.
+            let restored = backendPathOverride.isEmpty && cliManager.restoreLastDetection()
+            if restored { await connect(detect: false) }
+            // Without one, or when its CLI no longer starts, detection runs in view.
+            let detectedInView = !restored || connection != .ready
+            if detectedInView { await connect() }
+            if !detectedInView && connection == .ready { await redetectEnvironment(quietly: true) }
             await cliManager.checkAutomatically(onLaunch: true)
             if !validLanguage { noticeMessage = L("无法读取已保存的显示偏好，已使用默认设置。原配置文件未修改。") }
         }
@@ -148,7 +154,8 @@ final class AppModel: ObservableObject {
         return state?.commands.first(where: { $0.id == selectedCommandID })
     }
 
-    func connect() async {
+    // detect: false connects to the CLI already selected, without detecting the environment first.
+    func connect(detect: Bool = true) async {
         guard !isUpdatingCLI && !environmentBusy else { noticeMessage = L("环境操作或 CLI 更新正在进行，请等待完成。"); return }
         guard !isBusy.contains("connect") else { return }
         clearOperations()
@@ -161,7 +168,7 @@ final class AppModel: ObservableObject {
         do {
             await backend.setTimeout(seconds: requestTimeoutSeconds)
             if backendPathOverride.isEmpty {
-                await cliManager.discover()
+                if detect { await cliManager.discover() }
                 guard let installation = cliManager.selected, installation.compatible else {
                     intentionalShutdown = true
                     await backend.shutdown()
@@ -188,13 +195,14 @@ final class AppModel: ObservableObject {
     }
 
     var environmentStatus: String {
-        if cliManager.busy || connection == .connecting { return L("正在检测本地环境…") }
+        if cliManager.busy || connection == .connecting && cliManager.selected == nil { return L("正在检测本地环境…") }
         guard let installation = cliManager.selected else {
             return cliManager.npm == nil ? L("尚未找到 Node.js/npm 或可用的 Smart Search CLI") : L("Node.js/npm 已就绪，等待准备 Smart Search CLI")
         }
         if !installation.compatible { return L("{0} · {1} · 需要更新或修复", installation.source, installation.version) }
         if cliManager.updateAvailable { return L("{0} · 可更新至 {1}", installation.version, cliManager.latestVersion) }
-        return connection == .ready ? L("{0} · 已就绪", installation.version) : L("{0} · 尚未连接", installation.version)
+        return connection == .ready ? L("{0} · 已就绪", installation.version)
+            : connection == .connecting ? L("{0} · 正在连接", installation.version) : L("{0} · 尚未连接", installation.version)
     }
 
     var environmentExplanation: String {
@@ -266,6 +274,43 @@ final class AppModel: ObservableObject {
 
     func reconnect() async {
         await connect()
+    }
+
+    // Detects the local environment again while connected. Another CLI is connected at once unless that would
+    // interrupt work; a CLI that is no longer found never replaces the working connection.
+    func redetectEnvironment(quietly: Bool) async {
+        switch await cliManager.redetect(quietly: quietly) {
+        case .unchanged:
+            return
+        case .missing:
+            noticeMessage = L("再次检测没有找到正在使用的 Smart Search CLI，当前连接保持不变。如已卸载或移动，请在“环境详情…”中重新检测。")
+        case .changed:
+            // Switching restarts the backend, so it waits for the same moments as an App update.
+            guard canInstallAppUpdate else {
+                noticeMessage = L("Smart Search CLI 有变化。完成当前任务后，点击右上角的刷新即可切换。")
+                return
+            }
+            cliManager.showRedetection()
+            await connect(detect: false)
+            if connection == .ready, let selected = cliManager.selected {
+                noticeMessage = L("Smart Search CLI 有变化，已切换到 {0}。", selected.version)
+            }
+        }
+    }
+
+    // A manual refresh also detects the local environment again, in view.
+    func refreshWorkspace() async {
+        await refreshState()
+        guard backendPathOverride.isEmpty, connection == .ready, begin("environment.detect") else { return }
+        defer { end("environment.detect") }
+        await redetectEnvironment(quietly: false)
+    }
+
+    // Only a version check the user asked for shows progress; automatic ones report just their result.
+    func checkCLIVersion() async {
+        guard begin("cli.check") else { return }
+        defer { end("cli.check") }
+        await cliManager.checkVersion()
     }
 
     func setLanguage(_ preference: String) async {

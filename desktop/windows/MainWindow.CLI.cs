@@ -13,6 +13,8 @@ public sealed partial class MainWindow
     // Set while the App installs, updates or removes a CLI; the manager's lists are rebuilt meanwhile.
     private string? _cliOperation;
     private bool CliBlocked => _cliManager.Busy || _cliManager.Checking || AppInstallBlocked;
+    // Only a version check the user asked for shows progress; automatic ones report just their result.
+    private bool _cliCheckShown;
 
     private ContentControl BuildNativeCliPanel(bool firstStep = false)
     {
@@ -35,29 +37,34 @@ public sealed partial class MainWindow
             return;
         }
         var actions = new List<UIElement>();
-        // With nothing installed, offer every environment that can take a CLI: Windows and each probed WSL distribution.
-        var targets = _cliManager.Selected is null ? _cliManager.InstallTargets.Where(target => target.Npm is not null).ToList() : [];
-        if (targets.Count > 0)
-            actions.AddRange(targets.Select(target => ActionButton(InstallTargetTitle(target), () => ManageNativeCliAsync(remove: false, target.Id),
-                primary: target == targets[0], operationKey: "native-cli-install:" + target.Id, busyText: L("处理中…"),
-                enabled: () => !CliBlocked && !CliReleaseUnavailable)));
-        else if (_cliManager.Npm is null && _cliManager.Selected is null)
-            actions.Add(ActionButton(L("安装 Node.js"), async () =>
-                { await Windows.System.Launcher.LaunchUriAsync(new Uri("https://nodejs.org/en/download")); }, primary: true));
-        else if (_cliManager.CanInstall && (_cliManager.Selected?.Compatible != true || _cliManager.UpdateAvailable))
-            actions.Add(ActionButton(CliInstallTitle(), () => ManageNativeCliAsync(remove: false), primary: true,
-                operationKey: "native-cli-install", busyText: L("处理中…"), enabled: () => !CliBlocked && !CliReleaseUnavailable));
+        // Until detection ends nothing is known to be missing, so nothing is offered to install or choose.
+        var detected = !_cliManager.Busy && !_connecting;
+        if (detected)
+        {
+            // With nothing installed, offer every environment that can take a CLI: Windows and each probed WSL distribution.
+            var targets = _cliManager.Selected is null ? _cliManager.InstallTargets.Where(target => target.Npm is not null).ToList() : [];
+            if (targets.Count > 0)
+                actions.AddRange(targets.Select(target => ActionButton(InstallTargetTitle(target), () => ManageNativeCliAsync(remove: false, target.Id),
+                    primary: target == targets[0], operationKey: "native-cli-install:" + target.Id, busyText: L("处理中…"),
+                    enabled: () => !CliBlocked && !CliReleaseUnavailable)));
+            else if (_cliManager.Npm is null && _cliManager.Selected is null)
+                actions.Add(ActionButton(L("安装 Node.js"), async () =>
+                    { await Windows.System.Launcher.LaunchUriAsync(new Uri("https://nodejs.org/en/download")); }, primary: true));
+            else if (_cliManager.CanInstall && (_cliManager.Selected?.Compatible != true || _cliManager.UpdateAvailable))
+                actions.Add(ActionButton(CliInstallTitle(), () => ManageNativeCliAsync(remove: false), primary: true,
+                    operationKey: "native-cli-install", busyText: L("处理中…"), enabled: () => !CliBlocked && !CliReleaseUnavailable));
+        }
         if (!_backend.IsConnected)
             actions.Add(ActionButton(L("重新检测"), ConnectAsync, operationKey: "connect", enabled: () => !CliBlocked));
         actions.Add(ActionButton(L("环境详情…"), ShowCliSettingsAsync));
-        if (_cliManager.Selected?.Compatible != true)
+        if (detected && _cliManager.Selected?.Compatible != true)
         {
             actions.Add(new HyperlinkButton { Content = L("手动下载 CLI"), NavigateUri = new Uri("https://github.com/konbakuyomu/smartsearch/releases/latest") });
             actions.Add(ActionButton(L("选择已有 CLI…"), ChooseCliAsync, enabled: () => !CliBlocked));
         }
         state.Children.Add(StepHeader(title, CliStatus(), actions.ToArray()));
         state.Children.Add(Secondary(CliExplanation()));
-        if (_cliManager.Checking || _cliManager.Busy) state.Children.Add(new ProgressBar { IsIndeterminate = true });
+        if (_cliManager.Busy || _cliManager.Checking && _cliCheckShown) state.Children.Add(new ProgressBar { IsIndeterminate = true });
         if (_cliManager.Message.Length > 0 && CliExplanation() != _cliManager.Message) state.Children.Add(Secondary(_cliManager.Message));
         if (_cliManager.CheckError.Length > 0) state.Children.Add(Secondary(L("检查更新失败，请稍后重试。")));
         _nativeCliState.Content = state;
@@ -180,17 +187,45 @@ public sealed partial class MainWindow
 
     private async Task CheckCliVersionAsync()
     {
-        var check = _cliManager.CheckVersionAsync();
+        _cliCheckShown = true;
+        try
+        {
+            var check = _cliManager.CheckVersionAsync();
+            RenderCliState();
+            await check;
+        }
+        finally { _cliCheckShown = false; }
         RenderCliState();
-        await check;
+    }
+
+    // Detects the local environment again while connected. Another CLI is connected at once unless that would
+    // interrupt work; a CLI that is no longer found never replaces the working connection.
+    private async Task RedetectEnvironmentAsync(bool quietly)
+    {
+        var redetection = _cliManager.RedetectAsync(quietly);
         RenderCliState();
+        var result = await redetection;
+        RenderCliState();
+        if (result == CLIInstallationManager.Redetection.Missing)
+            ShowNotice(L("本地环境"), L("再次检测没有找到正在使用的 Smart Search CLI，当前连接保持不变。如已卸载或移动，请在“环境详情…”中重新检测。"), InfoBarSeverity.Warning);
+        if (result != CLIInstallationManager.Redetection.Changed) return;
+        // Switching restarts the backend, so it waits for the same moments as an App update.
+        if (AppInstallBlocked || _appUpdater.Downloading)
+        {
+            ShowNotice(L("本地环境"), L("Smart Search CLI 有变化。完成当前任务后，点击右上角的刷新即可切换。"), InfoBarSeverity.Informational);
+            return;
+        }
+        _cliManager.ShowRedetection();
+        await ConnectWithAsync(includeStoppedWsl: false, detect: false);
+        if (_backend.IsConnected && _cliManager.Selected is { } selected)
+            ShowNotice(L("本地环境"), L("Smart Search CLI 有变化，已切换到 {0}。", selected.Version), InfoBarSeverity.Success);
     }
 
     private bool CliReleaseUnavailable => _cliManager.LatestVersion.Length > 0 && !_cliManager.LatestSupportsBinary;
 
     private string CliStatus()
     {
-        if (_cliManager.Busy || _connecting) return L("正在检测本地环境…");
+        if (_cliManager.Busy || _connecting && _cliManager.Selected is null) return L("正在检测本地环境…");
         if (_cliManager.Selected is not { } installation)
             return _cliManager.Npm is null ? L("尚未找到 Node.js/npm 或可用的 Smart Search CLI") : L("Node.js/npm 已就绪，等待准备 Smart Search CLI");
         // With WSL around, say which side's configuration and Skills the App is editing.
@@ -198,7 +233,9 @@ public sealed partial class MainWindow
         if (!installation.Compatible)
             return place + (installation.InWsl ? L("{0} · 需要更新", installation.Version) : L("{0} · {1} · 需要更新或修复", installation.Source, installation.Version));
         if (_cliManager.UpdateAvailable) return place + L("{0} · 可更新至 {1}", installation.Version, _cliManager.LatestVersion);
-        return place + (_backend.IsConnected ? L("{0} · 已就绪", installation.Version) : L("{0} · 尚未连接", installation.Version));
+        // While reconnecting, the backend being replaced still runs.
+        return place + (_connecting ? L("{0} · 正在连接", installation.Version)
+            : _backend.IsConnected ? L("{0} · 已就绪", installation.Version) : L("{0} · 尚未连接", installation.Version));
     }
 
     private string CliExplanation()

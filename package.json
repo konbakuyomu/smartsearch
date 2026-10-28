@@ -1,6 +1,6 @@
 {
   "name": "@konbakuyomu/smart-search",
-  "version": "0.1.31",
+  "version": "0.1.32",
   "description": "CLI-first multi-source web research with xAI/OpenAI-compatible search, Exa, Context7, Zhipu, Tavily, Firecrawl, and Deep Research planning.",
   "license": "MIT",
   "homepage": "https://github.com/konbakuyomu/smartsearch#readme",
@@ -39,11 +39,11 @@
   },
   "smartSearchBinary": true,
   "optionalDependencies": {
-    "@konbakuyomu/smart-search-darwin-x64": "0.1.31",
-    "@konbakuyomu/smart-search-darwin-arm64": "0.1.31",
-    "@konbakuyomu/smart-search-win32-x64": "0.1.31",
-    "@konbakuyomu/smart-search-win32-arm64": "0.1.31",
-    "@konbakuyomu/smart-search-linux-x64": "0.1.31",
-    "@konbakuyomu/smart-search-linux-arm64": "0.1.31"
+    "@konbakuyomu/smart-search-darwin-x64": "0.1.32",
+    "@konbakuyomu/smart-search-darwin-arm64": "0.1.32",
+    "@konbakuyomu/smart-search-win32-x64": "0.1.32",
+    "@konbakuyomu/smart-search-win32-arm64": "0.1.32",
+    "@konbakuyomu/smart-search-linux-x64": "0.1.32",
+    "@konbakuyomu/smart-search-linux-arm64": "0.1.32"
   }
 }

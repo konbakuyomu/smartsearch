@@ -133,23 +133,9 @@ public sealed partial class MainWindow
 
     private static Border WorkspaceFooter(TextBlock summary, FrameworkElement actions)
     {
-        var row = new Grid { ColumnSpacing = 24 };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         summary.VerticalAlignment = VerticalAlignment.Center;
-        Grid.SetColumn(actions, 1);
-        row.Children.Add(summary);
-        row.Children.Add(actions);
-        row.SizeChanged += (_, args) =>
-        {
-            var stacked = args.NewSize.Width < 640;
-            row.RowSpacing = stacked ? 8 : 0;
-            Grid.SetColumn(actions, stacked ? 0 : 1);
-            Grid.SetRow(actions, stacked ? 1 : 0);
-            actions.HorizontalAlignment = stacked ? HorizontalAlignment.Left : HorizontalAlignment.Right;
-        };
+        actions.VerticalAlignment = VerticalAlignment.Center;
+        var row = new TrailingActionsPanel { Spacing = 24, StackedSpacing = 8, Children = { summary, actions } };
         return new Border { Style = UiStyle("WorkspaceFooterStyle"), Child = row };
     }
 
@@ -188,24 +174,7 @@ public sealed partial class MainWindow
             Children = { SectionHeading(title), Secondary(subtitle) } };
         var actions = ActionRow(buttons);
         actions.VerticalAlignment = VerticalAlignment.Center;
-        var row = new Grid { ColumnSpacing = 16 };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        row.Children.Add(heading);
-        row.Children.Add(actions);
-        Grid.SetColumn(actions, 1);
-        row.SizeChanged += (_, args) =>
-        {
-            var stacked = args.NewSize.Width < 560;
-            row.ColumnDefinitions[1].Width = stacked ? new GridLength(0) : GridLength.Auto;
-            row.RowSpacing = stacked ? 12 : 0;
-            Grid.SetColumn(actions, stacked ? 0 : 1);
-            Grid.SetRow(actions, stacked ? 1 : 0);
-            actions.HorizontalAlignment = stacked ? HorizontalAlignment.Left : HorizontalAlignment.Right;
-        };
-        return row;
+        return new TrailingActionsPanel { Children = { heading, actions } };
     }
 
     private static ToggleSwitch CompactSwitch(string label, bool value)
@@ -275,8 +244,14 @@ public sealed partial class MainWindow
 
     private async void OnRefreshWorkspaceClick(object sender, RoutedEventArgs args)
     {
-        await RunOperationAsync(_backend.IsConnected ? "state" : "connect",
-            _backend.IsConnected ? () => RefreshStateAsync() : ConnectAsync);
+        if (!_backend.IsConnected)
+        {
+            await RunOperationAsync("connect", ConnectAsync);
+            return;
+        }
+        await RunOperationAsync("state", () => RefreshStateAsync());
+        // A manual refresh also detects the local environment again, in view.
+        if (!_backend.UsesExplicitBackend) await RunOperationAsync("connect", () => RedetectEnvironmentAsync(quietly: false));
     }
 
     private void ShowNotice(string title, string message, InfoBarSeverity severity)

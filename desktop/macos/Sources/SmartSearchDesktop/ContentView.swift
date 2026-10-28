@@ -14,6 +14,7 @@ struct ContentView: View {
     @State private var showingFeedback = false
 
     private var hasFeedback: Bool { model.errorMessage != nil || model.noticeMessage != nil }
+    private var refreshing: Bool { model.isBusy.contains("state") || model.isBusy.contains("environment.detect") }
 
     var body: some View {
         NavigationSplitView {
@@ -103,12 +104,12 @@ struct ContentView: View {
         }
         ToolbarItem(id: "workspace-refresh", placement: .primaryAction) {
             Button {
-                Task { await model.refreshState() }
+                Task { await model.refreshWorkspace() }
             } label: {
                 ZStack {
                     Image(systemName: "arrow.clockwise")
-                        .opacity(model.isBusy.contains("state") ? 0 : 1)
-                    if model.isBusy.contains("state") {
+                        .opacity(refreshing ? 0 : 1)
+                    if refreshing {
                         ProgressView().controlSize(.small)
                     }
                 }
