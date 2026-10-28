@@ -2576,6 +2576,7 @@ async def _run_async_impl(args: argparse.Namespace) -> int:
             budget=args.budget,
             evidence_dir=args.evidence_dir,
             fallback=args.fallback,
+            stream=args.stream,
         )
         return _print_result("research", data, args.format, args.output)
     if args.command == "smoke":
@@ -2742,6 +2743,7 @@ def _run_setup(args: argparse.Namespace) -> int:
         "XAI_API_KEY": args.xai_api_key,
         "XAI_MODEL": args.xai_model,
         "XAI_TOOLS": args.xai_tools_explicit,
+        "XAI_STREAM": args.xai_stream,
         "OPENAI_COMPATIBLE_API_URL": args.openai_compatible_api_url,
         "OPENAI_COMPATIBLE_API_KEY": args.openai_compatible_api_key,
         "OPENAI_COMPATIBLE_MODEL": args.openai_compatible_model,
@@ -3264,6 +3266,9 @@ def build_parser() -> argparse.ArgumentParser:
     research_parser.add_argument("--budget", choices=["quick", "standard", "deep"], default="deep")
     research_parser.add_argument("--evidence-dir", default="")
     research_parser.add_argument("--fallback", choices=["auto", "off"], default="auto")
+    research_stream_group = research_parser.add_mutually_exclusive_group()
+    research_stream_group.add_argument("--stream", dest="stream", action="store_true", default=None, help="Use stream=true for xAI Responses or OpenAI-compatible main search.")
+    research_stream_group.add_argument("--no-stream", dest="stream", action="store_false", help="Force stream=false for xAI Responses or OpenAI-compatible main search.")
     _add_format_args(research_parser)
 
     smoke_parser = sub.add_parser(
@@ -3435,6 +3440,7 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--xai-api-key", default="", help="Save XAI_API_KEY.")
     setup_parser.add_argument("--xai-model", default="", help="Save XAI_MODEL.")
     setup_parser.add_argument("--xai-tools-explicit", default="", help="Save XAI_TOOLS.")
+    setup_parser.add_argument("--xai-stream", default="", help="Save XAI_STREAM.")
     setup_parser.add_argument("--openai-compatible-api-url", default="", help="Save OPENAI_COMPATIBLE_API_URL.")
     setup_parser.add_argument("--openai-compatible-api-key", default="", help="Save OPENAI_COMPATIBLE_API_KEY.")
     setup_parser.add_argument("--openai-compatible-model", default="", help="Save OPENAI_COMPATIBLE_MODEL.")

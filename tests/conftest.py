@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 
@@ -42,3 +43,31 @@ def reject_unmocked_provider_requests(monkeypatch):
     monkeypatch.setattr(httpx.AsyncClient, "send", send)
     yield
     assert not blocked, f"Tests must mock provider requests: {sorted(set(blocked))}"
+
+
+@pytest.fixture
+def xai_requests(monkeypatch):
+    """Answer xAI Responses requests at the HTTP boundary and record each payload."""
+    requests = []
+    original_client = httpx.AsyncClient
+    annotation = {"type": "url_citation", "url": "https://example.org/source", "title": "Source"}
+    events = [
+        {"type": "response.output_text.delta", "delta": "Retrieved answer."},
+        {"type": "response.output_text.annotation.added", "annotation": annotation},
+        {"type": "response.completed", "response": {"status": "completed", "output": []}},
+    ]
+
+    def handler(request):
+        if request.url.host != "api.x.ai":
+            return httpx.Response(404)
+        payload = json.loads(request.content)
+        requests.append(payload)
+        if payload["stream"]:
+            return httpx.Response(200, headers={"Content-Type": "text/event-stream"},
+                                  text="".join(f"data: {json.dumps(event)}\n\n" for event in events))
+        return httpx.Response(200, json={"output": [{"type": "message", "content": [
+            {"type": "output_text", "text": "Retrieved answer.", "annotations": [annotation]},
+        ]}]})
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+    return requests

@@ -13,6 +13,7 @@ Generated from current configuration metadata. Active keys appear below. Retired
 | `XAI_MODEL` | Leave empty for the default model. | `text` | `grok-4-fast` |
 | `XAI_TOOLS` | Comma separated. web_search and x_search are the supported values. | `web_search, x_search` | `web_search,x_search` |
 | `XAI_REASONING_EFFORT` | Allowed values: low / medium / high; leave empty to omit reasoning.effort. | `text` | Not set |
+| `XAI_STREAM` | When on, xAI requests in search and research use stream=true; --stream / --no-stream overrides a single run. A failed stream is not retried without streaming. | `bool` | `false` |
 | `OPENAI_COMPATIBLE_API_URL` | Any OpenAI-protocol service works. Counts as configured only together with the key below. | `url` | Not set |
 | `OPENAI_COMPATIBLE_API_KEY` | The link below is OpenAI's own. Using a relay or another provider? Get the key from them instead. | `secret` | Not set |
 | `OPENAI_COMPATIBLE_MODEL` | Whatever your provider documents, e.g. gpt-4o or deepseek-chat. | `text` | Not set |
@@ -82,7 +83,7 @@ Generated from current configuration metadata. Active keys appear below. Retired
 | --- | --- | --- | --- |
 | `SMART_SEARCH_INTENT_ROUTER` | Jev selects a channel when available; local mode calls no router model. Ordinary search always uses one round. | `jev, local` | `jev` |
 | `TYPESAFE_API_KEY` | Optional. The default uses Jev; without a key it selects a configured retrieval channel locally. | `secret` | Not set |
-| `TYPESAFE_API_URL` | TypeSafe base URL for JEV mode only. Defaults to https://api.typesafe.ai/v1; /systemone is added automatically. This is not a search-provider URL. | `url` | `https://api.typesafe.ai/v1` |
+| `TYPESAFE_API_URL` | TypeSafe base URL for JEV mode only. Defaults to https://api.typesafe.ai/v1; /systemone is added automatically. A relay that serves /v1/systemone also works. This is not a search-provider URL. | `url` | `https://api.typesafe.ai/v1` |
 | `TYPESAFE_MODEL` | TypeSafe model identifier for judging channels and evidence, separate from the main search model. Usually leave the default. | `text` | `jev-latest` |
 | `SMART_SEARCH_JEV_TIMEOUT_SECONDS` | Maximum seconds to wait for one response from this service. A timeout returns an error or uses the configured fallback; normally leave the default. | `float` | `15` |
 | `SMART_SEARCH_JEV_MAX_ROUNDS` | Research only. Stops early when sufficient; ordinary search ignores this setting. | `int` | `3` |

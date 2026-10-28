@@ -829,7 +829,7 @@ Aliases: `rs`
 usage: smart-search research [-h] [--lang {auto,zh,en}]
                              [--budget {quick,standard,deep}]
                              [--evidence-dir EVIDENCE_DIR]
-                             [--fallback {auto,off}]
+                             [--fallback {auto,off}] [--stream | --no-stream]
                              [--format {json,markdown,content}]
                              [--output OUTPUT]
                              query
@@ -844,11 +844,15 @@ options:
   --budget {quick,standard,deep}
   --evidence-dir EVIDENCE_DIR
   --fallback {auto,off}
+  --stream              Use stream=true for xAI Responses or OpenAI-compatible
+                        main search.
+  --no-stream           Force stream=false for xAI Responses or OpenAI-
+                        compatible main search.
   --format {json,markdown,content}
   --output OUTPUT       Write rendered output to a file.
 ```
 
-Parser defaults: `--budget` = `deep`; `--evidence-dir` = ``; `--fallback` = `auto`; `--format` = `json`; `--output` = ``.
+Parser defaults: `--budget` = `deep`; `--evidence-dir` = ``; `--fallback` = `auto`; `--no-stream` = `True`; `--format` = `json`; `--output` = ``.
 
 ## `smart-search smoke`
 
@@ -1203,6 +1207,7 @@ usage: smart-search setup [-h] [--lang {auto,zh,en}] [--non-interactive]
                           [--xai-api-url XAI_API_URL]
                           [--xai-api-key XAI_API_KEY] [--xai-model XAI_MODEL]
                           [--xai-tools-explicit XAI_TOOLS_EXPLICIT]
+                          [--xai-stream XAI_STREAM]
                           [--openai-compatible-api-url OPENAI_COMPATIBLE_API_URL]
                           [--openai-compatible-api-key OPENAI_COMPATIBLE_API_KEY]
                           [--openai-compatible-model OPENAI_COMPATIBLE_MODEL]
@@ -1274,6 +1279,8 @@ options:
                         Save XAI_MODEL.
   --xai-tools-explicit XAI_TOOLS_EXPLICIT
                         Save XAI_TOOLS.
+  --xai-stream XAI_STREAM
+                        Save XAI_STREAM.
   --openai-compatible-api-url OPENAI_COMPATIBLE_API_URL
                         Save OPENAI_COMPATIBLE_API_URL.
   --openai-compatible-api-key OPENAI_COMPATIBLE_API_KEY
@@ -1374,7 +1381,7 @@ options:
   --output OUTPUT       Write rendered output to a file.
 ```
 
-Parser defaults: `--non-interactive` = `False`; `--advanced` = `False`; `--skip-skills` = `False`; `--install-skills` = ``; `--skills-root` = ``; `--xai-api-url` = ``; `--xai-api-key` = ``; `--xai-model` = ``; `--xai-tools-explicit` = ``; `--openai-compatible-api-url` = ``; `--openai-compatible-api-key` = ``; `--openai-compatible-model` = ``; `--openai-compatible-fallback-models` = ``; `--openai-compatible-api-mode` = ``; `--openai-compatible-stream` = ``; `--jev-synthesis-api-url` = ``; `--jev-synthesis-api-key` = ``; `--jev-synthesis-model` = ``; `--jev-synthesis-api-mode` = ``; `--validation-level` = ``; `--fallback-mode` = ``; `--minimum-profile` = ``; `--intent-router` = ``; `--search-timeout / --search-timeout-seconds` = ``; `--provider-cooldown / --provider-cooldown-seconds` = ``; `--provider-failure-threshold` = ``; `--exa-key` = ``; `--context7-key` = ``; `--zhipu-key` = ``; `--zhipu-api-url` = ``; `--zhipu-search-engine` = ``; `--zhipu-mcp-key` = ``; `--zhipu-mcp-search-api-url` = ``; `--zhipu-mcp-reader-api-url` = ``; `--zhipu-mcp-zread-api-url` = ``; `--zhipu-mcp-timeout` = ``; `--jina-key` = ``; `--jina-reader-api-url` = ``; `--jina-respond-with` = ``; `--jina-timeout` = ``; `--tavily-api-url` = ``; `--tavily-key` = ``; `--firecrawl-api-url` = ``; `--firecrawl-key` = ``; `--tinyfish-key` = ``; `--tinyfish-search-api-url` = ``; `--tinyfish-fetch-api-url` = ``; `--tinyfish-timeout` = ``; `--deepseek-key` = ``; `--deepseek-api-url` = ``; `--deepseek-timeout` = ``; `--anysearch-api-url` = ``; `--anysearch-key` = ``; `--anysearch-timeout` = ``; `--sciverse-api-url` = ``; `--sciverse-token` = ``; `--sciverse-timeout` = ``; `--format` = `json`; `--output` = ``.
+Parser defaults: `--non-interactive` = `False`; `--advanced` = `False`; `--skip-skills` = `False`; `--install-skills` = ``; `--skills-root` = ``; `--xai-api-url` = ``; `--xai-api-key` = ``; `--xai-model` = ``; `--xai-tools-explicit` = ``; `--xai-stream` = ``; `--openai-compatible-api-url` = ``; `--openai-compatible-api-key` = ``; `--openai-compatible-model` = ``; `--openai-compatible-fallback-models` = ``; `--openai-compatible-api-mode` = ``; `--openai-compatible-stream` = ``; `--jev-synthesis-api-url` = ``; `--jev-synthesis-api-key` = ``; `--jev-synthesis-model` = ``; `--jev-synthesis-api-mode` = ``; `--validation-level` = ``; `--fallback-mode` = ``; `--minimum-profile` = ``; `--intent-router` = ``; `--search-timeout / --search-timeout-seconds` = ``; `--provider-cooldown / --provider-cooldown-seconds` = ``; `--provider-failure-threshold` = ``; `--exa-key` = ``; `--context7-key` = ``; `--zhipu-key` = ``; `--zhipu-api-url` = ``; `--zhipu-search-engine` = ``; `--zhipu-mcp-key` = ``; `--zhipu-mcp-search-api-url` = ``; `--zhipu-mcp-reader-api-url` = ``; `--zhipu-mcp-zread-api-url` = ``; `--zhipu-mcp-timeout` = ``; `--jina-key` = ``; `--jina-reader-api-url` = ``; `--jina-respond-with` = ``; `--jina-timeout` = ``; `--tavily-api-url` = ``; `--tavily-key` = ``; `--firecrawl-api-url` = ``; `--firecrawl-key` = ``; `--tinyfish-key` = ``; `--tinyfish-search-api-url` = ``; `--tinyfish-fetch-api-url` = ``; `--tinyfish-timeout` = ``; `--deepseek-key` = ``; `--deepseek-api-url` = ``; `--deepseek-timeout` = ``; `--anysearch-api-url` = ``; `--anysearch-key` = ``; `--anysearch-timeout` = ``; `--sciverse-api-url` = ``; `--sciverse-token` = ``; `--sciverse-timeout` = ``; `--format` = `json`; `--output` = ``.
 
 ## `smart-search config`
 

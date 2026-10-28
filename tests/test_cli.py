@@ -708,8 +708,8 @@ def test_deep_alias_and_markdown_output(monkeypatch, capsys):
 def test_research_command_uses_service_and_outputs_json(monkeypatch, capsys, tmp_path):
     captured = {}
 
-    async def fake_research(query, budget="deep", evidence_dir="", fallback="auto"):
-        captured.update({"query": query, "budget": budget, "evidence_dir": evidence_dir, "fallback": fallback})
+    async def fake_research(query, budget="deep", evidence_dir="", fallback="auto", stream=None):
+        captured.update({"query": query, "budget": budget, "evidence_dir": evidence_dir, "fallback": fallback, "stream": stream})
         return {
             "ok": True,
             "mode": "deep_research_execution",
@@ -744,13 +744,13 @@ def test_research_command_uses_service_and_outputs_json(monkeypatch, capsys, tmp
 
     assert code == cli.EXIT_OK
     data = json.loads(capsys.readouterr().out)
-    assert captured == {"query": "React docs", "budget": "standard", "evidence_dir": str(tmp_path), "fallback": "off"}
+    assert captured == {"query": "React docs", "budget": "standard", "evidence_dir": str(tmp_path), "fallback": "off", "stream": None}
     assert data["query_mode"] == "research"
     assert data["final_answer"] == "Evidence answer"
 
 
 def test_research_markdown_and_content_output(monkeypatch, capsys):
-    async def fake_research(query, budget="deep", evidence_dir="", fallback="auto"):
+    async def fake_research(query, budget="deep", evidence_dir="", fallback="auto", stream=None):
         return {
             "ok": True,
             "question": query,
@@ -1081,6 +1081,29 @@ def test_doctor_displays_xai_reasoning_effort(monkeypatch, capsys, effort):
 
     assert code == cli.EXIT_OK
     assert json.loads(capsys.readouterr().out)["XAI_REASONING_EFFORT"] == effort.lower()
+
+
+def test_xai_stream_is_saved_and_displayed_by_doctor(monkeypatch, capsys):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+
+    async def connected(provider_config):
+        return {"status": "ok"}
+
+    monkeypatch.setattr(cli.service, "_safe_test_main_provider_connection", connected)
+
+    assert cli.main(["config", "set", "XAI_STREAM", "true", "--format", "json"]) == cli.EXIT_OK
+    capsys.readouterr()
+    code = cli.main(["doctor", "--format", "json"])
+
+    assert code == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["XAI_STREAM"] is True
+
+
+def test_non_interactive_setup_saves_xai_stream(capsys):
+    code = cli.main(["setup", "--non-interactive", "--xai-api-key", "xai-test", "--xai-stream", "true"])
+
+    assert code == cli.EXIT_OK
+    assert cli.service.config.xai_stream is True
 
 
 def test_real_doctor_ignores_legacy_primary_env_and_returns_config_exit(monkeypatch, capsys):
@@ -1463,7 +1486,7 @@ def test_all_formatted_commands_have_non_json_markdown(monkeypatch):
     async def fake_smoke(mode="mock"):
         return {"ok": True, "mode": mode, "failed_cases": [], "cases": [{"name": "case", "ok": True}]}
 
-    async def fake_research(query, budget="deep", evidence_dir="", fallback="auto"):
+    async def fake_research(query, budget="deep", evidence_dir="", fallback="auto", stream=None):
         return {"ok": True, "question": query, "content": "Research", "final_answer": "Research", "citations": [], "gap_check": {"gaps": []}}
 
     async def fake_route_calibrate(models=""):

@@ -96,6 +96,11 @@ def test_xai_reasoning_effort_is_optional_text():
     assert "low / medium / high" in field.help_en
 
 
+def test_xai_stream_is_an_advanced_xai_toggle():
+    field = FIELDS_BY_KEY["XAI_STREAM"]
+    assert (field.kind, field.tier, field.provider, field.default) == ("bool", "advanced", "xai-responses", "false")
+
+
 def test_provider_ids_are_real():
     known = set(service.provider_profiles()) | {""}
     for item in CONFIG_FIELDS:

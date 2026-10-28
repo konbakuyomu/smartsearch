@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from smart_search import service
+from smart_search import cli, service
 from smart_search.jev import JevClient
 from smart_search.jev_search import ChannelExecutor, FALLBACK_RESERVE_RATIO
 from smart_search.provider_errors import ProviderCallError
@@ -633,6 +633,58 @@ async def test_search_xai_unsupported_reasoning_fails_once(monkeypatch, stream):
     assert result["error"] == "HTTP 400: " + error_body.decode()
     assert result["provider_attempts"][0]["stream"] is stream
     assert result["provider_attempts"][0]["reasoning_effort"] == "high"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("configured", "override", "expected"), [
+    ("true", None, True), ("1", None, True), ("yes", None, True),
+    ("true", False, False), ("false", True, True), ("", None, False),
+])
+async def test_search_xai_stream_follows_xai_stream_unless_overridden(monkeypatch, xai_requests, configured, override, expected):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("XAI_STREAM", configured)
+
+    result = await service.search("Find this source", providers="xai-responses", fallback="off", stream=override)
+
+    assert result["ok"] is True
+    assert [payload["stream"] for payload in xai_requests] == [expected]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("stream", "transport"), [(True, "stream"), (False, "non_stream")])
+async def test_search_xai_attempt_reports_transport(monkeypatch, xai_requests, stream, transport):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+
+    result = await service.search("Find this source", providers="xai-responses", fallback="off", stream=stream)
+
+    assert [attempt["transport"] for attempt in result["provider_attempts"]] == [transport]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("configured", "override", "expected"), [
+    ("true", None, True), ("true", False, False), ("", True, True), ("", None, False),
+])
+async def test_research_xai_stream_follows_xai_stream_unless_overridden(monkeypatch, tmp_path, xai_requests, configured, override, expected):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("XAI_STREAM", configured)
+
+    await service.research("Find this source", budget="quick", evidence_dir=str(tmp_path), stream=override)
+
+    assert xai_requests and {payload["stream"] for payload in xai_requests} == {expected}
+
+
+@pytest.mark.parametrize(("flag", "expected"), [("--stream", True), ("--no-stream", False)])
+def test_research_cli_stream_flags_override_xai_stream(monkeypatch, tmp_path, capsys, xai_requests, flag, expected):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("XAI_STREAM", "false" if expected else "true")
+
+    cli.main(["research", "Find this source", "--budget", "quick", "--evidence-dir", str(tmp_path), flag, "--format", "json"])
+
+    assert xai_requests and {payload["stream"] for payload in xai_requests} == {expected}
 
 
 @pytest.mark.asyncio

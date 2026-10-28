@@ -70,6 +70,7 @@ class Config:
         "XAI_MODEL",
         "XAI_TOOLS",
         "XAI_REASONING_EFFORT",
+        "XAI_STREAM",
         "OPENAI_COMPATIBLE_API_URL",
         "OPENAI_COMPATIBLE_API_KEY",
         "OPENAI_COMPATIBLE_MODEL",
@@ -153,6 +154,7 @@ class Config:
         "XAI_MODEL",
         "XAI_TOOLS",
         "XAI_REASONING_EFFORT",
+        "XAI_STREAM",
         "OPENAI_COMPATIBLE_API_URL",
         "OPENAI_COMPATIBLE_API_KEY",
         "OPENAI_COMPATIBLE_ENABLED",
@@ -587,6 +589,10 @@ class Config:
     def xai_reasoning_effort(self) -> str:
         value = (self._get_config_value("XAI_REASONING_EFFORT", "") or "").strip().lower()
         return self._validate_enum_value("XAI_REASONING_EFFORT", value, self._ALLOWED_XAI_REASONING_EFFORTS) if value else ""
+
+    @property
+    def xai_stream(self) -> bool:
+        return (self._get_config_value("XAI_STREAM", "false") or "false").lower() in ("true", "1", "yes")
 
     @property
     def openai_compatible_api_url(self) -> str | None:
@@ -1239,6 +1245,7 @@ class Config:
             "XAI_MODEL": self.xai_model,
             "XAI_TOOLS": self.xai_tools_raw,
             "XAI_REASONING_EFFORT": xai_reasoning_effort,
+            "XAI_STREAM": self.xai_stream,
             "OPENAI_COMPATIBLE_API_URL": self.openai_compatible_api_url or tr('未配置'),
             "OPENAI_COMPATIBLE_API_KEY": self._mask_api_key(self.openai_compatible_api_key) if self.openai_compatible_api_key else tr('未配置'),
             "OPENAI_COMPATIBLE_MODEL": self.openai_compatible_model,

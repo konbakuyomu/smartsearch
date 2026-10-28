@@ -5735,6 +5735,10 @@
     "保存 XAI_TOOLS。",
     "Save XAI_TOOLS."
   ],
+  "Save XAI_STREAM.": [
+    "保存 XAI_STREAM。",
+    "Save XAI_STREAM."
+  ],
   "Save ZHIPU_API_KEY.": [
     "保存 ZHIPU_API_KEY。",
     "Save ZHIPU_API_KEY."
@@ -9526,6 +9530,10 @@
   "保存 XAI_TOOLS。": [
     "保存 XAI_TOOLS。",
     "Save XAI_TOOLS."
+  ],
+  "保存 XAI_STREAM。": [
+    "保存 XAI_STREAM。",
+    "Save XAI_STREAM."
   ],
   "保存 ZHIPU_API_KEY。": [
     "保存 ZHIPU_API_KEY。",

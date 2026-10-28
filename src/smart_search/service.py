@@ -1482,6 +1482,7 @@ async def research(
     budget: str = "deep",
     evidence_dir: str = "",
     fallback: str = "auto",
+    stream: bool | None = None,
 ) -> dict[str, Any]:
     start = time.time()
     question = query.strip()
@@ -1498,7 +1499,7 @@ async def research(
     timeout = min(config.search_timeout, {"quick": 45, "standard": 120, "deep": config.search_timeout}[level])
     return await jev_search.search(
         question, validation="strict" if level == "deep" else "balanced", fallback=fallback_mode,
-        providers="auto", timeout_seconds=timeout, research_plan=plan, single_pass=False,
+        providers="auto", timeout_seconds=timeout, stream=stream, research_plan=plan, single_pass=False,
     )
 
 
@@ -1629,6 +1630,7 @@ def _main_search_provider_configs(model_override: str = "", providers: str = "au
             "model": model_override or config.xai_model,
             "tools": config.parse_xai_tools(config.xai_tools_raw),
             "reasoning_effort": config.xai_reasoning_effort,
+            "stream": config.xai_stream,
             "source": "XAI_*",
         }
 
@@ -1708,6 +1710,7 @@ async def _search_model_channel(
                  "attempt_timeout_seconds": round(remaining, 3)}
         if candidate["provider"] == "xai-responses":
             extra["reasoning_effort"] = candidate.get("reasoning_effort", "")
+            extra["transport"] = "stream" if candidate.get("stream") else "non_stream"
         if candidate.get("fallback_from_model"):
             extra["fallback_from_model"] = candidate["fallback_from_model"]
         if relay:
@@ -3205,18 +3208,25 @@ async def _test_primary_connection(
     return result
 
 
-async def _test_primary_responses(api_url: str, api_key: str, model: str) -> dict[str, Any]:
+async def _test_primary_responses(
+    api_url: str, api_key: str, model: str, *, reasoning_effort: str = "", stream: bool = False,
+) -> dict[str, Any]:
     responses_url = f"{api_url.rstrip('/')}/responses"
+    payload: dict[str, Any] = {
+        "model": model,
+        "input": [{"role": "user", "content": "Reply with exactly: ok"}],
+        "stream": stream,
+    }
+    if reasoning_effort:
+        payload["reasoning"] = {"effort": reasoning_effort}
+    # Same reasoning effort and transport as a search, but no tools, so a test never runs a billed search.
+    sent = {"reasoning_effort": reasoning_effort, "stream": stream, "tools": []}
     start = time.time()
     async with httpx.AsyncClient(timeout=20.0) as client:
         response = await client.post(
             responses_url,
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
-                "model": model,
-                "input": [{"role": "user", "content": "Reply with exactly: ok"}],
-                "stream": False,
-            },
+            json=payload,
         )
         response_time = _elapsed_ms(start)
         if response.status_code != 200:
@@ -3224,13 +3234,18 @@ async def _test_primary_responses(api_url: str, api_key: str, model: str) -> dic
                 "status": "warning",
                 "message": source_message('HTTP {0}: {1}', response.status_code, sanitize_provider_error_message(response.text, limit=100)),
                 "response_time_ms": response_time,
+                "sent": sent,
             }
-        return {"status": "ok", "message": source_message('xAI Responses API 可用 (HTTP {0})', response.status_code), "response_time_ms": response_time}
+        return {"status": "ok", "message": source_message('xAI Responses API 可用 (HTTP {0})', response.status_code),
+                "response_time_ms": response_time, "sent": sent}
 
 
 async def _test_main_provider_connection(provider_config: dict[str, Any]) -> dict[str, Any]:
     if provider_config["mode"] == "xai-responses":
-        return await _test_primary_responses(provider_config["api_url"], provider_config["api_key"], provider_config["model"])
+        return await _test_primary_responses(
+            provider_config["api_url"], provider_config["api_key"], provider_config["model"],
+            reasoning_effort=provider_config.get("reasoning_effort", ""), stream=provider_config.get("stream", False),
+        )
     api_mode = provider_config.get("api_mode", provider_config.get("mode", "chat-completions"))
     if api_mode == "chat-completions":
         return await _test_primary_connection(provider_config["api_url"], provider_config["api_key"], provider_config["model"])
@@ -3636,6 +3651,8 @@ async def test_provider_connection(
         "error": "" if status == "ok" else str(test.get("message") or ""),
         "health": _provider_health_status(recorded_as),
     }
+    if "sent" in test:
+        result["sent"] = test["sent"]
     if probe_label == "shared":
         result["message"] = (
             f"{result['message']} (与 {recorded_as} 共用同一组凭据)" if result["message"] else f"与 {recorded_as} 共用同一组凭据"

@@ -2730,7 +2730,7 @@ async def test_doctor_tests_main_providers_independently(monkeypatch):
     monkeypatch.setenv("EXA_API_KEY", "exa-test-secret")
     monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-secret")
 
-    async def fake_xai(api_url, api_key, model):
+    async def fake_xai(api_url, api_key, model, **kwargs):
         raise httpx.TimeoutException("xai timeout")
 
     async def fake_openai(api_url, api_key, model):

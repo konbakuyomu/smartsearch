@@ -169,3 +169,44 @@ def test_record_probe_result_matches_the_doctor_contract(isolated, monkeypatch):
     assert isolated.status("exa")["state"] == "cooldown"
     service._record_probe_result("exa", {"status": "ok", "message": "fine"})
     assert isolated.status("exa")["state"] == "closed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("effort", "stream"), [("medium", True), ("", False)])
+async def test_xai_test_sends_the_configured_reasoning_effort_and_stream(isolated, monkeypatch, xai_requests, effort, stream):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("XAI_REASONING_EFFORT", effort)
+    monkeypatch.setenv("XAI_STREAM", "true" if stream else "false")
+
+    result = await service.test_provider_connection("xai-responses")
+
+    assert result["status"] == "ok"
+    assert len(xai_requests) == 1
+    assert xai_requests[0]["stream"] is stream
+    assert xai_requests[0].get("reasoning") == ({"effort": effort} if effort else None)
+    assert "tools" not in xai_requests[0]
+    assert result["sent"] == {"reasoning_effort": effort, "stream": stream, "tools": []}
+
+
+@pytest.mark.asyncio
+async def test_xai_test_uses_unsaved_form_values(isolated, monkeypatch, xai_requests):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+
+    result = await service.test_provider_connection(
+        "xai-responses", overrides={"XAI_REASONING_EFFORT": "low", "XAI_STREAM": "true"},
+    )
+
+    assert result["status"] == "ok"
+    assert xai_requests[0]["reasoning"] == {"effort": "low"}
+    assert xai_requests[0]["stream"] is True
+
+
+@pytest.mark.asyncio
+async def test_doctor_xai_test_sends_the_configured_reasoning_effort(isolated, monkeypatch, xai_requests):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("XAI_REASONING_EFFORT", "medium")
+
+    info = await service.doctor()
+
+    assert xai_requests[0]["reasoning"] == {"effort": "medium"}
+    assert info["main_search_connection_tests"]["xai-responses"]["sent"]["reasoning_effort"] == "medium"
