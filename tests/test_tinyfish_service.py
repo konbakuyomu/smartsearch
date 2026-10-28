@@ -111,7 +111,7 @@ def test_tinyfish_joins_both_fallback_chains_after_the_established_providers(mon
 
     status = service.get_capability_status()
 
-    assert status["web_search"]["fallback_chain"] == ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek"]
+    assert status["web_search"]["fallback_chain"] == ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek", "yuanbao"]
     assert status["web_fetch"]["fallback_chain"] == ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish", "deepseek"]
     assert status["web_search"]["configured"] == ["tinyfish"]
     assert status["web_fetch"]["configured"] == ["tinyfish"]

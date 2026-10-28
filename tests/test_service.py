@@ -145,6 +145,25 @@ def test_openai_compatible_fallback_models_are_ordered_deduped_and_reported(monk
     assert current_result["openai_compatible_fallback_models"] == ["fallback-a", "fallback-b"]
 
 
+def test_xai_stream_rejects_values_that_are_not_booleans(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+
+    rejected = service.config_set("XAI_STREAM", "on")
+    saved = service.config_set("XAI_STREAM", "Yes")
+
+    assert rejected["ok"] is False
+    assert "Invalid XAI_STREAM" in rejected["error"]
+    assert saved["ok"] is True
+    assert service.config.xai_stream is True
+
+
+def test_current_model_reports_xai_stream(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("XAI_STREAM", "true")
+
+    assert service.current_model()["xai_stream"] is True
+
+
 def test_openai_compatible_stream_config_defaults_and_boolean_styles(monkeypatch, tmp_path):
     _reset_config(monkeypatch, tmp_path)
 
@@ -1449,7 +1468,7 @@ def test_zhipu_mcp_key_satisfies_web_search_and_reader_fetch_as_separate_provide
     assert result["ok"] is True
     assert result["missing"] == []
     assert result["capability_status"]["web_search"]["configured"] == ["zhipu-mcp"]
-    assert result["capability_status"]["web_search"]["fallback_chain"] == ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek"]
+    assert result["capability_status"]["web_search"]["fallback_chain"] == ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek", "yuanbao"]
     assert result["capability_status"]["web_fetch"]["configured"] == ["zhipu-mcp-reader"]
 
 
@@ -2730,7 +2749,7 @@ async def test_doctor_tests_main_providers_independently(monkeypatch):
     monkeypatch.setenv("EXA_API_KEY", "exa-test-secret")
     monkeypatch.setenv("TAVILY_API_KEY", "tavily-test-secret")
 
-    async def fake_xai(api_url, api_key, model):
+    async def fake_xai(*args, **kwargs):
         raise httpx.TimeoutException("xai timeout")
 
     async def fake_openai(api_url, api_key, model):

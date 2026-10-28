@@ -636,6 +636,47 @@ async def test_search_xai_unsupported_reasoning_fails_once(monkeypatch, stream):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(("configured", "override", "expected"), [
+    ("true", None, True), ("1", None, True), ("yes", None, True),
+    ("true", False, False), ("false", True, True), ("", None, False),
+])
+async def test_search_xai_stream_follows_xai_stream_unless_overridden(monkeypatch, xai_requests, configured, override, expected):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("XAI_STREAM", configured)
+
+    result = await service.search("Find this source", providers="xai-responses", fallback="off", stream=override)
+
+    assert result["ok"] is True
+    assert [payload["stream"] for payload in xai_requests] == [expected]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("stream", "transport"), [(True, "stream"), (False, "non_stream")])
+async def test_search_xai_attempt_reports_transport(monkeypatch, xai_requests, stream, transport):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+
+    result = await service.search("Find this source", providers="xai-responses", fallback="off", stream=stream)
+
+    assert [attempt["transport"] for attempt in result["provider_attempts"]] == [transport]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("configured", "override", "expected"), [
+    ("true", None, True), ("true", False, False), ("", True, True), ("", None, False),
+])
+async def test_research_xai_stream_follows_xai_stream_unless_overridden(monkeypatch, tmp_path, xai_requests, configured, override, expected):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("XAI_STREAM", configured)
+
+    await service.research("Find this source", budget="quick", evidence_dir=str(tmp_path), stream=override)
+
+    assert xai_requests and {payload["stream"] for payload in xai_requests} == {expected}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("provider", ["openai-compatible", "xai-responses"])
 async def test_model_answer_with_sources_keeps_success(monkeypatch, provider):
     monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")

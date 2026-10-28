@@ -19,7 +19,7 @@
 
 | Provider / 路线 | 用途 | 主要配置项 | 官方文档 | Key / 控制台 |
 | --- | --- | --- | --- | --- |
-| xAI Responses API | 主搜索，走 `web_search,x_search` 工具 | `XAI_API_KEY`、`XAI_API_URL`、`XAI_MODEL`、`XAI_TOOLS`、`XAI_REASONING_EFFORT` | [docs.x.ai](https://docs.x.ai/docs) | [xAI API keys](https://console.x.ai/team/default/api-keys) |
+| xAI Responses API | 主搜索，走 `web_search,x_search` 工具 | `XAI_API_KEY`、`XAI_API_URL`、`XAI_MODEL`、`XAI_TOOLS`、`XAI_REASONING_EFFORT`、`XAI_STREAM` | [docs.x.ai](https://docs.x.ai/docs) | [xAI API keys](https://console.x.ai/team/default/api-keys) |
 | OpenAI-compatible Chat Completions / Responses | 主搜索，适合 OpenAI 官方或兼容中转；任一模式都不会发送 xAI search tools | `OPENAI_COMPATIBLE_API_URL`、`OPENAI_COMPATIBLE_API_KEY`、`OPENAI_COMPATIBLE_MODEL`、`OPENAI_COMPATIBLE_API_MODE`、`OPENAI_COMPATIBLE_FALLBACK_MODELS`、`OPENAI_COMPATIBLE_STREAM` | [OpenAI platform docs](https://platform.openai.com/docs) | [OpenAI API keys](https://platform.openai.com/api-keys) 或你的兼容服务商 |
 | Exa | 官方文档、API、论文、产品页、可信网页的低噪声发现 | `EXA_API_KEY` | [Exa docs](https://docs.exa.ai/) | [Exa API keys](https://dashboard.exa.ai/api-keys) |
 | Context7 | SDK、库、框架、API 文档兜底 | `CONTEXT7_API_KEY`、`CONTEXT7_BASE_URL` | [Context7 docs](https://context7.com/docs) | [Context7](https://context7.com/) |
@@ -30,6 +30,7 @@
 | Firecrawl | fetch 兜底、补充网页来源 | `FIRECRAWL_API_URL`、`FIRECRAWL_API_KEY` | [Firecrawl docs](https://docs.firecrawl.dev/) | [Firecrawl API keys](https://www.firecrawl.dev/app/api-keys) |
 | TinyFish | 搜索与抓取兜底 | `TINYFISH_API_KEY`、`TINYFISH_SEARCH_API_URL`、`TINYFISH_FETCH_API_URL`、`TINYFISH_TIMEOUT_SECONDS` | [TinyFish 文档](https://docs.tinyfish.ai/) | [TinyFish API keys](https://agent.tinyfish.ai/api-keys) |
 | DeepSeek Search / Fetch | 网页搜索与抓取，与 DeepSeek 模型 API 共用 Key，按成功请求次数计费 | `DEEPSEEK_API_KEY`、`DEEPSEEK_API_URL`、`DEEPSEEK_TIMEOUT_SECONDS` | [网页搜索与抓取](https://api-docs.deepseek.com/zh-cn/guides/search)（[English](https://api-docs.deepseek.com/guides/search)） | [DeepSeek API keys](https://platform.deepseek.com/api_keys) |
+| 元宝搜索（腾讯云 wsa） | 网页搜索，叠加腾讯新闻等腾讯内容；需要开通元宝搜索的腾讯云 SecretId/SecretKey | `YUANBAO_SECRET_ID`、`YUANBAO_SECRET_KEY`、`YUANBAO_API_URL`、`YUANBAO_TIMEOUT_SECONDS` | [元宝搜索文档](https://cloud.tencent.com/document/product/1806) | [腾讯云 API 密钥](https://console.cloud.tencent.com/cam/capi) |
 | TypeSafe / Jev | 可选语义路由和证据判断 | `TYPESAFE_API_KEY`、`TYPESAFE_API_URL`、`TYPESAFE_MODEL` | [TypeSafe API](https://docs.typesafe.ai/api) | 参见 TypeSafe 文档 |
 | AnySearch | 实验垂直搜索验收入口，不是默认兜底 | `ANYSEARCH_API_URL`、`ANYSEARCH_API_KEY`、`ANYSEARCH_TIMEOUT_SECONDS` | [AnySearch 文档](https://www.anysearch.com/docs) | [AnySearch API keys](https://www.anysearch.com/console/api-keys) |
 | Sciverse | 显式实验学术检索、语义论文检索、正文片段和引用/参考文献关系，不是默认兜底 | `SCIVERSE_API_TOKEN`、`SCIVERSE_API_URL`、`SCIVERSE_TIMEOUT_SECONDS` | [Sciverse Agent Tools](https://github.com/opendatalab/Sciverse-Agent-Tools) | Sciverse 控制台 / token 提供方 |
@@ -56,8 +57,9 @@
 
 - xAI 官方联网搜索通过 `XAI_*` 走 `/responses`。OpenAI-compatible 中转默认走 `/chat/completions`；只有中转明确支持文档化的 Responses 子集时才设置 `OPENAI_COMPATIBLE_API_MODE=responses`。
 - `chat-completions` 不发送搜索工具；如果中转站上的模型只能通过 Responses 的 `web_search` 工具联网（例如 grok），把 `XAI_API_URL`、`XAI_API_KEY`、`XAI_MODEL` 指向该中转站，并用 `smart-search diagnose openai-compatible` 的“联网搜索能力”检查确认。
-- `smart-search search --stream` 会给 xAI Responses 和 OpenAI-compatible 搜索设置 `stream=true`，包括 Jev 调度的 Grok 搜索；`--no-stream` 关闭本次流式请求。`OPENAI_COMPATIBLE_STREAM=true` 仍只设置 OpenAI-compatible 搜索和 provider 侧 fetch 的默认流式行为。
-- `XAI_REASONING_EFFORT` 接受 `low`、`medium`、`high`，大小写不敏感，保存为小写。可选；设置后在 xAI Responses 请求中发送 reasoning.effort，默认不发送。Jev 调度的 Grok 搜索同样适用。provider attempts 记录实际 `stream` 和 `reasoning_effort`，`doctor` 显示 `XAI_REASONING_EFFORT`。上游因不支持 reasoning 返回 4xx 时原样报错，不删除字段重发。
+- `smart-search search --stream` 和 `smart-search research --stream` 会给 xAI Responses 和 OpenAI-compatible 搜索设置 `stream=true`，包括 Jev 调度的 Grok 搜索；`--no-stream` 关闭本次流式请求。`OPENAI_COMPATIBLE_STREAM=true` 仍只设置 OpenAI-compatible 搜索和 provider 侧 fetch 的默认流式行为。
+- `XAI_STREAM` 默认 `false`，接受 `true`、`1`、`yes` 为真。设为真时所有 xAI Responses 请求都用 `stream=true`，包括 `research` 和 Jev 调度的 Grok 搜索；`--stream` / `--no-stream` 可单次覆盖。xAI 流式失败时直接报错，不会改用 `stream=false` 重试。
+- `XAI_REASONING_EFFORT` 接受 `low`、`medium`、`high`，大小写不敏感，保存为小写。可选；设置后在 xAI Responses 请求中发送 reasoning.effort，默认不发送。Jev 调度的 Grok 搜索同样适用。provider attempts 记录实际 `stream` 和 `reasoning_effort`，xAI 的记录还带 `transport`（`stream` 或 `non_stream`）；`doctor` 显示 `XAI_REASONING_EFFORT` 和 `XAI_STREAM`，`model current` 显示 `xai_stream`。`doctor` 和 App 的 xAI 连接测试发送与搜索相同的 `reasoning.effort` 和 `stream`，不带工具，并在测试消息和 `sent` 中列出；HTTP 200 之后流式失败也算测试失败。上游因不支持 reasoning 返回 4xx 时原样报错，不删除字段重发。
 - `SMART_SEARCH_TIMEOUT_SECONDS` 是持久化的 `search` 总时限；环境变量覆盖本机配置文件，单次 `search --timeout SECONDS` 覆盖两者，默认 `300` 秒。
 - 主搜索 provider 直接用剩余的共享预算作为读取上限，不再额外套一层固定的 provider 读超时，因此慢推理模型不会在共享 deadline 之前被提前掐断。
 - `OPENAI_COMPATIBLE_FALLBACK_MODELS` 是失败后接力，不是时间片。主模型会使用剩余的共享 main-search 预算；只有硬失败（例如 `model_not_found`、鉴权失败、空结果、不可重试协议错误）才会换兜底模型。`doctor` 和 `diagnose openai-compatible` 会在兜底模型不在 `/models` 里时给出警告。
@@ -153,6 +155,7 @@ smart-search sciverse-relations "unique-id-from-search" --relation CITATIONS --p
 | `XAI_MODEL` | xAI 模型名 |
 | `XAI_TOOLS` | xAI Responses 工具列表，通常 `web_search,x_search` |
 | `XAI_REASONING_EFFORT` | 可选；设置后在 xAI Responses 请求中发送 reasoning.effort，默认不发送。 |
+| `XAI_STREAM` | 可选；设为 `true` 时所有 xAI Responses 请求（含 research）使用 stream=true，默认 `false`。 |
 | `OPENAI_COMPATIBLE_API_URL` | OpenAI-compatible `/v1` base URL |
 | `OPENAI_COMPATIBLE_API_KEY` | OpenAI-compatible key |
 | `OPENAI_COMPATIBLE_MODEL` | 兼容模型名 |

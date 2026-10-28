@@ -58,6 +58,7 @@ class Config:
         "tavily": "TAVILY_ENABLED",
         "firecrawl": "FIRECRAWL_ENABLED",
         "tinyfish": "TINYFISH_ENABLED",
+        "yuanbao": "YUANBAO_ENABLED",
         "deepseek": "DEEPSEEK_ENABLED",
         "jina": "JINA_ENABLED",
         "anysearch": "ANYSEARCH_ENABLED",
@@ -70,6 +71,7 @@ class Config:
         "XAI_MODEL",
         "XAI_TOOLS",
         "XAI_REASONING_EFFORT",
+        "XAI_STREAM",
         "OPENAI_COMPATIBLE_API_URL",
         "OPENAI_COMPATIBLE_API_KEY",
         "OPENAI_COMPATIBLE_MODEL",
@@ -123,6 +125,10 @@ class Config:
         "TINYFISH_SEARCH_API_URL",
         "TINYFISH_FETCH_API_URL",
         "TINYFISH_TIMEOUT_SECONDS",
+        "YUANBAO_SECRET_ID",
+        "YUANBAO_SECRET_KEY",
+        "YUANBAO_API_URL",
+        "YUANBAO_TIMEOUT_SECONDS",
         "DEEPSEEK_API_KEY",
         "DEEPSEEK_API_URL",
         "DEEPSEEK_TIMEOUT_SECONDS",
@@ -153,6 +159,7 @@ class Config:
         "XAI_MODEL",
         "XAI_TOOLS",
         "XAI_REASONING_EFFORT",
+        "XAI_STREAM",
         "OPENAI_COMPATIBLE_API_URL",
         "OPENAI_COMPATIBLE_API_KEY",
         "OPENAI_COMPATIBLE_ENABLED",
@@ -589,6 +596,10 @@ class Config:
         return self._validate_enum_value("XAI_REASONING_EFFORT", value, self._ALLOWED_XAI_REASONING_EFFORTS) if value else ""
 
     @property
+    def xai_stream(self) -> bool:
+        return (self._get_config_value("XAI_STREAM", "false") or "false").lower() in ("true", "1", "yes")
+
+    @property
     def openai_compatible_api_url(self) -> str | None:
         return self._get_config_value("OPENAI_COMPATIBLE_API_URL")
 
@@ -716,7 +727,7 @@ class Config:
         if key in JEV_DEFAULTS:
             validate_jev_value(key, value)
             return
-        if key in {"SMART_SEARCH_TIMEOUT_SECONDS", "TINYFISH_TIMEOUT_SECONDS", "DEEPSEEK_TIMEOUT_SECONDS"}:
+        if key in {"SMART_SEARCH_TIMEOUT_SECONDS", "TINYFISH_TIMEOUT_SECONDS", "YUANBAO_TIMEOUT_SECONDS", "DEEPSEEK_TIMEOUT_SECONDS"}:
             self._parse_positive_float_value(key, value)
             return
         if key == "SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS":
@@ -740,6 +751,7 @@ class Config:
             return
         enum_allowed = {
             "XAI_REASONING_EFFORT": self._ALLOWED_XAI_REASONING_EFFORTS,
+            "XAI_STREAM": {"true", "false", "1", "0", "yes", "no"},
             "SMART_SEARCH_VALIDATION_LEVEL": self._ALLOWED_VALIDATION_LEVELS,
             "SMART_SEARCH_FALLBACK_MODE": self._ALLOWED_FALLBACK_MODES,
             "SMART_SEARCH_MINIMUM_PROFILE": self._ALLOWED_MINIMUM_PROFILES,
@@ -973,6 +985,22 @@ class Config:
     @property
     def tinyfish_timeout(self) -> float:
         return self._parse_positive_float_value("TINYFISH_TIMEOUT_SECONDS", self._get_config_value("TINYFISH_TIMEOUT_SECONDS", "150") or "150")
+
+    @property
+    def yuanbao_secret_id(self) -> str | None:
+        return self._get_config_value("YUANBAO_SECRET_ID")
+
+    @property
+    def yuanbao_secret_key(self) -> str | None:
+        return self._get_config_value("YUANBAO_SECRET_KEY")
+
+    @property
+    def yuanbao_api_url(self) -> str:
+        return self._get_config_value("YUANBAO_API_URL", "https://wsa.tencentcloudapi.com") or "https://wsa.tencentcloudapi.com"
+
+    @property
+    def yuanbao_timeout(self) -> float:
+        return self._parse_positive_float_value("YUANBAO_TIMEOUT_SECONDS", self._get_config_value("YUANBAO_TIMEOUT_SECONDS", "30") or "30")
 
     @property
     def deepseek_api_key(self) -> str | None:
@@ -1239,6 +1267,7 @@ class Config:
             "XAI_MODEL": self.xai_model,
             "XAI_TOOLS": self.xai_tools_raw,
             "XAI_REASONING_EFFORT": xai_reasoning_effort,
+            "XAI_STREAM": self.xai_stream,
             "OPENAI_COMPATIBLE_API_URL": self.openai_compatible_api_url or tr('未配置'),
             "OPENAI_COMPATIBLE_API_KEY": self._mask_api_key(self.openai_compatible_api_key) if self.openai_compatible_api_key else tr('未配置'),
             "OPENAI_COMPATIBLE_MODEL": self.openai_compatible_model,
@@ -1269,6 +1298,10 @@ class Config:
             "TINYFISH_FETCH_API_URL": self.tinyfish_fetch_api_url,
             "TINYFISH_API_KEY": self._mask_api_key(self.tinyfish_api_key) if self.tinyfish_api_key else tr('未配置'),
             "TINYFISH_TIMEOUT_SECONDS": self.tinyfish_timeout,
+            "YUANBAO_API_URL": self.yuanbao_api_url,
+            "YUANBAO_SECRET_ID": self._mask_api_key(self.yuanbao_secret_id) if self.yuanbao_secret_id else tr('未配置'),
+            "YUANBAO_SECRET_KEY": self._mask_api_key(self.yuanbao_secret_key) if self.yuanbao_secret_key else tr('未配置'),
+            "YUANBAO_TIMEOUT_SECONDS": self.yuanbao_timeout,
             "DEEPSEEK_API_URL": self.deepseek_api_url,
             "DEEPSEEK_API_KEY": self._mask_api_key(self.deepseek_api_key) if self.deepseek_api_key else tr('未配置'),
             "DEEPSEEK_TIMEOUT_SECONDS": self.deepseek_timeout,

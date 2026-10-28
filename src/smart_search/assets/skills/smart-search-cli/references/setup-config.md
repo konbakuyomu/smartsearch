@@ -99,6 +99,7 @@
 - `TINYFISH_SEARCH_API_URL` defaults to `https://api.search.tinyfish.ai`, and `TINYFISH_FETCH_API_URL` defaults to `https://api.fetch.tinyfish.ai`. Both authenticate with the `X-API-Key` header, not a bearer token.
 - `TINYFISH_TIMEOUT_SECONDS` defaults to `60` and covers both TinyFish search and fetch reads.
 - Use `smart-search setup --non-interactive --deepseek-key "key"` to add DeepSeek to `web_search` and `web_fetch` with the same key as the DeepSeek model API. It never satisfies `main_search` or `docs_search`; Jev can select it among the allowed channels.
+- Use `smart-search setup --non-interactive --yuanbao-secret-id "id" --yuanbao-secret-key "key"` to add Yuanbao Search to `web_search` with a Tencent Cloud API key that has Yuanbao Search enabled. It never satisfies `main_search`, `docs_search` or `web_fetch`. `YUANBAO_API_URL` defaults to `https://wsa.tencentcloudapi.com`, and `YUANBAO_TIMEOUT_SECONDS` defaults to `30`.
 - `DEEPSEEK_API_URL` defaults to `https://api.deepseek.com`, and `DEEPSEEK_TIMEOUT_SECONDS` defaults to `60` and covers both DeepSeek search and fetch reads. Each successful DeepSeek request is billed.
 
 ## Provider Failure Cooldown

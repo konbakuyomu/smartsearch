@@ -628,6 +628,7 @@ def _format_doctor_markdown(data: dict[str, Any]) -> str:
         ("firecrawl", data.get("firecrawl_connection_test") or {}),
         ("tinyfish", data.get("tinyfish_connection_test") or {}),
         ("deepseek", data.get("deepseek_connection_test") or {}),
+        ("yuanbao", data.get("yuanbao_connection_test") or {}),
         ("zhipu", data.get("zhipu_connection_test") or {}),
         ("zhipu-mcp", data.get("zhipu_mcp_connection_test") or {}),
         ("context7", data.get("context7_connection_test") or {}),
@@ -862,6 +863,8 @@ def _format_model_markdown(data: dict[str, Any]) -> str:
     rows = []
     if data.get("xai_model"):
         rows.append(["xai-responses", data.get("xai_model")])
+    if "xai_stream" in data:
+        rows.append([tr('xai-responses stream'), "true" if data["xai_stream"] else "false"])
     if data.get("openai_compatible_model"):
         rows.append(["openai-compatible", data.get("openai_compatible_model")])
     if data.get("openai_compatible_api_mode"):
@@ -1424,6 +1427,12 @@ def _print_result(command: str, data: dict[str, Any], fmt: str, output: str = ""
     return _exit_code(data)
 
 
+def _add_stream_args(parser: argparse.ArgumentParser) -> None:
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--stream", dest="stream", action="store_true", default=None, help="Use stream=true for xAI Responses or OpenAI-compatible main search.")
+    group.add_argument("--no-stream", dest="stream", action="store_false", help="Force stream=false for xAI Responses or OpenAI-compatible main search.")
+
+
 def _add_format_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--format", choices=["json", "markdown", "content"], default="json")
     parser.add_argument("--output", default="", help="Write rendered output to a file.")
@@ -1479,6 +1488,7 @@ def _display_provider(provider: str, lang: str) -> str:
         "tavily": "Tavily",
         "firecrawl": "Firecrawl",
         "tinyfish": "TinyFish",
+        "yuanbao": _t(lang, "元宝搜索", "Yuanbao Search"),
         "deepseek": "DeepSeek",
         "anysearch": "AnySearch",
         "sciverse": "Sciverse",
@@ -2125,14 +2135,14 @@ def _prompt_optional_enhancements(values: dict[str, str], current: dict[str, str
     _write_stderr(
         _t(
             lang,
-            "\n[可选增强] web_search 网页补强\n用途: 中文、国内、时效、域名过滤类来源检索。\n推荐: 中文场景建议配置 Zhipu。\n",
-            "\n[Optional] web_search web reinforcement\nPurpose: Chinese, domestic, current, or domain-filtered source discovery.\nRecommended: configure Zhipu for Chinese/current scenarios.\n",
+            "\n[可选增强] web_search 网页补强\n用途: 中文、国内、时效、域名过滤类来源检索。\n推荐: 中文场景建议配置 Zhipu；需要腾讯新闻等腾讯内容时可加元宝搜索。\n",
+            "\n[Optional] web_search web reinforcement\nPurpose: Chinese, domestic, current, or domain-filtered source discovery.\nRecommended: configure Zhipu for Chinese/current scenarios; add Yuanbao Search for Tencent content such as Tencent News.\n",
         )
     )
-    default_selected = ["zhipu"] if current.get("ZHIPU_API_KEY") else []
+    default_selected = [provider for provider, key in (("zhipu", "ZHIPU_API_KEY"), ("yuanbao", "YUANBAO_SECRET_KEY")) if current.get(key)]
     selected = _prompt_provider_multi_select(
         _t(lang, "选择可选 web_search 增强", "Choose optional web_search reinforcement"),
-        ["zhipu"],
+        ["zhipu", "yuanbao"],
         default_selected,
         lang,
     )
@@ -2140,6 +2150,13 @@ def _prompt_optional_enhancements(values: dict[str, str], current: dict[str, str
         values["ZHIPU_API_KEY"] = _prompt_value("ZHIPU_API_KEY", "Zhipu API key", current.get("ZHIPU_API_KEY", ""), lang=lang)
         _prompt_zhipu_api_url(values, current, lang)
         _prompt_zhipu_search_engine(values, current, lang)
+    if "yuanbao" in selected:
+        values["YUANBAO_SECRET_ID"] = _prompt_value(
+            "YUANBAO_SECRET_ID", "Yuanbao Search SecretId", current.get("YUANBAO_SECRET_ID", ""), lang=lang,
+        )
+        values["YUANBAO_SECRET_KEY"] = _prompt_value(
+            "YUANBAO_SECRET_KEY", "Yuanbao Search SecretKey", current.get("YUANBAO_SECRET_KEY", ""), lang=lang,
+        )
     if _prompt_yes_no(_t(lang, "是否调整验证/兜底默认值?", "Adjust validation/fallback defaults?"), default=False):
         values["SMART_SEARCH_VALIDATION_LEVEL"] = _prompt_value(
             "SMART_SEARCH_VALIDATION_LEVEL",
@@ -2356,6 +2373,10 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
         ("TINYFISH_SEARCH_API_URL", "TinyFish Search API URL", True),
         ("TINYFISH_FETCH_API_URL", "TinyFish Fetch API URL", True),
         ("TINYFISH_TIMEOUT_SECONDS", "TinyFish timeout seconds", True),
+        ("YUANBAO_SECRET_ID", "Yuanbao Search SecretId", True),
+        ("YUANBAO_SECRET_KEY", "Yuanbao Search SecretKey", True),
+        ("YUANBAO_API_URL", "Yuanbao Search API URL", True),
+        ("YUANBAO_TIMEOUT_SECONDS", "Yuanbao Search timeout seconds", True),
         ("DEEPSEEK_API_KEY", "DeepSeek API key", True),
         ("DEEPSEEK_API_URL", "DeepSeek API URL", True),
         ("DEEPSEEK_TIMEOUT_SECONDS", "DeepSeek timeout seconds", True),
@@ -2382,7 +2403,7 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
             value = _normalize_custom_base_url(value)
         elif key == "SCIVERSE_API_URL":
             value = _normalize_custom_base_url(value)
-        elif key in {"TINYFISH_SEARCH_API_URL", "TINYFISH_FETCH_API_URL", "DEEPSEEK_API_URL"}:
+        elif key in {"TINYFISH_SEARCH_API_URL", "TINYFISH_FETCH_API_URL", "DEEPSEEK_API_URL", "YUANBAO_API_URL"}:
             value = _normalize_custom_base_url(value)
         values[key] = value
 
@@ -2576,6 +2597,7 @@ async def _run_async_impl(args: argparse.Namespace) -> int:
             budget=args.budget,
             evidence_dir=args.evidence_dir,
             fallback=args.fallback,
+            stream=args.stream,
         )
         return _print_result("research", data, args.format, args.output)
     if args.command == "smoke":
@@ -2742,6 +2764,7 @@ def _run_setup(args: argparse.Namespace) -> int:
         "XAI_API_KEY": args.xai_api_key,
         "XAI_MODEL": args.xai_model,
         "XAI_TOOLS": args.xai_tools_explicit,
+        "XAI_STREAM": args.xai_stream,
         "OPENAI_COMPATIBLE_API_URL": args.openai_compatible_api_url,
         "OPENAI_COMPATIBLE_API_KEY": args.openai_compatible_api_key,
         "OPENAI_COMPATIBLE_MODEL": args.openai_compatible_model,
@@ -2787,6 +2810,10 @@ def _run_setup(args: argparse.Namespace) -> int:
         "TINYFISH_SEARCH_API_URL": _normalize_custom_base_url(args.tinyfish_search_api_url),
         "TINYFISH_FETCH_API_URL": _normalize_custom_base_url(args.tinyfish_fetch_api_url),
         "TINYFISH_TIMEOUT_SECONDS": args.tinyfish_timeout,
+        "YUANBAO_SECRET_ID": args.yuanbao_secret_id,
+        "YUANBAO_SECRET_KEY": args.yuanbao_secret_key,
+        "YUANBAO_API_URL": _normalize_custom_base_url(args.yuanbao_api_url),
+        "YUANBAO_TIMEOUT_SECONDS": args.yuanbao_timeout,
         "DEEPSEEK_API_KEY": args.deepseek_key,
         "DEEPSEEK_API_URL": _normalize_custom_base_url(args.deepseek_api_url),
         "DEEPSEEK_TIMEOUT_SECONDS": args.deepseek_timeout,
@@ -2900,6 +2927,8 @@ def _run_regression() -> int:
         "tests/test_jina_provider.py",
         "tests/test_tinyfish_provider.py",
         "tests/test_tinyfish_service.py",
+        "tests/test_yuanbao_provider.py",
+        "tests/test_yuanbao_service.py",
         "tests/test_deepseek_provider.py",
         "tests/test_zhipu_mcp_provider.py",
         "tests/test_smoke.py",
@@ -2942,9 +2971,7 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument("--validation", choices=["fast", "balanced", "strict"], default="")
     search_parser.add_argument("--fallback", choices=["auto", "off"], default="")
     search_parser.add_argument("--providers", default="auto")
-    stream_group = search_parser.add_mutually_exclusive_group()
-    stream_group.add_argument("--stream", dest="stream", action="store_true", default=None, help="Use stream=true for xAI Responses or OpenAI-compatible main search.")
-    stream_group.add_argument("--no-stream", dest="stream", action="store_false", help="Force stream=false for xAI Responses or OpenAI-compatible main search.")
+    _add_stream_args(search_parser)
     search_parser.add_argument(
         "--timeout",
         type=float,
@@ -3264,6 +3291,7 @@ def build_parser() -> argparse.ArgumentParser:
     research_parser.add_argument("--budget", choices=["quick", "standard", "deep"], default="deep")
     research_parser.add_argument("--evidence-dir", default="")
     research_parser.add_argument("--fallback", choices=["auto", "off"], default="auto")
+    _add_stream_args(research_parser)
     _add_format_args(research_parser)
 
     smoke_parser = sub.add_parser(
@@ -3435,6 +3463,7 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--xai-api-key", default="", help="Save XAI_API_KEY.")
     setup_parser.add_argument("--xai-model", default="", help="Save XAI_MODEL.")
     setup_parser.add_argument("--xai-tools-explicit", default="", help="Save XAI_TOOLS.")
+    setup_parser.add_argument("--xai-stream", default="", help="Save XAI_STREAM.")
     setup_parser.add_argument("--openai-compatible-api-url", default="", help="Save OPENAI_COMPATIBLE_API_URL.")
     setup_parser.add_argument("--openai-compatible-api-key", default="", help="Save OPENAI_COMPATIBLE_API_KEY.")
     setup_parser.add_argument("--openai-compatible-model", default="", help="Save OPENAI_COMPATIBLE_MODEL.")
@@ -3500,6 +3529,10 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--tinyfish-search-api-url", default="", help="Save TINYFISH_SEARCH_API_URL.")
     setup_parser.add_argument("--tinyfish-fetch-api-url", default="", help="Save TINYFISH_FETCH_API_URL.")
     setup_parser.add_argument("--tinyfish-timeout", default="", help="Save TINYFISH_TIMEOUT_SECONDS.")
+    setup_parser.add_argument("--yuanbao-secret-id", default="", help="Save YUANBAO_SECRET_ID.")
+    setup_parser.add_argument("--yuanbao-secret-key", default="", help="Save YUANBAO_SECRET_KEY.")
+    setup_parser.add_argument("--yuanbao-api-url", default="", help="Save YUANBAO_API_URL.")
+    setup_parser.add_argument("--yuanbao-timeout", default="", help="Save YUANBAO_TIMEOUT_SECONDS.")
     setup_parser.add_argument("--deepseek-key", default="", help="Save DEEPSEEK_API_KEY.")
     setup_parser.add_argument("--deepseek-api-url", default="", help="Save DEEPSEEK_API_URL.")
     setup_parser.add_argument("--deepseek-timeout", default="", help="Save DEEPSEEK_TIMEOUT_SECONDS.")

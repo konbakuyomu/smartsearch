@@ -13,6 +13,7 @@
 | `XAI_MODEL` | 留空用默认模型。 | `text` | `grok-4-fast` |
 | `XAI_TOOLS` | 逗号分隔。可选 web_search 和 x_search。 | `web_search, x_search` | `web_search,x_search` |
 | `XAI_REASONING_EFFORT` | 允许值 low / medium / high；留空表示不发送 reasoning.effort。 | `text` | 未设置 |
+| `XAI_STREAM` | 开启后普通搜索和深入搜索的 xAI 请求都用 stream=true；命令行 --stream / --no-stream 可单次覆盖。流式失败不会改用非流式重试。 | `bool` | `false` |
 | `OPENAI_COMPATIBLE_API_URL` | 任何兼容 OpenAI 协议的服务都行。要和下面的 key 一起填才算配好。 | `url` | 未设置 |
 | `OPENAI_COMPATIBLE_API_KEY` | 下面的链接是 OpenAI 官方的。用中转或第三方服务的话，key 去对应服务商那里拿。 | `secret` | 未设置 |
 | `OPENAI_COMPATIBLE_MODEL` | 按服务商文档填，例如 gpt-4o、deepseek-chat。 | `text` | 未设置 |
@@ -55,6 +56,10 @@
 | `TINYFISH_SEARCH_API_URL` | TinyFish 搜索服务地址，与网页抓取地址不同；通常无需修改。 | `url` | `https://api.search.tinyfish.ai` |
 | `TINYFISH_FETCH_API_URL` | TinyFish 网页抓取服务地址，与搜索地址不同；通常无需修改。 | `url` | `https://api.fetch.tinyfish.ai` |
 | `TINYFISH_TIMEOUT_SECONDS` | 等待此服务单次响应的最长秒数；超时会返回错误或按当前策略兜底，通常保留默认值。 | `float` | `150` |
+| `YUANBAO_SECRET_ID` | 腾讯云 API 密钥的 SecretId，要和下面的 SecretKey 一起填。账号需开通元宝搜索；测试会发起一次真实搜索，计入调用额度。 | `secret` | 未设置 |
+| `YUANBAO_SECRET_KEY` | 与上面的 SecretId 配对的 SecretKey。 | `secret` | 未设置 |
+| `YUANBAO_API_URL` | 元宝搜索接口地址，请求按其中的域名签名；通常无需修改。 | `url` | `https://wsa.tencentcloudapi.com` |
+| `YUANBAO_TIMEOUT_SECONDS` | 等待此服务单次响应的最长秒数；超时会返回错误或按当前策略兜底，通常保留默认值。 | `float` | `30` |
 | `DEEPSEEK_API_KEY` | 与 DeepSeek 模型 API 共用 Key，一个 Key 支持网页搜索和抓取；按成功请求次数计费。测试会各发起一次真实请求。 | `secret` | 未设置 |
 | `DEEPSEEK_API_URL` | DeepSeek API 基础地址，程序会自动拼接 /v1/tools/search 和 /v1/tools/fetch；使用官方服务时保留默认值。 | `url` | `https://api.deepseek.com` |
 | `DEEPSEEK_TIMEOUT_SECONDS` | 等待此服务单次响应的最长秒数；超时会返回错误或按当前策略兜底，通常保留默认值。 | `float` | `60` |
@@ -71,6 +76,7 @@
 | `ZHIPU_MCP_READER_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
 | `FIRECRAWL_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
 | `TINYFISH_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
+| `YUANBAO_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
 | `DEEPSEEK_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
 | `JINA_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
 | `ANYSEARCH_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
@@ -82,7 +88,7 @@
 | --- | --- | --- | --- |
 | `SMART_SEARCH_INTENT_ROUTER` | Jev 优先自动选路；本地模式不调用路由模型。普通搜索始终为单轮。 | `jev, local` | `jev` |
 | `TYPESAFE_API_KEY` | 可选。默认使用 Jev 选路；留空会在本地选择已配置的检索渠道。 | `secret` | 未设置 |
-| `TYPESAFE_API_URL` | 仅 JEV 模式使用的 TypeSafe 基础地址；默认 https://api.typesafe.ai/v1，程序会补上 /systemone。不是搜索服务商地址。 | `url` | `https://api.typesafe.ai/v1` |
+| `TYPESAFE_API_URL` | 仅 JEV 模式使用的 TypeSafe 基础地址；默认 https://api.typesafe.ai/v1，程序会补上 /systemone。提供 /v1/systemone 的中转站也可以填这里。不是搜索服务商地址。 | `url` | `https://api.typesafe.ai/v1` |
 | `TYPESAFE_MODEL` | TypeSafe 用来判断渠道和证据的模型标识；与主搜索模型无关，通常保留默认值。 | `text` | `jev-latest` |
 | `SMART_SEARCH_JEV_TIMEOUT_SECONDS` | 等待此服务单次响应的最长秒数；超时会返回错误或按当前策略兜底，通常保留默认值。 | `float` | `15` |
 | `SMART_SEARCH_JEV_MAX_ROUNDS` | 仅影响深入搜索。证据足够会提前停止；普通搜索不使用此设置。 | `int` | `3` |

@@ -22,7 +22,7 @@ The shared total timeout defaults to 300 seconds (`SMART_SEARCH_TIMEOUT_SECONDS`
 | --- | --- | --- | --- |
 | `main_search` | `search` | xAI Responses, OpenAI-compatible Chat Completions or Responses | Broad answer generation and synthesis |
 | `docs_search` | `context7-library`, `context7-docs`, `exa-search` | Context7, Exa | Official docs, SDKs, APIs, framework/library evidence |
-| `web_search` | `zhipu-search`, `zhipu-mcp-search`, selected by `search` | Zhipu Web Search API, Zhipu Coding Plan MCP, Tavily, Firecrawl, TinyFish, DeepSeek | Chinese, domestic, current, domain-filtered, or supplementary web discovery |
+| `web_search` | `zhipu-search`, `zhipu-mcp-search`, selected by `search` | Zhipu Web Search API, Zhipu Coding Plan MCP, Tavily, Firecrawl, TinyFish, DeepSeek, Yuanbao Search | Chinese, domestic, current, domain-filtered, or supplementary web discovery |
 | `web_fetch` | `fetch`, `zhipu-mcp-reader` | Tavily, Jina Reader, Zhipu Coding Plan MCP Reader, Firecrawl, TinyFish, DeepSeek | Exact URL content extraction for evidence |
 | `vertical_search` | `anysearch-domains`, `anysearch-search`, `anysearch-extract`, `anysearch-batch`, `sciverse-catalog`, `sciverse-search`, `sciverse-semantic`, `sciverse-read`, `sciverse-relations` | AnySearch and Sciverse (experimental) | Explicit structured vertical domains; Sciverse covers academic literature search, semantic search, content chunks, and citation relations |
 | `site_map` | `map` | Tavily | Site/documentation structure discovery |

@@ -42,6 +42,7 @@ from .providers.openai_compatible import (
 from .providers.sciverse import SciverseProvider
 from .providers.tinyfish import TinyFishFetchProvider, TinyFishSearchProvider
 from .providers.xai_responses import XAIResponsesSearchProvider
+from .providers.yuanbao import YuanbaoSearchProvider
 from .providers.zhipu import ZhipuWebSearchProvider
 from .providers.zhipu_mcp import ZhipuMCPProvider
 from .provider_errors import (
@@ -177,7 +178,7 @@ RESEARCH_JS_HEAVY_KEYWORDS = {
 RESEARCH_PDF_KEYWORDS = {"pdf", "arxiv", "论文", "paper", ".pdf"}
 RESEARCH_PROFILE_ORDER = {
     "main_search": ["xai-responses", "openai-compatible"],
-    "web_search": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek"],
+    "web_search": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek", "yuanbao"],
     "docs_search": ["context7", "exa"],
     "web_fetch": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish", "deepseek"],
     "vertical_search": ["anysearch"],
@@ -272,6 +273,13 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
         "minimum_profile_role": "",
         "quality_filters": ["non-empty normalized result", "non-empty extracted content"],
         "route_reasons": ["broad source discovery", "Chinese/current discovery", "known URL extraction"],
+    },
+    "yuanbao": {
+        "capability": "web_search",
+        "fallback_group": "web_search",
+        "minimum_profile_role": "",
+        "quality_filters": ["non-empty normalized result"],
+        "route_reasons": ["Chinese/current discovery", "Tencent ecosystem sources"],
     },
     "anysearch": {
         "capability": "vertical_search",
@@ -533,6 +541,7 @@ PROVIDER_CREDENTIAL_SOURCES: dict[str, Any] = {
     "tavily": lambda: (config.tavily_api_key, config.tavily_api_url),
     "firecrawl": lambda: (config.firecrawl_api_key, config.firecrawl_api_url),
     "tinyfish": lambda: (config.tinyfish_api_key, config.tinyfish_search_api_url, config.tinyfish_fetch_api_url),
+    "yuanbao": lambda: (config.yuanbao_secret_id, config.yuanbao_secret_key, config.yuanbao_api_url),
     "deepseek": lambda: (config.deepseek_api_key, config.deepseek_api_url),
     "exa": lambda: (config.exa_api_key, config.exa_base_url),
     "context7": lambda: (config.context7_api_key, config.context7_base_url),
@@ -991,6 +1000,8 @@ def _provider_configured(provider: str) -> bool:
         return bool(config.firecrawl_api_key)
     if provider == "tinyfish":
         return bool(config.tinyfish_api_key)
+    if provider == "yuanbao":
+        return bool(config.yuanbao_secret_id and config.yuanbao_secret_key)
     if provider == "deepseek":
         return bool(config.deepseek_api_key)
     if provider == "anysearch":
@@ -1482,6 +1493,7 @@ async def research(
     budget: str = "deep",
     evidence_dir: str = "",
     fallback: str = "auto",
+    stream: bool | None = None,
 ) -> dict[str, Any]:
     start = time.time()
     question = query.strip()
@@ -1498,7 +1510,7 @@ async def research(
     timeout = min(config.search_timeout, {"quick": 45, "standard": 120, "deep": config.search_timeout}[level])
     return await jev_search.search(
         question, validation="strict" if level == "deep" else "balanced", fallback=fallback_mode,
-        providers="auto", timeout_seconds=timeout, research_plan=plan, single_pass=False,
+        providers="auto", timeout_seconds=timeout, stream=stream, research_plan=plan, single_pass=False,
     )
 
 
@@ -1520,10 +1532,11 @@ def get_capability_status() -> dict[str, Any]:
                     ("firecrawl", _provider_configured("firecrawl")),
                     ("tinyfish", _provider_configured("tinyfish")),
                     ("deepseek", _provider_configured("deepseek")),
+                    ("yuanbao", _provider_configured("yuanbao")),
                 ]
                 if enabled
             ],
-            "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek"],
+            "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek", "yuanbao"],
         },
         "docs_search": {
             "configured": [
@@ -1629,6 +1642,7 @@ def _main_search_provider_configs(model_override: str = "", providers: str = "au
             "model": model_override or config.xai_model,
             "tools": config.parse_xai_tools(config.xai_tools_raw),
             "reasoning_effort": config.xai_reasoning_effort,
+            "stream": config.xai_stream,
             "source": "XAI_*",
         }
 
@@ -1708,6 +1722,7 @@ async def _search_model_channel(
                  "attempt_timeout_seconds": round(remaining, 3)}
         if candidate["provider"] == "xai-responses":
             extra["reasoning_effort"] = candidate.get("reasoning_effort", "")
+            extra["transport"] = "stream" if candidate.get("stream") else "non_stream"
         if candidate.get("fallback_from_model"):
             extra["fallback_from_model"] = candidate["fallback_from_model"]
         if relay:
@@ -2080,6 +2095,29 @@ async def call_tinyfish_search(query: str, max_results: int = 6) -> list[dict] |
     if not isinstance(results, list):
         raise ProviderCallError("parse_error", source_message('TinyFish search payload is missing results'))
     return [item for item in results if isinstance(item, dict)]
+
+
+def _yuanbao_provider() -> YuanbaoSearchProvider:
+    return YuanbaoSearchProvider(
+        config.yuanbao_api_url, config.yuanbao_secret_id or "", config.yuanbao_secret_key or "", config.yuanbao_timeout,
+    )
+
+
+async def call_yuanbao_search(query: str, max_results: int = 6) -> list[dict] | None:
+    """Return normalized Yuanbao Search candidates; a provider failure raises like TinyFish's."""
+    if not _provider_configured("yuanbao"):
+        return None
+    data = await _decode_provider_json(
+        await _yuanbao_provider().search(query, max_results=max_results),
+        provider="yuanbao",
+    )
+    if not data.get("ok"):
+        raise ProviderCallError(
+            str(data.get("error_type") or "provider_error"),
+            str(data.get("error") or "Yuanbao search failed"),
+            additional_secrets=(config.yuanbao_secret_id or "", config.yuanbao_secret_key or ""),
+        )
+    return [item for item in data.get("results") or [] if isinstance(item, dict)]
 
 
 async def call_tinyfish_fetch(url: str) -> dict[str, Any]:
@@ -3205,17 +3243,17 @@ async def _test_primary_connection(
     return result
 
 
-async def _test_primary_responses(api_url: str, api_key: str, model: str) -> dict[str, Any]:
-    responses_url = f"{api_url.rstrip('/')}/responses"
+async def _test_primary_responses(provider: XAIResponsesSearchProvider) -> dict[str, Any]:
     start = time.time()
     async with httpx.AsyncClient(timeout=20.0) as client:
         response = await client.post(
-            responses_url,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            f"{provider.api_url}/responses",
+            headers={"Authorization": f"Bearer {provider.api_key}", "Content-Type": "application/json"},
+            # Same transport and reasoning as a search, but no tools, so a test never runs a billed search.
             json={
-                "model": model,
+                "model": provider.model,
                 "input": [{"role": "user", "content": "Reply with exactly: ok"}],
-                "stream": False,
+                **provider.request_options(),
             },
         )
         response_time = _elapsed_ms(start)
@@ -3225,12 +3263,15 @@ async def _test_primary_responses(api_url: str, api_key: str, model: str) -> dic
                 "message": source_message('HTTP {0}: {1}', response.status_code, sanitize_provider_error_message(response.text, limit=100)),
                 "response_time_ms": response_time,
             }
+        # A stream can still fail after HTTP 200, so read it the way a search does.
+        if provider.stream and not await provider.parse_stream(response):
+            return {"status": "warning", "message": source_message('xAI Responses 流式响应没有返回文本'), "response_time_ms": response_time}
         return {"status": "ok", "message": source_message('xAI Responses API 可用 (HTTP {0})', response.status_code), "response_time_ms": response_time}
 
 
 async def _test_main_provider_connection(provider_config: dict[str, Any]) -> dict[str, Any]:
     if provider_config["mode"] == "xai-responses":
-        return await _test_primary_responses(provider_config["api_url"], provider_config["api_key"], provider_config["model"])
+        return await _test_primary_responses(_main_search_providers([provider_config], fallback="off")[0])
     api_mode = provider_config.get("api_mode", provider_config.get("mode", "chat-completions"))
     if api_mode == "chat-completions":
         return await _test_primary_connection(provider_config["api_url"], provider_config["api_key"], provider_config["model"])
@@ -3244,19 +3285,26 @@ async def _test_main_provider_connection(provider_config: dict[str, Any]) -> dic
 
 async def _safe_test_main_provider_connection(provider_config: dict[str, Any]) -> dict[str, Any]:
     try:
-        return await _test_main_provider_connection(provider_config)
+        result = await _test_main_provider_connection(provider_config)
     except httpx.TimeoutException:
-        return {"status": "timeout", "message": source_message('{0} 请求超时，请检查网络连接或 API URL', provider_config['provider'])}
+        result = {"status": "timeout", "message": source_message('{0} 请求超时，请检查网络连接或 API URL', provider_config['provider'])}
     except httpx.RequestError as e:
-        return {
+        result = {
             "status": "error",
             "message": source_message('{0} 网络错误: {1}', provider_config['provider'], sanitize_provider_error_message(e)),
         }
     except Exception as e:
-        return {
+        result = {
             "status": "error",
             "message": source_message('{0} 未知错误: {1}', provider_config['provider'], sanitize_provider_error_message(e)),
         }
+    if provider_config["mode"] == "xai-responses":
+        # Name what the test sent in every outcome, so it can be compared with a real search.
+        effort, stream = provider_config.get("reasoning_effort", ""), bool(provider_config.get("stream"))
+        result["sent"] = {"reasoning_effort": effort, "stream": stream, "tools": []}
+        sent = ", ".join(([f"reasoning.effort={effort}"] if effort else []) + [f"stream={str(stream).lower()}", "tools=[]"])
+        result["message"] = source_message('{0}（本次发送：{1}）', result["message"], sent)
+    return result
 
 
 async def _test_exa_connection() -> dict[str, Any]:
@@ -3454,6 +3502,22 @@ async def _test_deepseek_connection() -> dict[str, Any]:
     return {"status": "ok", "message": source_message('DeepSeek 搜索与抓取 API 均可用'), "response_time_ms": _elapsed_ms(start)}
 
 
+async def _test_yuanbao_connection() -> dict[str, Any]:
+    """Run one small search; each call counts against the Tencent Cloud quota."""
+    if disabled := _provider_disabled_result("yuanbao"):
+        return disabled
+    if not (config.yuanbao_secret_id and config.yuanbao_secret_key):
+        return {"status": "not_configured", "message": source_message('YUANBAO_SECRET_ID 或 YUANBAO_SECRET_KEY 未设置，元宝搜索不可用')}
+    start = time.time()
+    data = json.loads(await _yuanbao_provider().search("元宝搜索", max_results=1))
+    if not data.get("ok"):
+        error_type = str(data.get("error_type") or "")
+        status = error_type if error_type in APPROVED_PROVIDER_ERROR_TYPES else "warning"
+        return {"status": status, "message": source_message('元宝搜索：{0}', data.get('error', '请求未成功')),
+                "response_time_ms": _elapsed_ms(start)}
+    return {"status": "ok", "message": source_message('元宝搜索 API 可用'), "response_time_ms": _elapsed_ms(start)}
+
+
 DOCTOR_PROBE_PROVIDERS = {
     "exa_connection_test": "exa",
     "tavily_connection_test": "tavily",
@@ -3463,6 +3527,7 @@ DOCTOR_PROBE_PROVIDERS = {
     "context7_connection_test": "context7",
     "tinyfish_connection_test": "tinyfish",
     "deepseek_connection_test": "deepseek",
+    "yuanbao_connection_test": "yuanbao",
 }
 DOCTOR_PROBE_NEUTRAL_STATUSES = {"not_configured", "configured", "skipped", "disabled"}
 
@@ -3506,6 +3571,7 @@ PROBE_KIND: dict[str, str] = {
     "zhipu-mcp": "live",
     "context7": "live",
     "tinyfish": "live",
+    "yuanbao": "live",
     "deepseek": "live",
     "anysearch": "live",
     "sciverse": "live",
@@ -3520,6 +3586,7 @@ _LIVE_PROBES: dict[str, Any] = {
     "zhipu-mcp": _test_zhipu_mcp_connection,
     "context7": _test_context7_connection,
     "tinyfish": _test_tinyfish_connection,
+    "yuanbao": _test_yuanbao_connection,
     "deepseek": _test_deepseek_connection,
     "anysearch": _test_anysearch_connection,
     "sciverse": _test_sciverse_connection,
@@ -3586,15 +3653,10 @@ async def test_provider_connection(
     async def _run() -> dict[str, Any]:
         nonlocal probe_model
         if kind == "main":
-            if overrides:
-                provider_config = _main_search_override_config(provider, overrides)
-                if provider_config is None:
-                    return {"status": "config_error", "message": source_message('{0} 覆盖参数不完整', provider)}
-            else:
-                configs = _main_search_provider_configs(providers=provider)
-                if not configs:
-                    return {"status": "not_configured", "message": source_message('{0} 未配置', provider)}
-                provider_config = configs[0]
+            configs = _main_search_provider_configs(providers=provider)
+            if not configs:
+                return {"status": "not_configured", "message": source_message('{0} 未配置', provider)}
+            provider_config = configs[0]
             probe_model = str(provider_config.get("model", ""))
             activity.progress("provider.test", provider, probe_model)
             return await _safe_test_main_provider_connection(provider_config)
@@ -3636,39 +3698,13 @@ async def test_provider_connection(
         "error": "" if status == "ok" else str(test.get("message") or ""),
         "health": _provider_health_status(recorded_as),
     }
+    if "sent" in test:
+        result["sent"] = test["sent"]
     if probe_label == "shared":
         result["message"] = (
             f"{result['message']} (与 {recorded_as} 共用同一组凭据)" if result["message"] else f"与 {recorded_as} 共用同一组凭据"
         )
     return result
-
-
-def _main_search_override_config(provider: str, overrides: dict[str, str]) -> dict[str, Any] | None:
-    """Build a main-search provider config from unsaved form values."""
-    get = lambda key, fallback="": str(overrides.get(key) or fallback).strip()  # noqa: E731
-    if provider == "xai-responses":
-        api_key = get("XAI_API_KEY", config.xai_api_key)
-        if not api_key:
-            return None
-        return {
-            "provider": "xai-responses",
-            "mode": "xai-responses",
-            "api_url": get("XAI_API_URL", config.xai_api_url),
-            "api_key": api_key,
-            "model": get("XAI_MODEL", config.xai_model),
-        }
-    api_url = get("OPENAI_COMPATIBLE_API_URL", config.openai_compatible_api_url)
-    api_key = get("OPENAI_COMPATIBLE_API_KEY", config.openai_compatible_api_key)
-    if not api_url or not api_key:
-        return None
-    return {
-        "provider": "openai-compatible",
-        "mode": "openai-compatible",
-        "api_url": api_url,
-        "api_key": api_key,
-        "model": get("OPENAI_COMPATIBLE_MODEL", config.openai_compatible_model),
-        "api_mode": get("OPENAI_COMPATIBLE_API_MODE", config.openai_compatible_api_mode),
-    }
 
 
 async def doctor() -> dict[str, Any]:
@@ -3760,6 +3796,13 @@ async def doctor() -> dict[str, Any]:
     except Exception as e:
         info["deepseek_connection_test"] = {"status": "error", "message": sanitize_provider_error_message(e)}
 
+    try:
+        info["yuanbao_connection_test"] = await _test_yuanbao_connection()
+    except httpx.TimeoutException:
+        info["yuanbao_connection_test"] = {"status": "timeout", "message": source_message('元宝搜索 API 请求超时')}
+    except Exception as e:
+        info["yuanbao_connection_test"] = {"status": "error", "message": sanitize_provider_error_message(e)}
+
     _record_doctor_probes(info)
     info["provider_health"] = provider_health_status()
 
@@ -3829,7 +3872,7 @@ async def doctor() -> dict[str, Any]:
     else:
         info["jev_connection_test"] = {"status": "skipped", "message": source_message('Using local routing; no Jev probe was sent.')}
     retrieval_tests = [*main_connection_tests.values(), *(info.get(f"{name}_connection_test", {}) for name in (
-        "exa", "tavily", "jina", "firecrawl", "zhipu", "zhipu_mcp", "context7", "tinyfish", "deepseek",
+        "exa", "tavily", "jina", "firecrawl", "zhipu", "zhipu_mcp", "context7", "tinyfish", "deepseek", "yuanbao",
     ))]
     retrieval_ready = any(test.get("status") in {"ok", "configured"} for test in retrieval_tests)
     info["retrieval_connection_verified"] = any(test.get("status") == "ok" for test in retrieval_tests)
@@ -3873,6 +3916,7 @@ def current_model() -> dict[str, Any]:
     return {
         "ok": True,
         "xai_model": config.xai_model,
+        "xai_stream": config.xai_stream,
         "openai_compatible_model": config.openai_compatible_model,
         "openai_compatible_fallback_models": config.openai_compatible_fallback_models,
         "openai_compatible_api_mode": api_mode,
@@ -4015,7 +4059,7 @@ async def _smoke_mock(start: float) -> dict[str, Any]:
             "fallback_chain": MAIN_SEARCH_FALLBACK_CHAIN,
             "ok": True,
         },
-        "web_search": {"configured": ["zhipu"], "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek"], "ok": True},
+        "web_search": {"configured": ["zhipu"], "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek", "yuanbao"], "ok": True},
         "docs_search": {"configured": ["context7"], "fallback_chain": ["context7", "exa"], "ok": True},
         "web_fetch": {"configured": ["tavily"], "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish", "deepseek"], "ok": True},
         "vertical_search": {
@@ -4246,7 +4290,7 @@ async def _smoke_mock(start: float) -> dict[str, Any]:
         **minimum_status,
         "web_search": {
             "configured": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish"],
-            "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek"],
+            "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek", "yuanbao"],
             "ok": True,
         },
         "docs_search": {"configured": ["context7", "exa"], "fallback_chain": ["context7", "exa"], "ok": True},

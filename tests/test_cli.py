@@ -708,8 +708,8 @@ def test_deep_alias_and_markdown_output(monkeypatch, capsys):
 def test_research_command_uses_service_and_outputs_json(monkeypatch, capsys, tmp_path):
     captured = {}
 
-    async def fake_research(query, budget="deep", evidence_dir="", fallback="auto"):
-        captured.update({"query": query, "budget": budget, "evidence_dir": evidence_dir, "fallback": fallback})
+    async def fake_research(query, budget="deep", evidence_dir="", fallback="auto", stream=None):
+        captured.update({"query": query, "budget": budget, "evidence_dir": evidence_dir, "fallback": fallback, "stream": stream})
         return {
             "ok": True,
             "mode": "deep_research_execution",
@@ -744,13 +744,13 @@ def test_research_command_uses_service_and_outputs_json(monkeypatch, capsys, tmp
 
     assert code == cli.EXIT_OK
     data = json.loads(capsys.readouterr().out)
-    assert captured == {"query": "React docs", "budget": "standard", "evidence_dir": str(tmp_path), "fallback": "off"}
+    assert captured == {"query": "React docs", "budget": "standard", "evidence_dir": str(tmp_path), "fallback": "off", "stream": None}
     assert data["query_mode"] == "research"
     assert data["final_answer"] == "Evidence answer"
 
 
 def test_research_markdown_and_content_output(monkeypatch, capsys):
-    async def fake_research(query, budget="deep", evidence_dir="", fallback="auto"):
+    async def fake_research(query, budget="deep", evidence_dir="", fallback="auto", stream=None):
         return {
             "ok": True,
             "question": query,
@@ -1081,6 +1081,33 @@ def test_doctor_displays_xai_reasoning_effort(monkeypatch, capsys, effort):
 
     assert code == cli.EXIT_OK
     assert json.loads(capsys.readouterr().out)["XAI_REASONING_EFFORT"] == effort.lower()
+
+
+def test_xai_stream_is_saved_and_displayed_by_doctor(monkeypatch, capsys):
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+
+    async def connected(provider_config):
+        return {"status": "ok"}
+
+    monkeypatch.setattr(cli.service, "_safe_test_main_provider_connection", connected)
+
+    assert cli.main(["config", "set", "XAI_STREAM", "true", "--format", "json"]) == cli.EXIT_OK
+    capsys.readouterr()
+    code = cli.main(["doctor", "--format", "json"])
+
+    assert code == cli.EXIT_OK
+    assert json.loads(capsys.readouterr().out)["XAI_STREAM"] is True
+
+
+@pytest.mark.parametrize(("flag", "expected"), [("--stream", True), ("--no-stream", False)])
+def test_research_cli_stream_flags_override_xai_stream(monkeypatch, tmp_path, capsys, xai_requests, flag, expected):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+    monkeypatch.setenv("XAI_STREAM", "false" if expected else "true")
+
+    cli.main(["research", "Find this source", "--budget", "quick", "--evidence-dir", str(tmp_path), flag, "--format", "json"])
+
+    assert xai_requests and {payload["stream"] for payload in xai_requests} == {expected}
 
 
 def test_real_doctor_ignores_legacy_primary_env_and_returns_config_exit(monkeypatch, capsys):
@@ -1463,7 +1490,7 @@ def test_all_formatted_commands_have_non_json_markdown(monkeypatch):
     async def fake_smoke(mode="mock"):
         return {"ok": True, "mode": mode, "failed_cases": [], "cases": [{"name": "case", "ok": True}]}
 
-    async def fake_research(query, budget="deep", evidence_dir="", fallback="auto"):
+    async def fake_research(query, budget="deep", evidence_dir="", fallback="auto", stream=None):
         return {"ok": True, "question": query, "content": "Research", "final_answer": "Research", "citations": [], "gap_check": {"gaps": []}}
 
     async def fake_route_calibrate(models=""):
@@ -1674,6 +1701,12 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
         "xai-model",
         "--xai-tools-explicit",
         "web_search",
+        "--xai-stream",
+        "true",
+        "--yuanbao-secret-id",
+        "AKIDtest",
+        "--yuanbao-secret-key",
+        "yuanbao-test-secret",
         "--openai-compatible-api-url",
         "https://relay.example.com/v1",
         "--openai-compatible-api-key",
@@ -1763,6 +1796,8 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
     assert saved["XAI_API_KEY"] == "xai-test-secret"
     assert saved["XAI_MODEL"] == "xai-model"
     assert saved["XAI_TOOLS"] == "web_search"
+    assert saved["XAI_STREAM"] == "true"
+    assert (saved["YUANBAO_SECRET_ID"], saved["YUANBAO_SECRET_KEY"]) == ("AKIDtest", "yuanbao-test-secret")
     assert saved["OPENAI_COMPATIBLE_API_URL"] == "https://relay.example.com/v1"
     assert saved["OPENAI_COMPATIBLE_API_KEY"] == "relay-test-secret"
     assert saved["OPENAI_COMPATIBLE_MODEL"] == "relay-model"
@@ -2446,6 +2481,39 @@ def test_setup_guided_zhipu_optional_reinforcement_saves_url_and_engine(monkeypa
     assert "智谱搜索服务" in captured.err
     assert "zhipu-test-secret" not in captured.out
     assert "zhipu-test-secret" not in captured.err
+
+
+def test_setup_guided_yuanbao_optional_reinforcement_saves_both_secrets(monkeypatch, capsys):
+    saved = {}
+    answers = iter(["skip", "skip", "skip", "yuanbao", "n", "n"])
+    secrets = iter(["AKIDtest", "yuanbao-test-secret"])
+
+    def fake_config_set(key, value):
+        saved[key] = value
+        return {"ok": True, "key": key, "value": "***", "config_file": "C:/tmp/config.json"}
+
+    monkeypatch.setattr(cli.service, "config_set", fake_config_set)
+    monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
+    monkeypatch.setattr(cli.service, "config_list", lambda show_secrets=False: {"ok": True, "values": saved.copy()})
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt: next(secrets))
+
+    code = cli.main(["setup", "--skip-skills", "--lang", "zh"])
+    captured = capsys.readouterr()
+
+    assert code == cli.EXIT_OK
+    assert (saved["YUANBAO_SECRET_ID"], saved["YUANBAO_SECRET_KEY"]) == ("AKIDtest", "yuanbao-test-secret")
+    assert "yuanbao-test-secret" not in captured.out + captured.err
+
+
+def test_advanced_setup_adds_a_scheme_to_the_yuanbao_api_url(monkeypatch, capsys):
+    answers = {"YUANBAO_API_URL": "wsa.example.com/"}
+    monkeypatch.setattr(cli, "_prompt_value", lambda key, label, current="", optional=False, lang="en": answers.get(key, ""))
+    values = {}
+
+    cli._run_advanced_setup_prompts(values, {}, "en")
+
+    assert values["YUANBAO_API_URL"] == "https://wsa.example.com"
 
 
 def test_setup_guided_uses_tui_defaults_for_configured_providers(monkeypatch, capsys):

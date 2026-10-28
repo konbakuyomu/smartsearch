@@ -71,6 +71,7 @@ smart-search config set XAI_API_KEY "key" --format json
 smart-search config set XAI_MODEL "grok-4-fast" --format json
 smart-search config set XAI_TOOLS "web_search,x_search" --format json
 smart-search config set XAI_REASONING_EFFORT "high" --format json
+smart-search config set XAI_STREAM "true" --format json
 smart-search search "Latest Grok news" --providers xai-responses --stream --format json
 smart-search config set OPENAI_COMPATIBLE_API_URL "https://api.openai.com/v1" --format json
 smart-search config set OPENAI_COMPATIBLE_API_KEY "key" --format json
@@ -98,6 +99,8 @@ smart-search config set TINYFISH_SEARCH_API_URL "https://api.search.tinyfish.ai"
 smart-search config set TINYFISH_FETCH_API_URL "https://api.fetch.tinyfish.ai" --format json
 smart-search config set DEEPSEEK_API_KEY "key" --format json
 smart-search config set DEEPSEEK_API_URL "https://api.deepseek.com" --format json
+smart-search config set YUANBAO_SECRET_ID "id" --format json
+smart-search config set YUANBAO_SECRET_KEY "key" --format json
 smart-search model current --format json
 smart-search doctor --format json
 smart-search doctor --format markdown

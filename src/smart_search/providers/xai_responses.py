@@ -88,21 +88,29 @@ class XAIResponsesSearchProvider(BaseSearchProvider):
             _logger.warning("SSL_VERIFY=false: xAI Responses API 请求已禁用 SSL 证书验证，存在安全风险")
         return verify
 
+    def request_options(self) -> dict[str, Any]:
+        """The transport and reasoning fields that searches and connection tests both send."""
+        options: dict[str, Any] = {"stream": self.stream}
+        if self.reasoning_effort:
+            options["reasoning"] = {"effort": self.reasoning_effort}
+        return options
+
+    async def parse_stream(self, response: httpx.Response, ctx=None) -> str:
+        parser = OpenAICompatibleSearchProvider(self.api_url, self.api_key, self.model, api_mode="responses")
+        return await parser._parse_responses_streaming_response(response, ctx)
+
     def _build_search_payload(self, query: str, platform: str = "") -> dict[str, Any]:
         platform_prompt = ""
         if platform:
             platform_prompt = "\n\nYou should search the web for the information you need, and focus on these platform: " + platform + "\n"
         time_context = get_local_time_info() + "\n"
-        payload: dict[str, Any] = {
+        return {
             "model": self.model,
             "instructions": search_prompt,
             "input": [{"role": "user", "content": time_context + query + platform_prompt}],
-            "stream": self.stream,
             "tools": [{"type": tool} for tool in self.tools],
+            **self.request_options(),
         }
-        if self.reasoning_effort:
-            payload["reasoning"] = {"effort": self.reasoning_effort}
-        return payload
 
     async def search(self, query: str, platform: str = "", ctx=None) -> str:
         payload = self._build_search_payload(query, platform)
@@ -135,10 +143,7 @@ class XAIResponsesSearchProvider(BaseSearchProvider):
                             if response.status_code >= 400:
                                 await response.aread()
                             response.raise_for_status()
-                            parser = OpenAICompatibleSearchProvider(
-                                self.api_url, self.api_key, self.model, api_mode="responses",
-                            )
-                            answer = await parser._parse_responses_streaming_response(response, ctx)
+                            answer = await self.parse_stream(response, ctx)
                             if answer and not _SERIALIZED_SOURCES_PATTERN.search(answer):
                                 sources = self._extract_inline_urls(answer)
                                 if sources:

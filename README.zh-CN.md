@@ -168,7 +168,7 @@ flowchart LR
 | --- | --- | --- |
 | 主搜索 | xAI、OpenAI 兼容接口 | 由模型联网搜索并回答，附引用 |
 | 文档检索 | Context7、Exa | 查软件库、API 文档和官方页面 |
-| 网页搜索 | 智谱、智谱 Coding Plan、Tavily、TinyFish、DeepSeek、Firecrawl | 发现网页和摘录 |
+| 网页搜索 | 智谱、智谱 Coding Plan、Tavily、TinyFish、DeepSeek、Firecrawl、元宝搜索 | 发现网页和摘录 |
 | 网页抓取 | Jina、Firecrawl、智谱网页阅读、Tavily、TinyFish、DeepSeek | 把已知网址读成正文 |
 | 垂直检索（实验性） | AnySearch、SciVerse | 特定领域与学术检索；SciVerse 只在明确指定时调用 |
 | 意图路由（可选） | Jev（TypeSafe） | 给候选渠道打分并选路 |

@@ -22,7 +22,7 @@
 | --- | --- | --- | --- |
 | `main_search` | `search` | xAI Responses、OpenAI-compatible Chat Completions 或 Responses | 综合回答、快速搜索、初步总结 |
 | `docs_search` | `context7-library`、`context7-docs`、`exa-search` | Context7、Exa | 官方文档、SDK、API、框架/库文档 |
-| `web_search` | `zhipu-search`、`zhipu-mcp-search`、由 `search` 选中执行 | 智谱 Web Search API、智谱 Coding Plan MCP、Tavily、Firecrawl、TinyFish、DeepSeek | 中文、国内、时效、域名过滤、补充来源 |
+| `web_search` | `zhipu-search`、`zhipu-mcp-search`、由 `search` 选中执行 | 智谱 Web Search API、智谱 Coding Plan MCP、Tavily、Firecrawl、TinyFish、DeepSeek、元宝搜索 | 中文、国内、时效、域名过滤、补充来源 |
 | `web_fetch` | `fetch`、`zhipu-mcp-reader` | Tavily、Jina Reader、智谱 Coding Plan MCP Reader、Firecrawl、TinyFish、DeepSeek | 已知 URL 正文抓取、证据提取 |
 | `vertical_search` | `anysearch-domains`、`anysearch-search`、`anysearch-extract`、`anysearch-batch`、`sciverse-catalog`、`sciverse-search`、`sciverse-semantic`、`sciverse-read`、`sciverse-relations` | AnySearch 和 Sciverse（实验） | 显式结构化垂直域；Sciverse 覆盖学术文献检索、语义搜索、正文片段和引用关系 |
 | `site_map` | `map` | Tavily | 文档站、产品站、目录型站点结构 |
