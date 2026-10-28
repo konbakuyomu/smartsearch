@@ -35,22 +35,27 @@ public sealed partial class MainWindow
             return;
         }
         var actions = new List<UIElement>();
-        // With nothing installed, offer every environment that can take a CLI: Windows and each probed WSL distribution.
-        var targets = _cliManager.Selected is null ? _cliManager.InstallTargets.Where(target => target.Npm is not null).ToList() : [];
-        if (targets.Count > 0)
-            actions.AddRange(targets.Select(target => ActionButton(InstallTargetTitle(target), () => ManageNativeCliAsync(remove: false, target.Id),
-                primary: target == targets[0], operationKey: "native-cli-install:" + target.Id, busyText: L("处理中…"),
-                enabled: () => !CliBlocked && !CliReleaseUnavailable)));
-        else if (_cliManager.Npm is null && _cliManager.Selected is null)
-            actions.Add(ActionButton(L("安装 Node.js"), async () =>
-                { await Windows.System.Launcher.LaunchUriAsync(new Uri("https://nodejs.org/en/download")); }, primary: true));
-        else if (_cliManager.CanInstall && (_cliManager.Selected?.Compatible != true || _cliManager.UpdateAvailable))
-            actions.Add(ActionButton(CliInstallTitle(), () => ManageNativeCliAsync(remove: false), primary: true,
-                operationKey: "native-cli-install", busyText: L("处理中…"), enabled: () => !CliBlocked && !CliReleaseUnavailable));
+        // Until detection ends nothing is known to be missing, so nothing is offered to install or choose.
+        var detected = !_cliManager.Busy && !_connecting;
+        if (detected)
+        {
+            // With nothing installed, offer every environment that can take a CLI: Windows and each probed WSL distribution.
+            var targets = _cliManager.Selected is null ? _cliManager.InstallTargets.Where(target => target.Npm is not null).ToList() : [];
+            if (targets.Count > 0)
+                actions.AddRange(targets.Select(target => ActionButton(InstallTargetTitle(target), () => ManageNativeCliAsync(remove: false, target.Id),
+                    primary: target == targets[0], operationKey: "native-cli-install:" + target.Id, busyText: L("处理中…"),
+                    enabled: () => !CliBlocked && !CliReleaseUnavailable)));
+            else if (_cliManager.Npm is null && _cliManager.Selected is null)
+                actions.Add(ActionButton(L("安装 Node.js"), async () =>
+                    { await Windows.System.Launcher.LaunchUriAsync(new Uri("https://nodejs.org/en/download")); }, primary: true));
+            else if (_cliManager.CanInstall && (_cliManager.Selected?.Compatible != true || _cliManager.UpdateAvailable))
+                actions.Add(ActionButton(CliInstallTitle(), () => ManageNativeCliAsync(remove: false), primary: true,
+                    operationKey: "native-cli-install", busyText: L("处理中…"), enabled: () => !CliBlocked && !CliReleaseUnavailable));
+        }
         if (!_backend.IsConnected)
             actions.Add(ActionButton(L("重新检测"), ConnectAsync, operationKey: "connect", enabled: () => !CliBlocked));
         actions.Add(ActionButton(L("环境详情…"), ShowCliSettingsAsync));
-        if (_cliManager.Selected?.Compatible != true)
+        if (detected && _cliManager.Selected?.Compatible != true)
         {
             actions.Add(new HyperlinkButton { Content = L("手动下载 CLI"), NavigateUri = new Uri("https://github.com/konbakuyomu/smartsearch/releases/latest") });
             actions.Add(ActionButton(L("选择已有 CLI…"), ChooseCliAsync, enabled: () => !CliBlocked));

@@ -8,6 +8,9 @@ namespace SmartSearch.Desktop;
 internal sealed class ActionPanel : Panel
 {
     private const double Gap = 8;
+    // Layout rounding can arrange the panel a fraction of a pixel narrower than it measured itself,
+    // which would wrap the last button below the height the parent reserved.
+    private const double RoundingTolerance = 1;
 
     protected override Size MeasureOverride(Size availableSize)
     {
@@ -28,7 +31,7 @@ internal sealed class ActionPanel : Panel
         {
             if (child.Visibility == Visibility.Collapsed) continue;
             var size = child.DesiredSize;
-            if (x > 0 && x + size.Width > width)
+            if (x > 0 && x + size.Width > width + RoundingTolerance)
             {
                 y += lineHeight + Gap;
                 x = lineHeight = 0;
