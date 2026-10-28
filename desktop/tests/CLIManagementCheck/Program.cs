@@ -117,6 +117,13 @@ Check(manager.Npm is null && manager.Selected is null, "Manual invalid path must
 manager.SetNpmPath(Path.Combine(second, "npm.cmd"));
 await manager.DiscoverAsync();
 Check(manager.Npm?.Prefix == second && manager.Selected?.Compatible == true, "Manual path with spaces and ampersand must use trusted npm JS without cmd.exe");
+// The last detection would start fine here, but it was made with the other npm path.
+var otherSettings = Path.Combine(root, "other npm path state");
+Directory.CreateDirectory(otherSettings);
+foreach (var file in new[] { "cli-npm-state.json", "cli-detection.json" }) File.Copy(Path.Combine(root, "state", file), Path.Combine(otherSettings, file));
+var otherNpm = new CLIInstallationManager(otherSettings, first + Path.PathSeparator + second, Load, () => now);
+otherNpm.SetNpmPath(Path.Combine(first, "npm.cmd"));
+Check(!otherNpm.RestoreLastDetection(), "A launch does not restore a detection made with another npm path");
 await manager.CheckAutomaticallyAsync(onLaunch: true);
 await manager.CheckAutomaticallyAsync(onLaunch: true);
 Check(checks == 1 && manager.UpdateAvailable, "Startup/update notification");
@@ -140,10 +147,29 @@ fail = false;
 await manager.CheckVersionAsync();
 await manager.InstallOrRepairAsync("1.2.4");
 Check(manager.Selected is { Compatible: true, Version: "1.2.4" }, "Postinstall verification");
+var relaunched = new CLIInstallationManager(Path.Combine(root, "state"), first + Path.PathSeparator + second, Load, () => now);
+Check(relaunched.RestoreLastDetection() && relaunched.Selected is { Compatible: true, Version: "1.2.4" } && relaunched.Npm?.Prefix == second && !relaunched.Busy,
+    "A launch restores the last detection without detecting again");
+Check(await relaunched.RedetectAsync(quietly: true) == CLIInstallationManager.Redetection.Unchanged && relaunched.Selected?.Version == "1.2.4",
+    "Detecting again in the background finds the same CLI");
+var secondManifest = Path.Combine(second, "node_modules", "@konbakuyomu", "smart-search", "package.json");
+File.WriteAllText(secondManifest, File.ReadAllText(secondManifest).Replace("1.2.4", "1.2.5"));
+Check(await relaunched.RedetectAsync(quietly: true) == CLIInstallationManager.Redetection.Changed && relaunched.Selected?.Version == "1.2.4",
+    "A CLI changed outside the App is held back while the old one still runs");
+relaunched.ShowRedetection();
+Check(relaunched.Selected?.Version == "1.2.5", "Switching shows the changed CLI");
+var secondPackage = Path.GetDirectoryName(secondManifest)!;
+Directory.Move(secondPackage, secondPackage + ".moved");
+Check(await relaunched.RedetectAsync(quietly: true) == CLIInstallationManager.Redetection.Missing && relaunched.Selected?.Version == "1.2.5",
+    "A CLI that is no longer found never replaces the running one");
+Directory.Move(secondPackage + ".moved", secondPackage);
+File.WriteAllText(secondManifest, File.ReadAllText(secondManifest).Replace("1.2.5", "1.2.4"));
 var restored = new CLIInstallationManager(Path.Combine(root, "state"), first + Path.PathSeparator + second, Load, () => now);
 await restored.DiscoverAsync();
 Check(restored.ManualNpmPath == manager.ManualNpmPath && !restored.AutomaticallyChecks && restored.CheckedAt == manager.CheckedAt, "Persisted preferences");
 await manager.UninstallAsync();
+Check(!new CLIInstallationManager(Path.Combine(root, "state"), first + Path.PathSeparator + second, Load, () => now).RestoreLastDetection(),
+    "A launch does not restore a detection whose CLI is gone");
 var arguments = JsonSerializer.Deserialize<string[]>(File.ReadAllText(Path.Combine(second, "operations.json")))!;
 Check(arguments.SequenceEqual(["uninstall", "--global", "--prefix", second, "@konbakuyomu/smart-search"]), "Scoped uninstall arguments");
 Check(File.Exists(Path.Combine(first, "node_modules", "@konbakuyomu", "smart-search", "package.json")), "Other npm installation changed");
@@ -230,6 +256,9 @@ try
         arch.Command[7] == "-ic" && arch.Command[10..].SequenceEqual(["/home/a/node/bin/node", "/home/a/node/lib/node_modules/npm/bin/npm-cli.js"]),
         "Distributions without a CLI become install targets, using the shell that has Node.js; without Node.js they explain why: " + JsonSerializer.Serialize(wslOnly.InstallTargets.Select(item => new { item.Id, item.Note })));
     File.Delete(probes);
+    var relaunchedWsl = new CLIInstallationManager(Path.Combine(root, "wsl state"), "", Load, wslPath: fakeWsl);
+    Check(relaunchedWsl.RestoreLastDetection() && relaunchedWsl.Selected?.Id == "wsl://Debian" && relaunchedWsl.InstallTargets.Count == 2 && !File.Exists(probes),
+        "A launch restores a CLI in WSL without probing any distribution");
     await wslOnly.DiscoverAsync(includeStoppedWsl: true);
     Check(wslOnly.Installations.Single(item => item.Id == "wsl://Ubuntu-24.04") is { Version: "1.2.4", Compatible: true, CanManage: true } ubuntu && ubuntu.Manager[7] == "-ic" &&
         File.ReadAllText(probes).Contains("Ubuntu-24.04 -lc") && File.ReadAllText(probes).Contains("Ubuntu-24.04 -ic"), "Explicit detection starts stopped distributions and falls back to an interactive shell for nvm");
@@ -290,5 +319,5 @@ Check(CLIInstallationManager.MiseOptions("version = \"^1\"", "^1") is null, "Do 
 Check(CLIInstallationManager.MiseToolDirectory(misePackage) == Path.Combine(root, "mise", "installs", "npm-konbakuyomu-smart-search"), "Recognize versioned mise tool directories");
 Check(CLIInstallationManager.MiseToolDirectory(@"C:\x\node_modules\@konbakuyomu\smart-search") is null, "Global npm prefixes are not mise tools");
 Check(CLIInstallationManager.MiseToolDirectory(@"C:\x\smart-search.exe") is null, "Manual CLI paths are not mise tools");
-Console.WriteLine("PASS: npm/mise/WSL discovery and ownership, multiple installations, legacy isolation, explicit selection, startup/24h checks, failure backoff and persistence");
+Console.WriteLine("PASS: npm/mise/WSL discovery and ownership, multiple installations, legacy isolation, explicit selection, startup/24h checks, failure backoff and persistence, launch from the last detection and background re-detection");
 static void Check(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }

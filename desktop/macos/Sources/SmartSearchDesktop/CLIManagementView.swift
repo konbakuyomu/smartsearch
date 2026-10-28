@@ -22,16 +22,22 @@ struct CLIManagementView: View {
         manager = model.cliManager
     }
 
+    // Until detection ends nothing is known to be missing, so nothing is offered to install or choose.
+    private var detected: Bool { !manager.busy && model.connection != .connecting }
+
     var body: some View {
         DesktopPanel {
             DesktopStepHeader(title: firstStep ? L("1. 准备本地环境") : L("本地环境"), subtitle: model.environmentStatus) {
-                if manager.busy || manager.checking { ProgressView().controlSize(.small) }
-                if manager.npm == nil && manager.selected == nil {
-                    Link(L("安装 Node.js"), destination: URL(string: "https://nodejs.org/en/download")!)
-                        .buttonStyle(.borderedProminent)
-                } else if manager.canInstall && (manager.selected?.compatible != true || manager.updateAvailable) {
-                    Button(installTitle) { Task { await model.manageCLI() } }
-                        .buttonStyle(.borderedProminent).disabled(blocked || releaseUnavailable)
+                // Only a version check the user asked for shows progress.
+                if manager.busy || manager.checking && model.isBusy.contains("cli.check") { ProgressView().controlSize(.small) }
+                if detected {
+                    if manager.npm == nil && manager.selected == nil {
+                        Link(L("安装 Node.js"), destination: URL(string: "https://nodejs.org/en/download")!)
+                            .buttonStyle(.borderedProminent)
+                    } else if manager.canInstall && (manager.selected?.compatible != true || manager.updateAvailable) {
+                        Button(installTitle) { Task { await model.manageCLI() } }
+                            .buttonStyle(.borderedProminent).disabled(blocked || releaseUnavailable)
+                    }
                 }
                 if model.connection != .ready {
                     Button(L("重新检测")) { Task { await model.reconnect() } }.disabled(blocked)
@@ -43,7 +49,7 @@ struct CLIManagementView: View {
                 }
             }
             Text(model.environmentExplanation).font(.callout).foregroundStyle(.secondary)
-            if manager.selected?.compatible != true {
+            if detected && manager.selected?.compatible != true {
                 HStack {
                     Link(L("手动下载 CLI"), destination: URL(string: "https://github.com/konbakuyomu/smartsearch/releases/latest")!)
                     Button(L("选择已有 CLI…")) { chooseCLI() }.disabled(blocked)
@@ -60,7 +66,7 @@ struct CLIManagementView: View {
             DetailSheet(L("本地环境")) {
                 DesktopStepHeader(title: L("Smart Search CLI"), subtitle: model.environmentStatus) {
                     Button(L("重新检测")) { deferAction(.reconnect) }.disabled(blocked)
-                    Button(L("检查更新")) { Task { await manager.checkVersion() } }
+                    Button(L("检查更新")) { Task { await model.checkCLIVersion() } }
                         .disabled(manager.npm == nil || blocked)
                 }
                 if !manager.installations.isEmpty {

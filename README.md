@@ -241,7 +241,7 @@ Windows `-signed.exe` packages use a self-signed certificate and may still trigg
 <details>
 <summary><strong>How do the App and the CLI update?</strong></summary>
 
-Separately. The App checks under **Settings & about → App Updates** and downloads only after you confirm. Update the CLI from **Overview → 1. Prepare local environment**, or run `npm install -g @konbakuyomu/smart-search@latest`. After an upgrade the CLI maintains connected Skills and preserves personal edits.
+Separately. The App checks at each launch and asks in a dialog when a new version is out; you can also check under **Settings & about → App Updates**. It downloads only after you confirm. Update the CLI from **Overview → 1. Prepare local environment**, or run `npm install -g @konbakuyomu/smart-search@latest`. After an upgrade the CLI maintains connected Skills and preserves personal edits.
 
 </details>
 

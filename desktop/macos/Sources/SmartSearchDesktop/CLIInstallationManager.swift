@@ -17,7 +17,7 @@ struct CLIInstallation: Identifiable, Codable, Equatable, Sendable {
     var title: String { "\(source) · \(version.isEmpty ? L("版本未知") : version) · \(id)" }
 }
 
-struct NpmEnvironment: Equatable, Sendable {
+struct NpmEnvironment: Codable, Equatable, Sendable {
     var npmPath: String
     var nodePath: String
     var version: String
@@ -34,6 +34,18 @@ private struct CLIUpdateRecord: Codable {
     var supportsBinary = false
     var checkedAt: Date?
     var attemptedAt: Date?
+}
+
+// What one detection found. Each detection fills a new one and shows it whole, so one running in the
+// background never shows half its results. The last one shown is kept for the next launch.
+private struct CLIDetection: Codable {
+    var installations: [CLIInstallation] = []
+    var npm: NpmEnvironment?
+    var message = ""
+    var selectedID = ""
+    // A detection made with other manual paths does not describe the current settings.
+    var manualNpmPath = ""
+    var manualCliPath = ""
 }
 
 enum CLIManagementError: LocalizedError {
@@ -72,6 +84,11 @@ final class CLIInstallationManager: ObservableObject {
     private let clock: () -> Date
     private var checkedAtLaunch = false
     private var automaticTask: Task<Void, Never>?
+    private var held: CLIDetection?
+    private var detections = 0
+    private static let detectionKey = "SmartSearchDesktop.cliDetection"
+
+    enum Redetection { case unchanged, changed, missing }
 
     init(searchPath: String? = nil, preferences: UserDefaults = .standard,
          versionLoader: (() async throws -> String)? = nil, clock: @escaping () -> Date = Date.init) {
@@ -132,9 +149,60 @@ final class CLIInstallationManager: ObservableObject {
         guard !busy, !checking else { return }
         busy = true
         defer { busy = false }
-        installations = []
-        npm = nil
-        message = ""
+        if let detection = await detect() { show(detection) }
+    }
+
+    // Detects again while a CLI found earlier may be running; quietly, busy stays false and nothing shows
+    // a detection in progress. What is shown keeps describing the running CLI: a detection that selects
+    // another CLI waits for showRedetection (changed), and one without a CLI that can start is dropped (missing).
+    func redetect(quietly: Bool) async -> Redetection {
+        guard !busy, !checking else { return .unchanged }
+        let before = selected
+        if !quietly { busy = true }
+        let detection = await detect()
+        if !quietly { busy = false }
+        guard let detection else { return .unchanged }
+        guard let chosen = Self.find(detection, detection.selectedID), chosen.compatible else { return .missing }
+        guard let before, Self.sameLaunch(before, chosen) else { held = detection; return .changed }
+        show(detection)
+        return .unchanged
+    }
+
+    // Shows the detection that selected another CLI, right before connecting to that CLI.
+    func showRedetection() {
+        if let held { show(held) }
+    }
+
+    // Shows the last detection when the CLI it selected can still start, so a launch can connect at once.
+    func restoreLastDetection() -> Bool {
+        guard let data = preferences.data(forKey: Self.detectionKey),
+              let saved = try? JSONDecoder().decode(CLIDetection.self, from: data),
+              saved.manualNpmPath == manualNpmPath, saved.manualCliPath == manualCliPath,
+              let chosen = Self.find(saved, selectedID), chosen.compatible,
+              FileManager.default.isExecutableFile(atPath: chosen.executable),
+              chosen.arguments.allSatisfy({ FileManager.default.fileExists(atPath: $0) }) else { return false }
+        installations = saved.installations
+        npm = saved.npm
+        message = saved.message
+        return true
+    }
+
+    // The same CLI started the same way; any other version or argv would run something else.
+    private static func sameLaunch(_ shown: CLIInstallation, _ detected: CLIInstallation) -> Bool {
+        shown.id == detected.id && shown.executable == detected.executable && shown.arguments == detected.arguments &&
+            shown.version == detected.version && shown.compatible == detected.compatible
+    }
+
+    // An empty id stands for the first installation, as on a first detection.
+    private static func find(_ detection: CLIDetection, _ id: String) -> CLIInstallation? {
+        id.isEmpty ? detection.installations.first : detection.installations.first { $0.id == id }
+    }
+
+    // Nil when a later detection started meanwhile: that one is current.
+    private func detect() async -> CLIDetection? {
+        detections += 1
+        let number = detections
+        var scan = CLIDetection(manualNpmPath: manualNpmPath, manualCliPath: manualCliPath)
         var searchPath = initialSearchPath ?? ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"
         if initialSearchPath == nil, let loginPath = try? await Self.command(["/bin/zsh", "-lc", "print -r -- $PATH"]) {
             searchPath = loginPath.trimmingCharacters(in: .whitespacesAndNewlines) + ":" + searchPath
@@ -145,35 +213,49 @@ final class CLIInstallationManager: ObservableObject {
         for path in paths {
             do {
                 let candidate = try await resolveNpm(path, searchPath: searchPath)
-                if npm == nil { npm = candidate }
-                if seen.insert(candidate.identity).inserted { npmEnvironments.append(candidate); await addInstallation(candidate) }
+                if scan.npm == nil { scan.npm = candidate }
+                if seen.insert(candidate.identity).inserted { npmEnvironments.append(candidate); await addInstallation(candidate, into: &scan) }
             }
-            catch { if !manualNpmPath.isEmpty { message = error.localizedDescription } }
+            catch { if !manualNpmPath.isEmpty { scan.message = error.localizedDescription } }
         }
-        if manualNpmPath.isEmpty { await discoverMise(searchPath: searchPath) }
-        if !manualCliPath.isEmpty { await discoverManual() }
+        if manualNpmPath.isEmpty { await discoverMise(searchPath: searchPath, into: &scan) }
+        if !manualCliPath.isEmpty { await discoverManual(into: &scan) }
         // mise installs each version separately; follow the same tool after upgrades outside the App.
-        if !selectedID.isEmpty, selected == nil, manualCliPath.isEmpty,
-           let mise = installations.first(where: { $0.source == "mise" }),
-           let selectedTool = Self.miseToolDirectory(selectedID),
+        var chosenID = selectedID
+        if !chosenID.isEmpty, Self.find(scan, chosenID) == nil, manualCliPath.isEmpty,
+           let mise = scan.installations.first(where: { $0.source == "mise" }),
+           let selectedTool = Self.miseToolDirectory(chosenID),
            let activeTool = Self.miseToolDirectory(mise.id), selectedTool == activeTool {
-            selectInstallation(mise.id)
+            chosenID = mise.id
         }
-        if !selectedID.isEmpty && selected == nil { message = L("所选安装已不可用，请重新检测或选择其他安装。") }
-        if selectedID.isEmpty, let selected { selectInstallation(selected.id) }
-        if let selected {
-            npm = npmEnvironments.first { selected.source == "npm" ? $0.prefix == selected.prefix && $0.command == selected.manager : $0.nodePath == selected.executable } ?? npm
+        if !chosenID.isEmpty && Self.find(scan, chosenID) == nil { scan.message = L("所选安装已不可用，请重新检测或选择其他安装。") }
+        let chosen = Self.find(scan, chosenID)
+        scan.selectedID = chosen?.id ?? chosenID
+        if let chosen {
+            scan.npm = npmEnvironments.first { chosen.source == "npm" ? $0.prefix == chosen.prefix && $0.command == chosen.manager : $0.nodePath == chosen.executable } ?? scan.npm
         }
-        guard let npm else {
-            if message.isEmpty && selected == nil { message = L("未找到可用的 npm。请先安装 Node.js，或手动指定 npm 路径。") }
-            return
+        if scan.npm == nil && scan.message.isEmpty && chosen == nil { scan.message = L("未找到可用的 npm。请先安装 Node.js，或手动指定 npm 路径。") }
+        return number == detections ? scan : nil
+    }
+
+    private func show(_ detection: CLIDetection) {
+        held = nil
+        installations = detection.installations
+        npm = detection.npm
+        message = detection.message
+        if selectedID != detection.selectedID {
+            selectedID = detection.selectedID
+            preferences.set(selectedID, forKey: "SmartSearchDesktop.selectedCLI")
         }
-        if update.identity != npm.identity {
+        // Another npm starts its own update record.
+        if let npm = detection.npm, update.identity != npm.identity {
             update = CLIUpdateRecord(identity: npm.identity)
             checkedAtLaunch = false
             checkError = ""
             saveUpdateState()
         }
+        // Only a shortcut for the next launch, which otherwise detects again.
+        if let data = try? JSONEncoder().encode(detection) { preferences.set(data, forKey: Self.detectionKey) }
     }
 
     private func npmCandidates(searchPath: String) -> [String] {
@@ -230,7 +312,7 @@ final class CLIInstallationManager: ObservableObject {
         return NpmEnvironment(npmPath: path, nodePath: actualNode, version: version, prefix: prefix, modules: modules, command: command, environment: environment)
     }
 
-    private func addInstallation(_ npm: NpmEnvironment, packageRoot: URL? = nil, source: String = "npm",
+    private func addInstallation(_ npm: NpmEnvironment, into scan: inout CLIDetection, packageRoot: URL? = nil, source: String = "npm",
                                  manager: [String]? = nil, note: String = "", options: [String] = []) async {
         let root = packageRoot ?? URL(fileURLWithPath: npm.modules).appendingPathComponent(Self.package)
         guard let data = try? Data(contentsOf: root.appendingPathComponent("package.json")),
@@ -250,11 +332,11 @@ final class CLIInstallationManager: ObservableObject {
         if !installed.compatible && installed.note.isEmpty {
             installed.note = L("已找到 Smart Search CLI，但此版本不支持当前 App。请更新 CLI，或选择兼容的独立下载版。")
         }
-        installations.removeAll { $0.id == root.path }
-        installations.append(installed)
+        scan.installations.removeAll { $0.id == root.path }
+        scan.installations.append(installed)
     }
 
-    private func discoverMise(searchPath: String) async {
+    private func discoverMise(searchPath: String, into scan: inout CLIDetection) async {
         let directories = searchPath.split(separator: ":").map(String.init)
         guard let mise = directories.map({ $0 + "/mise" }).first(where: { $0.hasPrefix("/") && FileManager.default.isExecutableFile(atPath: $0) }) else { return }
         do {
@@ -289,11 +371,11 @@ final class CLIInstallationManager: ObservableObject {
                 }
                 let modules = URL(fileURLWithPath: install).appendingPathComponent("node_modules")
                 let context = NpmEnvironment(npmPath: "", nodePath: node, version: "", prefix: install, modules: modules.path, command: [], environment: environment)
-                await addInstallation(context, packageRoot: modules.appendingPathComponent(Self.package), source: "mise", manager: options == nil ? [] : [mise],
+                await addInstallation(context, into: &scan, packageRoot: modules.appendingPathComponent(Self.package), source: "mise", manager: options == nil ? [] : [mise],
                     note: options == nil ? L("此 mise 安装有环境覆盖或复杂版本约束，请在原终端更新。") : "", options: options ?? [])
-                if let index = installations.firstIndex(where: { $0.source == "mise" }) { let chosen = installations.remove(at: index); installations.insert(chosen, at: 0) }
+                if let index = scan.installations.firstIndex(where: { $0.source == "mise" }) { let chosen = scan.installations.remove(at: index); scan.installations.insert(chosen, at: 0) }
             }
-        } catch { message = L("mise 环境检测未完成，请重新检测或手动选择 CLI。") + "\n" + error.localizedDescription }
+        } catch { scan.message = L("mise 环境检测未完成，请重新检测或手动选择 CLI。") + "\n" + error.localizedDescription }
     }
 
     static func miseToolDirectory(_ packageRoot: String) -> String? {
@@ -319,7 +401,7 @@ final class CLIInstallationManager: ObservableObject {
         return options
     }
 
-    private func discoverManual() async {
+    private func discoverManual(into scan: inout CLIDetection) async {
         do {
             guard manualCliPath.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: manualCliPath) else {
                 throw CLIManagementError.failed(L("请选择独立下载包中的 smart-search 可执行文件。"))
@@ -335,8 +417,8 @@ final class CLIInstallationManager: ObservableObject {
                   info["product"] as? String == "smart-search", info["desktop_protocol_version"] as? Int == 1, info["version"] as? String == manifest["version"] as? String else {
                 throw CLIManagementError.failed(L("所选 CLI 与当前 App 不兼容。"))
             }
-            installations.append(CLIInstallation(id: manualCliPath, executable: manualCliPath, version: info["version"] as? String ?? "", source: "manual", compatible: true))
-        } catch { message = error.localizedDescription }
+            scan.installations.append(CLIInstallation(id: manualCliPath, executable: manualCliPath, version: info["version"] as? String ?? "", source: "manual", compatible: true))
+        } catch { scan.message = error.localizedDescription }
     }
 
     func checkVersion() async {

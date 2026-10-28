@@ -244,8 +244,14 @@ public sealed partial class MainWindow
 
     private async void OnRefreshWorkspaceClick(object sender, RoutedEventArgs args)
     {
-        await RunOperationAsync(_backend.IsConnected ? "state" : "connect",
-            _backend.IsConnected ? () => RefreshStateAsync() : ConnectAsync);
+        if (!_backend.IsConnected)
+        {
+            await RunOperationAsync("connect", ConnectAsync);
+            return;
+        }
+        await RunOperationAsync("state", () => RefreshStateAsync());
+        // A manual refresh also detects the local environment again, in view.
+        if (!_backend.UsesExplicitBackend) await RunOperationAsync("connect", () => RedetectEnvironmentAsync(quietly: false));
     }
 
     private void ShowNotice(string title, string message, InfoBarSeverity severity)

@@ -18114,5 +18114,29 @@
   "检索渠道": [
     "检索渠道",
     "Retrieval channel"
+  ],
+  "{0} · 正在连接": [
+    "{0} · 正在连接",
+    "{0} · Connecting"
+  ],
+  "再次检测没有找到正在使用的 Smart Search CLI，当前连接保持不变。如已卸载或移动，请在“环境详情…”中重新检测。": [
+    "再次检测没有找到正在使用的 Smart Search CLI，当前连接保持不变。如已卸载或移动，请在“环境详情…”中重新检测。",
+    "Detecting again did not find the Smart Search CLI in use, so the current connection stays. If you uninstalled or moved it, choose Detect again in Environment details…."
+  ],
+  "Smart Search CLI 有变化。完成当前任务后，点击右上角的刷新即可切换。": [
+    "Smart Search CLI 有变化。完成当前任务后，点击右上角的刷新即可切换。",
+    "The Smart Search CLI has changed. When the current task is done, click Refresh at the top right to switch to it."
+  ],
+  "Smart Search CLI 有变化，已切换到 {0}。": [
+    "Smart Search CLI 有变化，已切换到 {0}。",
+    "The Smart Search CLI has changed; switched to {0}."
+  ],
+  "Smart Search {0} 已发布，当前版本为 {1}。立即更新会下载新版本并重启 App；配置、独立 CLI 和 Skills 会保留。": [
+    "Smart Search {0} 已发布，当前版本为 {1}。立即更新会下载新版本并重启 App；配置、独立 CLI 和 Skills 会保留。",
+    "Smart Search {0} is available (you have {1}). Update now downloads it and restarts the App; your configuration, independent CLI and Skills are kept."
+  ],
+  "立即更新": [
+    "立即更新",
+    "Update now"
   ]
 }

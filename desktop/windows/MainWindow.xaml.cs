@@ -139,9 +139,16 @@ public sealed partial class MainWindow : Window
         _started = true;
         _cliUpdateTimer.Start();
         var updateCheck = CheckAppAutomaticallyAsync(onLaunch: true);
-        await RunOperationAsync("connect", ConnectAsync);
-        await CheckCliAutomaticallyAsync(onLaunch: true);
+        // The last detection connects at once; the environment is detected again in the background later.
+        var restored = !_backend.UsesExplicitBackend && _cliManager.RestoreLastDetection();
+        if (restored) await RunOperationAsync("connect", () => ConnectWithAsync(includeStoppedWsl: false, detect: false));
+        // Without one, or when its CLI no longer starts, detection runs in view.
+        var detectedInView = !restored || !_backend.IsConnected;
+        if (detectedInView) await RunOperationAsync("connect", ConnectAsync);
         await updateCheck;
+        await OfferAppUpdateAsync();
+        if (!detectedInView && _backend.IsConnected) await RunOperationAsync("connect", () => RedetectEnvironmentAsync(quietly: true));
+        await CheckCliAutomaticallyAsync(onLaunch: true);
         if (_preferenceReadFailed && _backend.IsConnected)
             ShowNotice(L("本机偏好"), L("无法读取已保存的显示偏好，已使用默认设置。原配置文件未修改。"), InfoBarSeverity.Warning);
     }
@@ -153,7 +160,8 @@ public sealed partial class MainWindow : Window
 
     private bool ConnectedToWsl => _backend.Installation?.InWsl == true;
 
-    private async Task ConnectWithAsync(bool includeStoppedWsl)
+    // detect: false connects to the CLI already selected, without detecting the environment first.
+    private async Task ConnectWithAsync(bool includeStoppedWsl, bool detect = true)
     {
         if (_connecting || _managingCLI || EnvironmentBusy || _operations.IsBusy("updates-cli") || Text(Property(_updates, "cli_update"), "status") == "running") return;
         _connecting = true;
@@ -163,7 +171,7 @@ public sealed partial class MainWindow : Window
         {
             if (!_backend.UsesExplicitBackend)
             {
-                await _cliManager.DiscoverAsync(includeStoppedWsl);
+                if (detect) await _cliManager.DiscoverAsync(includeStoppedWsl);
                 _backend.Installation = _cliManager.Selected;
                 if (_backend.Installation?.Compatible != true)
                 {
@@ -678,8 +686,22 @@ public sealed partial class MainWindow : Window
     {
         if (!onLaunch || _shuttingDown || !_appUpdater.Installed || _appUpdater.Ready || !AppAutoCheck) return;
         await CheckNativeAppAsync();
-        if (_appUpdater.Available)
+    }
+
+    // An update found at launch is offered once the App has connected; installing it restarts the App.
+    private async Task OfferAppUpdateAsync()
+    {
+        if (!_appUpdater.Available || _appUpdater.Ready || _shuttingDown) return;
+        if (_dialogOpen)
+        {
             ShowNotice(L("发现 App 新版本"), L("可在设置与关于中下载更新。"), InfoBarSeverity.Informational);
+            return;
+        }
+        if (!await ConfirmAsync(L("发现 App 新版本"), L("Smart Search {0} 已发布，当前版本为 {1}。立即更新会下载新版本并重启 App；配置、独立 CLI 和 Skills 会保留。",
+            _appUpdater.LatestVersion, _appUpdater.CurrentVersion), L("立即更新"), L("稍后"), confirmByDefault: true)) return;
+        // The settings page shows the download progress.
+        await NavigateToAsync("settings");
+        await RunOperationAsync("updates-install", InstallUpdateAsync);
     }
 
     private void RenderUpdateState()
@@ -1115,7 +1137,7 @@ public sealed partial class MainWindow : Window
         Close();
     }
 
-    private async Task<bool> ConfirmAsync(string title, string content, string confirm, string? cancel = null)
+    private async Task<bool> ConfirmAsync(string title, string content, string confirm, string? cancel = null, bool confirmByDefault = false)
     {
         if (_dialogOpen) return false;
         var dialog = new ContentDialog
@@ -1126,7 +1148,7 @@ public sealed partial class MainWindow : Window
             Content = content,
             PrimaryButtonText = confirm,
             CloseButtonText = cancel ?? L("取消"),
-            DefaultButton = ContentDialogButton.Close
+            DefaultButton = confirmByDefault ? ContentDialogButton.Primary : ContentDialogButton.Close
         };
         _dialogOpen = true;
         try { return await dialog.ShowAsync() == ContentDialogResult.Primary; }

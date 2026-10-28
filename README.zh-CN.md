@@ -239,7 +239,7 @@ Windows 的 `-signed.exe` 安装包使用自签名证书，仍可能出现 Smart
 <details>
 <summary><strong>App 和 CLI 怎么更新？</strong></summary>
 
-两者分别更新。App 在「设置与关于 → App 更新」检查并下载，确认后才下载；CLI 在「概览 → 1. 准备本地环境」更新，或运行 `npm install -g @konbakuyomu/smart-search@latest`。CLI 升级后会维护已接入的 Skills，并保留个人修改。
+两者分别更新。App 每次启动时检查，有新版本会弹窗询问；也可以在「设置与关于 → App 更新」检查并下载，确认后才下载；CLI 在「概览 → 1. 准备本地环境」更新，或运行 `npm install -g @konbakuyomu/smart-search@latest`。CLI 升级后会维护已接入的 Skills，并保留个人修改。
 
 </details>
 
