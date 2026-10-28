@@ -266,13 +266,6 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
         "quality_filters": ["non-empty normalized result", "non-empty extracted content", "challenge page rejection"],
         "route_reasons": ["broad source discovery", "known URL extraction"],
     },
-    "yuanbao": {
-        "capability": "web_search",
-        "fallback_group": "web_search",
-        "minimum_profile_role": "",
-        "quality_filters": ["non-empty normalized result"],
-        "route_reasons": ["Chinese/current discovery", "Tencent ecosystem sources"],
-    },
     "deepseek": {
         "capability": "web_search",
         "capabilities": ["web_search", "web_fetch"],
@@ -280,6 +273,13 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
         "minimum_profile_role": "",
         "quality_filters": ["non-empty normalized result", "non-empty extracted content"],
         "route_reasons": ["broad source discovery", "Chinese/current discovery", "known URL extraction"],
+    },
+    "yuanbao": {
+        "capability": "web_search",
+        "fallback_group": "web_search",
+        "minimum_profile_role": "",
+        "quality_filters": ["non-empty normalized result"],
+        "route_reasons": ["Chinese/current discovery", "Tencent ecosystem sources"],
     },
     "anysearch": {
         "capability": "vertical_search",

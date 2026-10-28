@@ -2506,6 +2506,16 @@ def test_setup_guided_yuanbao_optional_reinforcement_saves_both_secrets(monkeypa
     assert "yuanbao-test-secret" not in captured.out + captured.err
 
 
+def test_advanced_setup_adds_a_scheme_to_the_yuanbao_api_url(monkeypatch, capsys):
+    answers = {"YUANBAO_API_URL": "wsa.example.com/"}
+    monkeypatch.setattr(cli, "_prompt_value", lambda key, label, current="", optional=False, lang="en": answers.get(key, ""))
+    values = {}
+
+    cli._run_advanced_setup_prompts(values, {}, "en")
+
+    assert values["YUANBAO_API_URL"] == "https://wsa.example.com"
+
+
 def test_setup_guided_uses_tui_defaults_for_configured_providers(monkeypatch, capsys):
     current = {
         "OPENAI_COMPATIBLE_API_URL": "https://relay.example.com/v1",

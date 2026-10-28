@@ -96,3 +96,19 @@ async def test_doctor_reports_the_yuanbao_connection(monkeypatch):
     info = await service.doctor()
 
     assert info["yuanbao_connection_test"]["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_search_falls_back_to_yuanbao_last(monkeypatch):
+    configure(monkeypatch)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-test")
+    monkeypatch.setenv("SMART_SEARCH_RETRY_MAX_ATTEMPTS", "1")
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(
+        transport=httpx.MockTransport(lambda request: httpx.Response(500, json={"error": "down"})), **kwargs))
+
+    result = await service.search("latest news today")
+
+    tried = [attempt["provider"] for attempt in result["provider_attempts"]]
+    assert tried == ["deepseek", "yuanbao"]
+    assert tried == [name for name in web_search_providers() if name in tried]

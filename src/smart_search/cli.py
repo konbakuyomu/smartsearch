@@ -2403,7 +2403,7 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
             value = _normalize_custom_base_url(value)
         elif key == "SCIVERSE_API_URL":
             value = _normalize_custom_base_url(value)
-        elif key in {"TINYFISH_SEARCH_API_URL", "TINYFISH_FETCH_API_URL", "DEEPSEEK_API_URL"}:
+        elif key in {"TINYFISH_SEARCH_API_URL", "TINYFISH_FETCH_API_URL", "DEEPSEEK_API_URL", "YUANBAO_API_URL"}:
             value = _normalize_custom_base_url(value)
         values[key] = value
 
