@@ -14,7 +14,7 @@ Smart Search 让 AI 联网查资料、读原网页，回答时附上能核对的
 - **桌面 App**（Windows / macOS）：安装并连接 CLI、配置服务商、更新 Skills，也能直接搜索、查看活动。App 只做管理，关掉后 AI 照样按 Skill 调用 CLI。
 - **Skills**：写进 AI 工具的使用说明，告诉 AI 什么时候、怎样调用 CLI；目前支持 17 个 Agent 目标。
 
-仓里还有一个给 DeepSeek Harness 用的独立插件包，边界见「边界与考量」。
+仓里还有一个给 DeepSeek Harness 用的实验性插件包，边界见「边界与考量」。
 
 服务两类人：普通用户装 App、填配置、看状态，不需要终端知识；开发者和 AI 工具使用者从终端或智能体调用 CLI，再从 App 观察进度、服务商和错误。产品的成功标准是：用户能完成配置、执行任务、看懂真实运行状态，App 没打开时照样能用 CLI。
 
@@ -93,7 +93,7 @@ flowchart LR
 - 安装或移动 App 不会静默迁移、覆盖原配置；卸载 CLI 或 App 后，配置和 Skills 仍在。
 - 实验性能力保持显式的实验性标识。
 - Windows 与 macOS 分别验证，每版发版说明写明各自验证到哪一步。两端的签名都不等于系统默认信任：Windows 是自签名证书，macOS 没有 Developer ID 或公证。
-- DeepSeek Harness 插件包是独立的有界桥接：十个工具只调用公开 CLI 的 JSON 输出，不暴露配置、安装、凭据、选服务商、shell 或任意命令；DSH 凭据不会传进 Smart Search，也不给主包加 DSH 依赖。
+- DeepSeek Harness 插件包是实验性的、独立的有界桥接：十个工具只调用公开 CLI 的 JSON 输出，不暴露配置、安装、凭据、选服务商、shell 或任意命令；DSH 凭据不会传进 Smart Search，也不给主包加 DSH 依赖。
 
 **排除了什么**
 
@@ -136,6 +136,6 @@ flowchart LR
 | npm 启动器与平台包 | `npm/bin/smart-search.js`、`package.json` |
 | 桌面 App | `desktop/windows/`、`desktop/macos/` |
 | 打包、签名与发布 | `desktop/scripts/`、`.github/workflows/` |
-| DSH 插件包 | `packages/smart-search-dsh/` |
+| DSH 插件包（实验性） | `packages/smart-search-dsh/` |
 | 测试 | `tests/`、`desktop/tests/` |
 | 开发命令 | `mise.toml`、`package.json`、`pyproject.toml` |
