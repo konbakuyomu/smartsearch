@@ -1,0 +1,3 @@
+{
+  "structural": ["src/**", "desktop/windows/**", "desktop/macos/**", "npm/**", "packages/**"]
+}
