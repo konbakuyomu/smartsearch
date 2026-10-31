@@ -1,6 +1,6 @@
 # App、CLI 与 Skill 的职责
 
-App 只分发原生界面和原生安装管理器，不携带搜索引擎、Python 或 CLI。App 的版本更新由 Sparkle / Velopack 独立管理：每次启动检查一次，允许跳过指定版本，手动检查可重新发现。
+App 只分发原生界面和原生安装管理器，不携带搜索引擎、Python 或 CLI。App 的版本更新由 Sparkle / Velopack 独立管理：每次启动检查一次；macOS 允许跳过指定版本，手动检查可重新发现；Windows 只有“立即更新”和“稍后”。
 
 CLI 通过用户系统中的 npm 独立安装。首页第一步选择并连接 npm 管理的 CLI，之后配置服务商和 Skills。自动查找 npm 支持常见目录及 mise/nvm/Volta，允许手动指定；无效手动路径不回退。App 只读取所选 npm 的全局目录，不扫描或接管 PATH 中的 pip/uv 开发版。
 

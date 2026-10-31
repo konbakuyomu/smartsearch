@@ -1,5 +1,7 @@
 # Smart Search for DeepSeek Harness
 
+> **Experimental.** This bundle is an experimental part of Smart Search. It is tested against a developer-preview DeepSeek Harness baseline; see [Compatibility](#compatibility).
+
 `@konbakuyomu/smart-search-dsh` is a separate DeepSeek Harness (DSH) bundle.
 It exposes bounded tools that invoke only the public Smart Search CLI JSON
 contract. It does not add DSH dependencies to the core `@konbakuyomu/smart-search`
