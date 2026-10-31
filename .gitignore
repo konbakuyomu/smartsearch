@@ -23,6 +23,9 @@ node_modules/
 !.agents/notes/
 .claude/*
 !.claude/settings.json
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/README.md
 .codex/
 .codestable/
 .trellis/

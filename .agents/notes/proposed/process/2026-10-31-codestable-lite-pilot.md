@@ -10,7 +10,7 @@ Status: proposed
 
 以 CodeStable-Lite 的 `/cs` 为唯一入口：`codestable/spec/` 保存当前仍成立的现状与边界，Issue 与 `ff` 记每次改动，坑点进 `codestable/notes/`，决定仍写本目录（write-notes-like-deepseek 格式）。`.arch-check.json` 列出结构路径（`src`、`desktop/windows`、`desktop/macos`、`npm`、`packages`），pre-commit 用 dev-board 的 arch-check 把关：结构变了，规格或笔记必须同提交跟上，或者本次 `ff` 写明影响。
 
-云端会话只读得到仓里的东西，所以 `AGENTS.md`、`codestable/`、`.githooks/`、`.claude/settings.json` 和本目录都进仓：`.gitignore` 对 `.agents/`、`.claude/` 改成整目录忽略、只放行这两处。它们都不在 npm 包的 `files` 白名单里。`/cs` 技能本身不进仓：`.claude/settings.json` 的 SessionStart hook 运行 `.githooks/ensure-cs.mjs`，在云端会话里按固定提交 `bf8ecc8` 从上游取到 `.claude/skills/cs`，并启用 `.githooks`；本机 Windows 检出已有同一提交的副本，hook 不做任何事。试点两周后按验收标准决定推广到第二个仓还是退回。
+云端会话只读得到仓里的东西，所以 `AGENTS.md`、`codestable/`、`.githooks/`、`.claude/settings.json` 和本目录都进仓：`.gitignore` 对 `.agents/`、`.claude/` 改成整目录忽略，只放行 `.agents/notes/`、`.claude/settings.json` 和 `.claude/skills/README.md`。它们都不在 npm 包的 `files` 白名单里。`/cs` 技能本身不进仓：`.claude/settings.json` 的 SessionStart hook 运行 `.githooks/ensure-cs.mjs`，在云端会话里按固定提交 `bf8ecc8` 从上游取到 `.claude/skills/cs`，并启用 `.githooks`；本机 Windows 检出已有同一提交的副本，hook 不做任何事。试点两周后按验收标准决定推广到第二个仓还是退回。
 
 ## Alternatives considered
 
@@ -26,4 +26,4 @@ Status: proposed
 
 ## Risks
 
-每个小改一个 `ff` 文件，目录会长，按需用 arch-check 的 `tidy` 整理；结构路径过宽会误拦，`.arch-check.json` 可调。SessionStart 现取要求会话能访问 github.com，访问不了时 hook 只提示、不挡会话，那次会话没有 `/cs`。会话开始后才出现的技能可能不进那次会话的技能列表（2026-10-31 在一个云端会话里实测，中途新建的项目技能调不到），所以 hook 的提示让模型直接读 `SKILL.md`。公开仓里的 hook 也会在别人的 Claude Code 里运行：现取只在云端会话里自动发生，本地只提示。合进 main 的那次推送带 `[skip ci]`，避免 `publish-npm.yml` 为纯文档改动发一个 npm beta 和 GitHub 预发布。
+每个小改一个 `ff` 文件，目录会长，按需用 arch-check 的 `tidy` 整理；结构路径过宽会误拦，`.arch-check.json` 可调。SessionStart 现取要求会话能访问 github.com，访问不了时 hook 只提示、不挡会话，那次会话没有 `/cs`。Claude Code 只监视会话开始时已存在的技能目录，之后才建的要 `/reload-skills`（Claude Code 技能文档「Edit a skill during a session」；2026-10-31 在一个云端会话里实测，中途新建目录里的项目技能调不到），所以提交 `.claude/skills/README.md` 让目录先在；万一 `/cs` 仍不出现，运行 `/reload-skills`，或让模型直接读 `SKILL.md`。公开仓里的 hook 也会在别人的 Claude Code 里运行：现取只在云端会话里自动发生，本地只提示。合进 main 的那次推送带 `[skip ci]`，避免 `publish-npm.yml` 为纯文档改动发一个 npm beta 和 GitHub 预发布。

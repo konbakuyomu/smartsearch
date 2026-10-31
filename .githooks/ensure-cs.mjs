@@ -63,4 +63,4 @@ writeFileSync(join(target, 'UPSTREAM'), [
   `installed: ${new Date().toISOString().slice(0, 10)} by .githooks/ensure-cs.mjs（不提交，不改上游文件）`,
   '',
 ].join('\n'));
-console.log(`已把 /cs（CodeStable-Lite ${short}）装到 .claude/skills/cs。技能列表里还没有 cs 时，直接读 .claude/skills/cs/SKILL.md 按它做。`);
+console.log(`已把 /cs（CodeStable-Lite ${short}）装到 .claude/skills/cs。技能列表里还没有 cs 时，请用户在输入框运行 /reload-skills；在那之前直接读 .claude/skills/cs/SKILL.md 按它做。`);
