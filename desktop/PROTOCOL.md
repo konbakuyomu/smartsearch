@@ -115,7 +115,7 @@ This additive desktop-only field is not added to public CLI JSON output.
 Close with own active work offers background/stop-and-quit/return. Background
 has a tray/menu-bar entry. Never terminate external CLI processes.
 
-The native App owns its update settings and scheduler. Sparkle / Velopack check at launch and every 24 hours while enabled. Automatic downloads remain off. Skipping a version persists across launches; manual checks can reveal it again. App update checks and prompts do not require a CLI connection.
+The native App owns its update settings and scheduler. Sparkle / Velopack check once per launch while enabled. Automatic downloads remain off. Skipping a version persists across launches; manual checks can reveal it again. App update checks and prompts do not require a CLI connection.
 
 Native clients protect unsaved drafts, owned tasks and protected writes before installation. If connected, request `app.update-prepare` and stop the App-owned protocol process; if disconnected, the SDK can still update the App. No external CLI process is terminated and no CLI installation is replaced by an App update.
 
