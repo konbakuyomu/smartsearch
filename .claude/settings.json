@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .githooks/arch-stop-hook.mjs",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .githooks/ensure-cs.mjs",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}
