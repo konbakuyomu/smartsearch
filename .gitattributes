@@ -1,0 +1,3 @@
+.githooks/** text eol=lf
+# CodeStable-Lite 的模板用行尾两个空格做 Markdown 换行，CI 的 git diff --check 对 codestable/ 不查行尾空白
+codestable/** whitespace=-trailing-space

@@ -18,8 +18,11 @@ logs/
 node_modules/
 *.tgz
 .agent/
-.agents/
-.claude/
+# 决定笔记和 Claude Code 的项目设置（hook）要进仓，云端会话才读得到；其余本机文件仍忽略
+.agents/*
+!.agents/notes/
+.claude/*
+!.claude/settings.json
 .codex/
 .codestable/
 .trellis/

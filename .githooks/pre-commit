@@ -1,0 +1,11 @@
+#!/bin/sh
+# 知识同步门禁：结构路径改了，现状规格或决定笔记必须同提交跟上（规则见 scripts/arch-check.mjs 开头）。
+# 装法（每个仓一次）：在仓库目录运行 `board setup`；或手动：复制本目录到 .githooks 并 git config core.hooksPath .githooks
+# 跳过一次（WIP 提交，CI 会补查）：ARCH_CHECK=skip git commit ...
+[ "$ARCH_CHECK" = "skip" ] && exit 0
+HERE=$(dirname "$0")
+if [ -f "$HERE/arch-check.mjs" ]; then exec node "$HERE/arch-check.mjs" check --staged; fi
+BOARD="${DEV_BOARD_DIR:-D:/Dev/01_任务中枢/dev-board}"
+if [ -f "$BOARD/scripts/arch-check.mjs" ]; then exec node "$BOARD/scripts/arch-check.mjs" check --staged; fi
+echo "arch-check 没找到（$HERE/arch-check.mjs 或 $BOARD/scripts/arch-check.mjs），本次不检查"
+exit 0
