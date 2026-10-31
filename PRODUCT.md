@@ -6,7 +6,7 @@
 
 adaptive
 
-Windows 和 macOS 使用原生桌面界面，保留系统控件和交互习惯。0.1.19 先交付本机已验证的 Windows x64，macOS 和 Windows ARM64 的完整实机验收仍待完成。
+Windows 和 macOS 使用原生桌面界面，保留系统控件和交互习惯。Windows x64 已在本机实机验证；macOS 和 Windows ARM64 的完整实机验收仍待完成。每版各平台验证到哪一步，以 `.github/releases/` 下的发版说明为准。
 
 ## Stack
 
@@ -38,7 +38,7 @@ Windows：WinUI 3 / C#。macOS：SwiftUI / Swift。两端共用现有 Python 搜
 - 配置读取、有效值、环境变量来源、保存和草稿测试统一处理。
 - 实时活动展示实际发生的阶段、耗时、尝试和失败，不伪造进度或健康状态。
 - 保持 CLI 命令、参数、别名、输出及退出码兼容；观测消息不进入 CLI 业务标准输出。
-- Windows x64 已完成本机功能及安装生命周期测试；真实 API、干净机、多 DPI、其余平台与正式签名分别保留未验边界。
+- Windows x64 已完成本机功能及安装生命周期测试；真实 API、干净机、多 DPI 与其余平台分别保留未验边界。两端正式包沿用固定的自签名身份：Windows 自签名证书不等于系统默认信任，macOS 签名也不等于 Apple Developer ID 或公证。
 
 ## Brand Commitments
 

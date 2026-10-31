@@ -1,6 +1,6 @@
 # App、CLI 与 Skill 的职责
 
-App 只分发原生界面和原生安装管理器，不携带搜索引擎、Python 或 CLI。App 的版本更新由 Sparkle / Velopack 独立管理：启动和每 24 小时检查，允许跳过指定版本，手动检查可重新发现。
+App 只分发原生界面和原生安装管理器，不携带搜索引擎、Python 或 CLI。App 的版本更新由 Sparkle / Velopack 独立管理：每次启动检查一次；macOS 允许跳过指定版本，手动检查可重新发现；Windows 只有“立即更新”和“稍后”。
 
 CLI 通过用户系统中的 npm 独立安装。首页第一步选择并连接 npm 管理的 CLI，之后配置服务商和 Skills。自动查找 npm 支持常见目录及 mise/nvm/Volta，允许手动指定；无效手动路径不回退。App 只读取所选 npm 的全局目录，不扫描或接管 PATH 中的 pip/uv 开发版。
 
@@ -14,6 +14,6 @@ Windows App 也可以连接 WSL 发行版里的 CLI：列出发行版不会启�
 
 npm 主包通过精确版本 optionalDependencies 选择 macOS / Windows / Linux 的 x64 或 arm64 平台包。平台包携带冻结后的 Python 解释器、依赖及资源；启动器隔离外部 Python/venv/Conda/PyInstaller 环境。没有 postinstall，不回退到系统 Python。构建管线先验证六个平台包的真实 npm 安装，再发布平台包，最后发布主包；新平台包需配置 npm 发布权限。Linux 要求 glibc 2.35+。
 
-CLI 默认启动时及每 24 小时检查 npm latest，只提示更新。成功时间、失败重试间隔、开关和 npm 环境身份独立持久化。更换 npm 环境清空旧检查缓存；失败不抹掉最近成功结果。正式 npm 0.1.24 尚为旧 Python 安装包，新版发布前 App 不会安装该旧流程。
+CLI 默认启动时及每 24 小时检查 npm latest，只提示更新。成功时间、失败重试间隔、开关和 npm 环境身份独立持久化。更换 npm 环境清空旧检查缓存；失败不抹掉最近成功结果。App 只安装 npm 元数据声明了 `smartSearchBinary` 的版本，即自带运行时的平台包；没有这个声明的旧版 Python 安装包可能顺带引导 Python，App 既不安装也不探测。
 
 自动维护回执还记录目标原先选择的 CLI 安装与配置目录。其他 CLI 副本不会改绑已接入的 Skill；切换绑定必须显式同步。
