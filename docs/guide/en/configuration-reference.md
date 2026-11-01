@@ -19,7 +19,7 @@ Generated from current configuration metadata. Active keys appear below. Retired
 | `OPENAI_COMPATIBLE_MODEL` | Whatever your provider documents, e.g. gpt-4o or deepseek-chat. | `text` | Not set |
 | `OPENAI_COMPATIBLE_FALLBACK_MODELS` | Comma separated. Tried in order when the main model is unavailable. | `csv` | Not set |
 | `OPENAI_COMPATIBLE_API_MODE` | Most services want chat-completions. For models such as gpt-6.1-sol that only search through Responses, choose responses and set the tools below to web_search. | `chat-completions, responses` | `chat-completions` |
-| `OPENAI_COMPATIBLE_TOOLS` | Only with API mode responses, and sent with search requests only. Set web_search to let models such as gpt-6.1-sol search with an official OpenAI key; use web_search_preview for relays that only know the older name; leave empty for models that search on their own, such as gpt-5-search-api. | `web_search, web_search_preview` | Not set |
+| `OPENAI_COMPATIBLE_TOOLS` | Leave empty to send no tool. Only with API mode responses, and sent with search requests only. Enter web_search to let models such as gpt-6.1-sol search with an official OpenAI key; enter web_search_preview for relays that only know the older name; keep it empty for models that search on their own, such as gpt-5-search-api. | `csv` | Not set |
 | `OPENAI_COMPATIBLE_STREAM` | Some services only think for long under streaming. | `bool` | `false` |
 | `XAI_ENABLED` | Disabling keeps the configuration and stops requests. Takes effect after saving changes. | `bool` | `true` |
 | `OPENAI_COMPATIBLE_ENABLED` | Disabling keeps the configuration and stops requests. Takes effect after saving changes. | `bool` | `true` |

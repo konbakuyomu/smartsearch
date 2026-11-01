@@ -203,11 +203,14 @@ CONFIG_FIELDS: tuple[ConfigField, ...] = (
        default=Config._DEFAULT_OPENAI_COMPATIBLE_API_MODE,
        choices=tuple(sorted(Config._ALLOWED_OPENAI_COMPATIBLE_API_MODES)),
        provider="openai-compatible", capabilities=("main_search",)),
+    # A plain text field on purpose, with no `choices`: the Windows App draws any field with choices as a closed
+    # dropdown, preselects the first choice when the saved value is not one of them (an empty value never is),
+    # and counts that preselection as "unchanged". Empty could not be shown and web_search could not be saved.
     _f(key="OPENAI_COMPATIBLE_TOOLS", section="getting_started", tier="advanced", kind="csv",
        label_zh="联网工具", label_en="Responses tools",
-       help_zh="只在接口模式为 responses 时可用，只随搜索请求发送。用 OpenAI 官方 key 跑 gpt-6.1-sol 这类模型要联网就填 web_search；中转站只认旧名时填 web_search_preview；模型自带搜索（如 gpt-5-search-api）就留空。",
-       help_en="Only with API mode responses, and sent with search requests only. Set web_search to let models such as gpt-6.1-sol search with an official OpenAI key; use web_search_preview for relays that only know the older name; leave empty for models that search on their own, such as gpt-5-search-api.",
-       choices=tuple(sorted(Config._ALLOWED_OPENAI_COMPATIBLE_TOOLS)), placeholder="web_search",
+       help_zh="留空表示不发送工具。只在接口模式为 responses 时可用，只随搜索请求发送。用 OpenAI 官方 key 跑 gpt-6.1-sol 这类模型要联网，填 web_search；中转站只认旧名时填 web_search_preview；模型自带搜索（如 gpt-5-search-api）保持留空。",
+       help_en="Leave empty to send no tool. Only with API mode responses, and sent with search requests only. Enter web_search to let models such as gpt-6.1-sol search with an official OpenAI key; enter web_search_preview for relays that only know the older name; keep it empty for models that search on their own, such as gpt-5-search-api.",
+       placeholder="web_search",
        provider="openai-compatible", capabilities=("main_search",)),
     _f(key="OPENAI_COMPATIBLE_STREAM", section="getting_started", tier="advanced", kind="bool",
        label_zh="流式返回", label_en="Stream responses",
