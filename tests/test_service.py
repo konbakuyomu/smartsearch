@@ -24,6 +24,7 @@ def _reset_config(monkeypatch, tmp_path):
         "OPENAI_COMPATIBLE_MODEL",
         "OPENAI_COMPATIBLE_FALLBACK_MODELS",
         "OPENAI_COMPATIBLE_API_MODE",
+        "OPENAI_COMPATIBLE_TOOLS",
         "OPENAI_COMPATIBLE_STREAM",
         "SMART_SEARCH_INTENT_ROUTER",
         "SMART_SEARCH_TIMEOUT_SECONDS",
@@ -190,6 +191,77 @@ def test_openai_compatible_api_mode_defaults_validates_and_reports(monkeypatch, 
     assert invalid["error_type"] == "parameter_error"
     assert "Invalid OPENAI_COMPATIBLE_API_MODE" in invalid["error"]
     assert service.config.openai_compatible_api_mode == "responses"
+
+
+def test_openai_compatible_tools_need_responses_mode_on_write_and_read(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+    assert service.config.openai_compatible_tools == []
+
+    unknown = service.config_set("OPENAI_COMPATIBLE_TOOLS", "web_search,x_search")
+    assert unknown["ok"] is False and unknown["error_type"] == "parameter_error"
+    assert "Invalid OPENAI_COMPATIBLE_TOOLS: x_search" in unknown["error"]
+
+    too_early = service.config_set("OPENAI_COMPATIBLE_TOOLS", "web_search")
+    assert too_early["ok"] is False and "OPENAI_COMPATIBLE_API_MODE=responses" in too_early["error"]
+
+    assert service.config_set("OPENAI_COMPATIBLE_API_MODE", "responses")["ok"] is True
+    assert service.config_set("OPENAI_COMPATIBLE_TOOLS", " Web_Search , web_search ")["ok"] is True
+    assert service.config.openai_compatible_tools == ["web_search"]
+    assert service.config.get_config_info()["OPENAI_COMPATIBLE_TOOLS"] == "web_search"
+
+    back_to_chat = service.config_set("OPENAI_COMPATIBLE_API_MODE", "chat-completions")
+    assert back_to_chat["ok"] is False and "clear OPENAI_COMPATIBLE_TOOLS" in back_to_chat["error"]
+    assert service.config.openai_compatible_api_mode == "responses"
+    assert service.config_set("OPENAI_COMPATIBLE_TOOLS", "")["ok"] is True
+    assert service.config_set("OPENAI_COMPATIBLE_API_MODE", "chat-completions")["ok"] is True
+
+
+def test_openai_compatible_tools_from_the_environment_are_reported_when_unusable(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://api.openai.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_TOOLS", "web_search")
+
+    with pytest.raises(ValueError, match="OPENAI_COMPATIBLE_API_MODE=responses"):
+        service.config.openai_compatible_tools
+    assert "OPENAI_COMPATIBLE_API_MODE=responses" in service.config.get_config_info()["config_status"]
+    model = service.current_model()
+    assert model["ok"] is False and model["error_type"] == "parameter_error"
+
+
+def test_openai_compatible_tools_reach_the_provider_and_fallback_models(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://api.openai.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_MODEL", "gpt-6.1-sol")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_FALLBACK_MODELS", "gpt-6-astra")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_MODE", "responses")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_TOOLS", "web_search")
+
+    configs = service._main_search_provider_configs(providers="openai-compatible")
+    candidates = service._openai_model_candidates(configs[0], fallback_mode="auto", model_override="")
+    providers = service._main_search_providers(candidates, fallback="auto")
+
+    assert [(item.model, item.tools) for item in providers] == [("gpt-6.1-sol", ["web_search"]), ("gpt-6-astra", ["web_search"])]
+    assert service.current_model()["openai_compatible_tools"] == ["web_search"]
+
+
+@pytest.mark.asyncio
+async def test_search_rejects_tools_without_responses_mode_before_a_request(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://api.openai.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_TOOLS", "web_search")
+
+    async def should_not_run(self, query, platform="", ctx=None):
+        raise AssertionError("provider should not run when its tools can never be sent")
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", should_not_run)
+    result = await service.search("what is example", providers="openai-compatible")
+
+    assert result["ok"] is False
+    assert result["error_type"] == "parameter_error"
+    assert "OPENAI_COMPATIBLE_API_MODE=responses" in result["error"]
 
 
 def test_current_model_rejects_invalid_openai_compatible_api_mode(monkeypatch, tmp_path):
@@ -2511,7 +2583,65 @@ async def test_diagnose_web_search_capability_does_not_change_connectivity_ok(mo
     assert result["checks"][3]["name"] == "联网搜索能力"
     assert result["checks"][3]["status"] == web_status
     if web_status == "warning":
-        assert "XAI_API_URL" in result["recommendation"]
+        assert "OPENAI_COMPATIBLE_TOOLS=web_search" in result["recommendation"]
+        assert "XAI_API_URL" not in result["recommendation"]
+
+
+@pytest.mark.asyncio
+async def test_diagnose_sends_configured_tools_with_search_probes_only(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://api.openai.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_MODEL", "gpt-6.1-sol")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_MODE", "responses")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_TOOLS", "web_search")
+    seen = {}
+
+    async def fake_quick(api_url, api_key, model, *, api_mode):
+        seen["quick"] = api_mode
+        return {"status": "ok", "message": "ok", "has_content": True}
+
+    async def fake_probe(api_url, api_key, model, *, stream, timeout_seconds, api_mode, tools):
+        seen.setdefault("probe_tools", []).append(tools)
+        return {"name": "probe", "status": "ok", "message": "ok", "has_content": True}
+
+    async def fake_web(api_url, api_key, model, *, api_mode, stream, timeout_seconds, tools):
+        seen["web_tools"] = tools
+        return {"name": "联网搜索能力", "status": "warning", "message": "no sources", "has_content": True}
+
+    async def fake_models(*args):
+        return []
+
+    monkeypatch.setattr(service, "_test_openai_compatible_primary", fake_quick)
+    monkeypatch.setattr(service, "_probe_openai_compatible_search_shape", fake_probe)
+    monkeypatch.setattr(service, "_probe_openai_compatible_web_search", fake_web)
+    monkeypatch.setattr(service, "fetch_available_models", fake_models)
+    result = await service.diagnose_openai_compatible()
+
+    assert seen == {"quick": "responses", "probe_tools": [["web_search"], ["web_search"]], "web_tools": ["web_search"]}
+    assert result["configured_tools"] == ["web_search"]
+    assert "web_search" in result["recommendation"] and "OPENAI_COMPATIBLE_TOOLS" in result["recommendation"]
+    assert "OPENAI_COMPATIBLE_TOOLS=web_search" not in result["recommendation"]
+
+
+@pytest.mark.asyncio
+async def test_diagnose_rejects_tools_without_responses_mode_without_probe(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://api.openai.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_TOOLS", "web_search")
+
+    async def should_not_probe(*args, **kwargs):
+        raise AssertionError("diagnose should reject the tools setting locally")
+
+    monkeypatch.setattr(service, "_probe_openai_compatible_search_shape", should_not_probe)
+    monkeypatch.setattr(service, "_probe_openai_compatible_web_search", should_not_probe)
+    result = await service.diagnose_openai_compatible()
+
+    assert result["ok"] is False
+    assert result["error_type"] == "parameter_error"
+    assert result["configured_api_mode"] == "chat-completions"
+    assert "OPENAI_COMPATIBLE_API_MODE=responses" in result["error"]
 
 
 @pytest.mark.asyncio

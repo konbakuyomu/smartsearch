@@ -122,6 +122,52 @@ async def test_responses_fetch_respects_stream_while_describe_and_rank_stay_non_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("tools", [["web_search"], ["web_search_preview"]])
+async def test_responses_tools_ride_on_search_only(monkeypatch, tools):
+    provider = OpenAICompatibleSearchProvider(
+        "https://api.openai.com/v1", "test-key", "gpt-6.1-sol", api_mode="responses", tools=tools,
+    )
+    payloads = {}
+
+    def capture(name):
+        async def fake(headers, payload, ctx=None):
+            payloads.setdefault(name, payload)
+            return "1" if name == "rank" else "Title: T\nExtracts: E" if name == "describe" else "answer"
+        return fake
+
+    monkeypatch.setattr(provider, "_execute_with_transport_fallback", capture("search"))
+    await provider.search("latest python release")
+    monkeypatch.setattr(provider, "_execute_with_transport_fallback", capture("fetch"))
+    await provider.fetch("https://example.com")
+    monkeypatch.setattr(provider, "_execute_with_transport_fallback", capture("synthesize"))
+    await provider.synthesize("q", [])
+    monkeypatch.setattr(provider, "_execute_completion_with_retry", capture("describe"))
+    await provider.describe_url("https://example.com")
+    monkeypatch.setattr(provider, "_execute_completion_with_retry", capture("rank"))
+    await provider.rank_sources("q", "1. a", 1)
+
+    assert payloads["search"]["tools"] == [{"type": tool} for tool in tools]
+    assert all("tools" not in payloads[name] for name in ("fetch", "synthesize", "describe", "rank"))
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_never_sends_tools(monkeypatch):
+    provider = OpenAICompatibleSearchProvider(
+        "https://api.example.com/v1", "test-key", "gpt-5-search-api", api_mode="chat-completions", tools=["web_search"],
+    )
+    captured = {}
+
+    async def fake(headers, payload, ctx=None):
+        captured["payload"] = payload
+        return "answer"
+
+    monkeypatch.setattr(provider, "_execute_with_transport_fallback", fake)
+    await provider.search("latest python release")
+
+    assert "tools" not in captured["payload"] and "messages" in captured["payload"]
+
+
+@pytest.mark.asyncio
 async def test_fetch_uses_non_stream(monkeypatch):
     """验证 fetch() 使用非流式 completion"""
     provider = OpenAICompatibleSearchProvider("https://api.example.com", "test-key", "test-model")

@@ -23,7 +23,7 @@ Use the local `smart-search` command as the default execution layer for web rese
 1. Run `smart-search doctor --format json` when configuration or availability is uncertain.
 2. If `doctor` reports missing configuration, use `smart-search setup` or `smart-search config set KEY VALUE` when the user provides keys. Do not ask users to edit global environment variables by default.
 3. If OpenAI-compatible `search` hangs or times out after `doctor` succeeds, run `smart-search diagnose openai-compatible --format markdown` and use its summary.
-4. Keep `OPENAI_COMPATIBLE_API_MODE=chat-completions` unless a named relay has passed the official Responses subset probes; set `responses` only for that relay and keep the diagnostic evidence.
+4. Keep `OPENAI_COMPATIBLE_API_MODE=chat-completions` unless a named relay has passed the official Responses subset probes; set `responses` only for that relay and keep the diagnostic evidence. For a model that searches only through the Responses `web_search` tool (for example `gpt-6.1-sol` with an official OpenAI key), also set `OPENAI_COMPATIBLE_TOOLS=web_search`.
 5. If `doctor` returns `ok: true`, use only `smart-search` CLI subcommands for web research. Do not call Codex native web search in the same task.
 6. Use `smart-search skills status --targets codex --format json` when the installed global skill may be stale; use `smart-search skills update --targets codex --format json` to refresh it without rerunning setup.
 7. Use `smart-search smoke --mock --format json` after CLI/provider architecture changes. Use `--live` only when real keys are available and the user expects live checks.

@@ -37,6 +37,8 @@ class Config:
     _ALLOWED_XAI_TOOLS = {"web_search", "x_search"}
     _ALLOWED_XAI_REASONING_EFFORTS = {"low", "medium", "high"}
     _ALLOWED_OPENAI_COMPATIBLE_API_MODES = {"chat-completions", "responses"}
+    # Responses tools the OpenAI-compatible channel may attach to search(); empty sends none.
+    _ALLOWED_OPENAI_COMPATIBLE_TOOLS = {"web_search", "web_search_preview"}
     _ALLOWED_VALIDATION_LEVELS = {"fast", "balanced", "strict"}
     _ALLOWED_FALLBACK_MODES = {"auto", "off"}
     _ALLOWED_MINIMUM_PROFILES = {"standard", "off"}
@@ -77,6 +79,7 @@ class Config:
         "OPENAI_COMPATIBLE_MODEL",
         "OPENAI_COMPATIBLE_FALLBACK_MODELS",
         "OPENAI_COMPATIBLE_API_MODE",
+        "OPENAI_COMPATIBLE_TOOLS",
         "OPENAI_COMPATIBLE_STREAM",
         "SMART_SEARCH_VALIDATION_LEVEL",
         "SMART_SEARCH_FALLBACK_MODE",
@@ -166,6 +169,7 @@ class Config:
         "OPENAI_COMPATIBLE_MODEL",
         "OPENAI_COMPATIBLE_FALLBACK_MODELS",
         "OPENAI_COMPATIBLE_API_MODE",
+        "OPENAI_COMPATIBLE_TOOLS",
         "OPENAI_COMPATIBLE_STREAM",
         "SMART_SEARCH_VALIDATION_LEVEL",
         "SMART_SEARCH_FALLBACK_MODE",
@@ -521,6 +525,15 @@ class Config:
                     for old_key, new_key in self._LEGACY_CONFIG_KEYS.items():
                         if new_key == key:
                             config_data.pop(old_key, None)
+                if {"OPENAI_COMPATIBLE_TOOLS", "OPENAI_COMPATIBLE_API_MODE"} & (set(normalized_set) | set(normalized_unset)):
+                    try:
+                        self.check_openai_compatible_tools_mode(
+                            str(config_data.get("OPENAI_COMPATIBLE_TOOLS") or ""),
+                            str(config_data.get("OPENAI_COMPATIBLE_API_MODE") or ""),
+                        )
+                    except ValueError as e:
+                        return {"ok": False, "errors": [{"key": "OPENAI_COMPATIBLE_TOOLS", "error": str(e)}],
+                                "saved": [], "unset": []}
                 self._save_config_file(config_data)
         except OSError:
             raise ValueError(tr('无法锁定或保存配置文件，请检查权限或稍后重试。')) from None
@@ -642,25 +655,53 @@ class Config:
     def openai_compatible_stream(self) -> bool:
         return (self._get_config_value("OPENAI_COMPATIBLE_STREAM", "false") or "false").lower() in ("true", "1", "yes")
 
-    def parse_xai_tools(self, raw: str | None = None) -> list[str]:
-        raw = raw or self.xai_tools_raw
+    @property
+    def openai_compatible_tools_raw(self) -> str:
+        return self._get_config_value("OPENAI_COMPATIBLE_TOOLS", "") or ""
+
+    @property
+    def openai_compatible_tools(self) -> list[str]:
+        """Tools attached to Responses search(); raises when they could never be sent."""
+        tools = self.parse_openai_compatible_tools(self.openai_compatible_tools_raw)
+        self.check_openai_compatible_tools_mode(",".join(tools), self.openai_compatible_api_mode)
+        return tools
+
+    def check_openai_compatible_tools_mode(self, tools_raw: str, api_mode: str) -> None:
+        """Tools ride on Responses requests only, so any other mode would silently drop them."""
+        tools, _ = self._split_tool_list(tools_raw, self._ALLOWED_OPENAI_COMPATIBLE_TOOLS)
+        if tools and (api_mode or self._DEFAULT_OPENAI_COMPATIBLE_API_MODE).strip().lower() != "responses":
+            raise ValueError(tr(
+                'OPENAI_COMPATIBLE_TOOLS only works with OPENAI_COMPATIBLE_API_MODE=responses. '
+                'Set the API mode to responses, or clear OPENAI_COMPATIBLE_TOOLS.'
+            ))
+
+    @staticmethod
+    def _split_tool_list(raw: str, allowed: set[str]) -> tuple[list[str], list[str]]:
         tools: list[str] = []
         invalid: list[str] = []
-        seen: set[str] = set()
-        for item in raw.split(","):
+        for item in (raw or "").split(","):
             tool = item.strip().lower()
             if not tool:
                 continue
-            if tool not in self._ALLOWED_XAI_TOOLS:
+            if tool not in allowed:
                 invalid.append(tool)
-                continue
-            if tool not in seen:
-                seen.add(tool)
+            elif tool not in tools:
                 tools.append(tool)
+        return tools, invalid
+
+    def parse_xai_tools(self, raw: str | None = None) -> list[str]:
+        tools, invalid = self._split_tool_list(raw or self.xai_tools_raw, self._ALLOWED_XAI_TOOLS)
         if invalid:
             allowed = ", ".join(sorted(self._ALLOWED_XAI_TOOLS))
             invalid_text = ", ".join(invalid)
             raise ValueError(tr('Invalid XAI_TOOLS: {0}. Supported values: {1}', invalid_text, allowed))
+        return tools
+
+    def parse_openai_compatible_tools(self, raw: str | None) -> list[str]:
+        tools, invalid = self._split_tool_list(raw or "", self._ALLOWED_OPENAI_COMPATIBLE_TOOLS)
+        if invalid:
+            allowed = ", ".join(sorted(self._ALLOWED_OPENAI_COMPATIBLE_TOOLS))
+            raise ValueError(tr('Invalid OPENAI_COMPATIBLE_TOOLS: {0}. Supported values: {1}', ", ".join(invalid), allowed))
         return tools
 
     def _validated_enum(self, key: str, default: str, allowed: set[str]) -> str:
@@ -741,6 +782,9 @@ class Config:
             return
         if key == "XAI_TOOLS":
             self.parse_xai_tools(value or self._DEFAULT_XAI_TOOLS)
+            return
+        if key == "OPENAI_COMPATIBLE_TOOLS":
+            self.parse_openai_compatible_tools(value)
             return
         # Every getter below falls back to its default on an empty value, so an
         # empty string is how a key is cleared rather than a value to check.
@@ -1225,6 +1269,12 @@ class Config:
             self._DEFAULT_OPENAI_COMPATIBLE_API_MODE,
             self._ALLOWED_OPENAI_COMPATIBLE_API_MODES,
         )
+        openai_compatible_tools = self.openai_compatible_tools_raw
+        try:
+            openai_compatible_tools = ",".join(self.openai_compatible_tools)
+        except ValueError as exc:
+            if not openai_compatible_api_mode_error:
+                config_parameter_errors.append(str(exc))
         primary_api_mode = tr('未配置')
         if xai_configured:
             primary_api_mode = "xai-responses"
@@ -1273,6 +1323,7 @@ class Config:
             "OPENAI_COMPATIBLE_MODEL": self.openai_compatible_model,
             "OPENAI_COMPATIBLE_FALLBACK_MODELS": ",".join(self.openai_compatible_fallback_models),
             "OPENAI_COMPATIBLE_API_MODE": openai_compatible_api_mode,
+            "OPENAI_COMPATIBLE_TOOLS": openai_compatible_tools,
             "OPENAI_COMPATIBLE_STREAM": self.openai_compatible_stream,
             "SMART_SEARCH_VALIDATION_LEVEL": validation_level,
             "SMART_SEARCH_FALLBACK_MODE": fallback_mode,

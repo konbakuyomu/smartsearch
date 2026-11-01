@@ -18,7 +18,8 @@
 | `OPENAI_COMPATIBLE_API_KEY` | 下面的链接是 OpenAI 官方的。用中转或第三方服务的话，key 去对应服务商那里拿。 | `secret` | 未设置 |
 | `OPENAI_COMPATIBLE_MODEL` | 按服务商文档填，例如 gpt-4o、deepseek-chat。 | `text` | 未设置 |
 | `OPENAI_COMPATIBLE_FALLBACK_MODELS` | 逗号分隔。主模型不可用时按顺序往下试。 | `csv` | 未设置 |
-| `OPENAI_COMPATIBLE_API_MODE` | 大多数服务用 chat-completions。 | `chat-completions, responses` | `chat-completions` |
+| `OPENAI_COMPATIBLE_API_MODE` | 大多数服务用 chat-completions。要让 gpt-6.1-sol 这类只在 Responses 里联网的模型搜索，选 responses，再在下面的联网工具填 web_search。 | `chat-completions, responses` | `chat-completions` |
+| `OPENAI_COMPATIBLE_TOOLS` | 只在接口模式为 responses 时可用，只随搜索请求发送。用 OpenAI 官方 key 跑 gpt-6.1-sol 这类模型要联网就填 web_search；中转站只认旧名时填 web_search_preview；模型自带搜索（如 gpt-5-search-api）就留空。 | `web_search, web_search_preview` | 未设置 |
 | `OPENAI_COMPATIBLE_STREAM` | 部分服务只在流式下才肯长时间思考。 | `bool` | `false` |
 | `XAI_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
 | `OPENAI_COMPATIBLE_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
