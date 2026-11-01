@@ -18,7 +18,7 @@ created: 2026-11-01
 
 2026-11-01 用户反馈：OpenAI 官方 API 现在只能用 `gpt-5-search-api` 联网，调用不了 Sol 和 Astra。OpenAI 的 web search 指南只建议已有 Chat Completions 集成继续用 `gpt-5-search-api`，新接入走 Responses。实测 Sol 在 Chat Completions 里传 `web_search_options` 返回 400，只能在 Responses 里带 `tools: [{"type": "web_search"}]` 联网。`gpt-4o-search-preview` 已在 2026-07-23 下线，实测返回 404。
 
-## 现状怎么工作
+## 改动前怎么工作
 
 - `OPENAI_COMPATIBLE_API_MODE=responses` 只发 model、instructions、input、stream，不发工具。这是 9 月加 Responses 模式时定的，免得弄坏不支持工具的中转站。Sol 走这里会照提示词回 `NO_WEB_SEARCH`，被本地检查拒掉。
 - xAI 槽位把 `XAI_TOOLS` 原样作为 Responses 工具发出，解析的 `output_text` 加 `url_citation` 和 OpenAI 的格式一致，所以现在不改代码也能用：
@@ -55,18 +55,38 @@ XAI_TOOLS=web_search      # 默认值里的 x_search 会让 OpenAI 返回 400
 
 ## 方案与实现安排
 
-建议在兼容通道加 `OPENAI_COMPATIBLE_TOOLS`，默认空，只接受 `web_search`，只在 `api_mode=responses` 的 `search()` 上附带；`fetch()`、`describe_url()`、`rank_sources()`、`synthesize()` 不带工具。`diagnose openai-compatible` 的联网探测按同一配置发请求，连接测试照旧不带工具。这会改动 9 月“兼容通道不发搜索工具”的约定，动手前先写 `.agents/notes/` 决定笔记，并在这里链接。
-
-另一条路是把 xAI 槽位改成通用的 Responses 槽位。它会牵动 Jev 里 “Grok search” 的含义和老配置迁移，影响面更大，放在笔记里一起比较。
+采用兼容通道上的 `OPENAI_COMPATIBLE_TOOLS`：逗号分隔，允许 `web_search` 和 `web_search_preview`，默认空，只在 `OPENAI_COMPATIBLE_API_MODE=responses` 的 `search()` 上附带；`fetch()`、`describe_url()`、`rank_sources()`、`synthesize()` 和 `doctor` 连接测试不带工具。设置了工具而接口模式不是 `responses` 时，保存和搜索前都报参数错误。为什么这样选、否掉了哪几条路，见 `.agents/notes/implemented/feature/2026-11-01-openai-compatible-responses-web-search.md`。
 
 ## 验证
 
-- 单测：开关关闭时请求和现在完全一样；打开后只有 Responses 模式的 `search()` 带 `tools`。
-- 实测：官方 key 加 Sol 走兼容通道，balanced 搜索得到回答和带标题的来源；同时配置 Grok（xAI 槽位）和 OpenAI 兼容通道时两边都能用。
+- 单测：开关关闭时请求和以前完全一样；打开后只有 Responses 模式的 `search()` 带 `tools`；配置写入、`setup`、搜索、`diagnose`、`model` 都拦下“有工具但不是 responses”的组合；备用模型沿用同一组工具。
+- 实测：官方 key 加 Sol 走兼容通道，balanced 搜索得到回答和带标题的来源。
 - 中转站：开关关闭时行为不变。
+- 没做：同时配置 Grok（xAI 槽位）和兼容通道的实测，本机没有 xAI key；两条通道的配置互不相干，由单测覆盖。
+
+## 执行记录
+
+2026-11-01，分支 `claude/focused-bardeen-ihd6hm`：
+
+- `5900c25`：`OPENAI_COMPATIBLE_TOOLS` 全链路——配置与校验、Responses `search()` 附带工具、诊断探测按配置发工具并给出新的建议、`setup --openai-compatible-tools`、App 字段、中英文消息、指南和技能文档、生成的参考页；决定笔记同提交。
+- `a211d22`：实测里顺带发现的四个小问题（限流误报、`x_search` 报错、strict 提示、导入循环），见 `issues/003-x-ff-diagnostics-say-the-real-cause.md`。
+- 全量 pytest 1264 passed、17 skipped；技能双份一致；决定笔记三项校验通过。
+
+在 Windows 电脑上用分支代码和官方 key 实测，每个场景用独立的空配置目录：
+
+| 场景 | 结果 |
+|---|---|
+| 兼容通道 + Sol + `OPENAI_COMPATIBLE_TOOLS=web_search` | ok，回答完整，来源带页面标题，10.3 秒；流式 9.5 秒；中文问题 8.4 秒，来源是统计局页面 |
+| 同上换 Astra | ok，11.7 秒 |
+| 主模型写错（404），备用模型 Sol | 主模型失败后备用模型带着工具成功 |
+| 设置工具但接口模式是 chat-completions | 0.4 秒内报参数错误，没有发请求 |
+| `config set` 先设工具再设模式、或有工具时改回 chat-completions | 都被拒绝并说明原因；先设 responses 再设工具成功 |
+| `doctor` | 配置完整，`OPENAI_COMPATIBLE_TOOLS` 显示 `web_search`，连接测试通过 |
+| `diagnose openai-compatible` | 五项检查全过，`web_search_capable: true` |
+| 兼容通道 + `gpt-5-search-api`，4 次（含中文、流式） | 每次都保留回答，来源 1–3 个且带页面标题（0.1.32 上 5 次里 3 次回答被吞） |
 
 ## 关闭时
 
-- 回写到 project/epic spec 或 notes 的候选：
-- 关闭判断与验证摘要：
-- 遗留：
+- 回写到 project/epic spec 或 notes 的候选：主搜索两条通道各自会发什么工具（xAI 槽位发 `XAI_TOOLS`；兼容通道只在 responses 模式按 `OPENAI_COMPATIBLE_TOOLS` 发，且只随搜索请求）；只配模型通道时 strict 不会通过。现状规格还是空模板，收尾时建「主搜索」一页写进去。决定笔记里引用的本 Issue 路径在改名为 `-x-` 时要同步。
+- 关闭判断与验证摘要：上面的单测和实测都已通过，等发版后把官方 key 的配置写法回给反馈的人。
+- 遗留：模型偶尔引用测试站或镜像（`test.python.org`、`psfhosted.net`），这是检索结果本身的问题，Smart Search 没有过滤。
