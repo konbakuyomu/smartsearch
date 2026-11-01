@@ -180,6 +180,18 @@ class TestSplitAnswerAndSources:
         assert [s["url"] for s in sources] == ["https://example.com", "https://test.com", "https://example.org/a"]
 
 
+def test_sources_module_imports_on_its_own():
+    # utils used to import providers at runtime, so importing sources first failed halfway.
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "src"
+    result = subprocess.run([sys.executable, "-c", "import smart_search.sources"], cwd=src,
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr[-500:]
+
+
 class TestMergeSources:
     def test_deduplicates_by_url(self):
         a = [{"url": "https://a.com"}, {"url": "https://b.com"}]

@@ -2625,6 +2625,37 @@ async def test_diagnose_sends_configured_tools_with_search_probes_only(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_diagnose_reports_a_rate_limit_instead_of_a_broken_route(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://api.openai.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "sk-test")
+    limited = {"status": "warning", "message": "HTTP 429: Rate limit reached", "http_status": 429, "has_content": False}
+
+    async def fake_quick(api_url, api_key, model):
+        return {"status": "ok", "message": "ok", "http_status": 200}
+
+    async def fake_probe(*args, **kwargs):
+        return {"name": "probe", **limited}
+
+    async def fake_web(*args, **kwargs):
+        return {"name": "联网搜索能力", "status": "error", "message": "HTTP 429", "has_content": False}
+
+    async def fake_models(*args):
+        return []
+
+    monkeypatch.setattr(service, "_test_primary_chat_completion", fake_quick)
+    monkeypatch.setattr(service, "_probe_openai_compatible_search_shape", fake_probe)
+    monkeypatch.setattr(service, "_probe_openai_compatible_web_search", fake_web)
+    monkeypatch.setattr(service, "fetch_available_models", fake_models)
+    result = await service.diagnose_openai_compatible()
+
+    assert result["ok"] is False
+    assert result["error_type"] == "rate_limited"
+    assert "429" in result["summary"]
+    assert "OPENAI_COMPATIBLE_TOOLS" not in result["recommendation"]
+
+
+@pytest.mark.asyncio
 async def test_diagnose_rejects_tools_without_responses_mode_without_probe(monkeypatch, tmp_path):
     _reset_config(monkeypatch, tmp_path)
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://api.openai.com/v1")

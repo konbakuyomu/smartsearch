@@ -1467,13 +1467,29 @@
     "OpenAI-compatible 联网工具配置无效。",
     "OpenAI-compatible tools are invalid."
   ],
+  "OpenAI-compatible was rate limited upstream (HTTP 429), so this diagnosis cannot tell whether the route works.": [
+    "OpenAI-compatible 被上游限流（HTTP 429），这次诊断判断不了链路是否正常。",
+    "OpenAI-compatible was rate limited upstream (HTTP 429), so this diagnosis cannot tell whether the route works."
+  ],
   "OpenAI-compatible 联网工具配置无效。": [
     "OpenAI-compatible 联网工具配置无效。",
     "OpenAI-compatible tools are invalid."
   ],
+  "OpenAI-compatible 被上游限流（HTTP 429），这次诊断判断不了链路是否正常。": [
+    "OpenAI-compatible 被上游限流（HTTP 429），这次诊断判断不了链路是否正常。",
+    "OpenAI-compatible was rate limited upstream (HTTP 429), so this diagnosis cannot tell whether the route works."
+  ],
+  "Run this diagnosis again in a minute; if it keeps happening, lower concurrency, switch models, or raise the account's rate limit. The URL, key and model name are not necessarily wrong.": [
+    "等一分钟再运行本诊断；经常出现就降低并发、换模型，或提高账户的速率额度。地址、key 和模型名不一定有问题。",
+    "Run this diagnosis again in a minute; if it keeps happening, lower concurrency, switch models, or raise the account's rate limit. The URL, key and model name are not necessarily wrong."
+  ],
   "Save OPENAI_COMPATIBLE_TOOLS (web_search or web_search_preview; needs --openai-compatible-api-mode responses).": [
     "保存 OPENAI_COMPATIBLE_TOOLS（web_search 或 web_search_preview；需要 --openai-compatible-api-mode responses）。",
     "Save OPENAI_COMPATIBLE_TOOLS (web_search or web_search_preview; needs --openai-compatible-api-mode responses)."
+  ],
+  "Strict validation needs sources that a search service retrieved on its own; this run only has the search model's own citations, which are not independent evidence. Configure a web_search provider (for example Tavily, Zhipu or Yuanbao Search) before using strict, or switch to balanced.": [
+    "strict 校验需要搜索服务独立检索到的来源；这次只有搜索模型自带的引用，不算独立证据。配置一个 web_search 提供方（例如 Tavily、智谱、元宝搜索）后再用 strict，或改用 balanced。",
+    "Strict validation needs sources that a search service retrieved on its own; this run only has the search model's own citations, which are not independent evidence. Configure a web_search provider (for example Tavily, Zhipu or Yuanbao Search) before using strict, or switch to balanced."
   ],
   "Use OPENAI_COMPATIBLE_TOOLS=web_search (or web_search_preview) only with OPENAI_COMPATIBLE_API_MODE=responses; otherwise leave it empty.": [
     "只在 OPENAI_COMPATIBLE_API_MODE=responses 时把 OPENAI_COMPATIBLE_TOOLS 设为 web_search（或 web_search_preview）；其他情况留空。",
@@ -4699,6 +4715,10 @@
     "OpenAI 兼容联网工具",
     "openai-compatible tools"
   ],
+  "strict 校验需要搜索服务独立检索到的来源；这次只有搜索模型自带的引用，不算独立证据。配置一个 web_search 提供方（例如 Tavily、智谱、元宝搜索）后再用 strict，或改用 balanced。": [
+    "strict 校验需要搜索服务独立检索到的来源；这次只有搜索模型自带的引用，不算独立证据。配置一个 web_search 提供方（例如 Tavily、智谱、元宝搜索）后再用 strict，或改用 balanced。",
+    "Strict validation needs sources that a search service retrieved on its own; this run only has the search model's own citations, which are not independent evidence. Configure a web_search provider (for example Tavily, Zhipu or Yuanbao Search) before using strict, or switch to balanced."
+  ],
   "xai-responses 流式": [
     "xai-responses 流式",
     "xai-responses stream"
@@ -7466,6 +7486,14 @@
   "{0} Also, the web search capability check did not pass: {1}. The request already carried the {2} tool, so this model or relay may not support Responses web search tools; switch to a model that does, or clear OPENAI_COMPATIBLE_TOOLS and use a model that searches on its own.": [
     "{0} 另外，联网搜索能力检查未通过：{1}。请求里已经带了 {2} 工具，可能是这个模型或中转站不支持 Responses 的联网工具；换一个支持的模型，或清空 OPENAI_COMPATIBLE_TOOLS 改用自带搜索的模型。",
     "{0} Also, the web search capability check did not pass: {1}. The request already carried the {2} tool, so this model or relay may not support Responses web search tools; switch to a model that does, or clear OPENAI_COMPATIBLE_TOOLS and use a model that searches on its own."
+  ],
+  "{0} does not support x_search in XAI_TOOLS (HTTP 400). Only the official xAI API serves x_search; set XAI_TOOLS to web_search and try again.": [
+    "{0} 不支持 XAI_TOOLS 里的 x_search（HTTP 400）。x_search 只有 xAI 官方接口能用；把 XAI_TOOLS 改成 web_search 再试。",
+    "{0} does not support x_search in XAI_TOOLS (HTTP 400). Only the official xAI API serves x_search; set XAI_TOOLS to web_search and try again."
+  ],
+  "{0} 不支持 XAI_TOOLS 里的 x_search（HTTP 400）。x_search 只有 xAI 官方接口能用；把 XAI_TOOLS 改成 web_search 再试。": [
+    "{0} 不支持 XAI_TOOLS 里的 x_search（HTTP 400）。x_search 只有 xAI 官方接口能用；把 XAI_TOOLS 改成 web_search 再试。",
+    "{0} does not support x_search in XAI_TOOLS (HTTP 400). Only the official xAI API serves x_search; set XAI_TOOLS to web_search and try again."
   ],
   "{0} 另外，联网搜索能力检查未通过：{1}。如果这个模型只能通过 Responses 的 web_search 工具联网（例如 OpenAI 官方的 gpt-6.1-sol），请设置 OPENAI_COMPATIBLE_API_MODE=responses 和 OPENAI_COMPATIBLE_TOOLS=web_search；中转站只认旧名时改用 web_search_preview。": [
     "{0} 另外，联网搜索能力检查未通过：{1}。如果这个模型只能通过 Responses 的 web_search 工具联网（例如 OpenAI 官方的 gpt-6.1-sol），请设置 OPENAI_COMPATIBLE_API_MODE=responses 和 OPENAI_COMPATIBLE_TOOLS=web_search；中转站只认旧名时改用 web_search_preview。",
@@ -13718,6 +13746,10 @@
   "站点地图": [
     "站点地图",
     "Site map"
+  ],
+  "等一分钟再运行本诊断；经常出现就降低并发、换模型，或提高账户的速率额度。地址、key 和模型名不一定有问题。": [
+    "等一分钟再运行本诊断；经常出现就降低并发、换模型，或提高账户的速率额度。地址、key 和模型名不一定有问题。",
+    "Run this diagnosis again in a minute; if it keeps happening, lower concurrency, switch models, or raise the account's rate limit. The URL, key and model name are not necessarily wrong."
   ],
   "等多久、失败之后怎么办、冷却多长时间。默认值适合大多数人。": [
     "等多久、失败之后怎么办、冷却多长时间。默认值适合大多数人。",

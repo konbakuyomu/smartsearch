@@ -2842,6 +2842,10 @@ def _diagnose_check_result(
     return result
 
 
+def _rate_limited(*checks: dict[str, Any]) -> bool:
+    return any(check.get("http_status") == 429 for check in checks)
+
+
 def _openai_compatible_diagnosis(quick: dict[str, Any], no_stream: dict[str, Any], stream: dict[str, Any]) -> tuple[bool, str, str]:
     quick_ok = quick.get("status") == "ok"
     no_stream_ok = no_stream.get("status") == "ok"
@@ -2853,6 +2857,12 @@ def _openai_compatible_diagnosis(quick: dict[str, Any], no_stream: dict[str, Any
             True,
             source_message('OpenAI-compatible 主链路正常。'),
             source_message('真实 search 形态的 stream=false 和 stream=true 都能返回。若用户仍卡住，更可能是调用方、PATH、超时设置或上游偶发波动。'),
+        )
+    if _rate_limited(quick, no_stream, stream):
+        return (
+            False,
+            source_message('OpenAI-compatible 被上游限流（HTTP 429），这次诊断判断不了链路是否正常。'),
+            source_message('等一分钟再运行本诊断；经常出现就降低并发、换模型，或提高账户的速率额度。地址、key 和模型名不一定有问题。'),
         )
     if stream_ok and not no_stream_ok:
         return (
@@ -3162,16 +3172,18 @@ async def diagnose_openai_compatible(timeout_seconds: float = 30.0) -> dict[str,
     result["timeout_policy"] = OPENAI_COMPATIBLE_TIMEOUT_POLICY
 
     ok, summary, recommendation = _openai_compatible_diagnosis(quick_check, no_stream, stream)
-    if web["status"] != "ok" and tools:
+    # Under a rate limit the web probe fails for the same reason; its advice would mislead.
+    rate_limited = not ok and _rate_limited(quick_check, no_stream, stream)
+    if web["status"] != "ok" and not rate_limited and tools:
         recommendation = source_message('{0} 另外，联网搜索能力检查未通过：{1}。请求里已经带了 {2} 工具，可能是这个模型或中转站不支持 Responses 的联网工具；换一个支持的模型，或清空 OPENAI_COMPATIBLE_TOOLS 改用自带搜索的模型。', recommendation, web['message'], ", ".join(tools))
-    elif web["status"] != "ok":
+    elif web["status"] != "ok" and not rate_limited:
         recommendation = source_message('{0} 另外，联网搜索能力检查未通过：{1}。如果这个模型只能通过 Responses 的 web_search 工具联网（例如 OpenAI 官方的 gpt-6.1-sol），请设置 OPENAI_COMPATIBLE_API_MODE=responses 和 OPENAI_COMPATIBLE_TOOLS=web_search；中转站只认旧名时改用 web_search_preview。', recommendation, web['message'])
     if inventory.get("status") == "warning":
         recommendation = source_message('{0} 另外，{1}。兜底只在主模型硬失败后接力，不会再把主模型砍成 30 秒。', recommendation, inventory['message'])
     result.update(
         {
             "ok": ok,
-            "error_type": "" if ok else "network_error",
+            "error_type": "" if ok else "rate_limited" if rate_limited else "network_error",
             "error": "" if ok else summary,
             "summary": summary,
             "recommendation": recommendation,
