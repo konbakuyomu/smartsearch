@@ -1,10 +1,12 @@
 import asyncio
 import httpx
+import json
 import pytest
 import time
 
 from smart_search.providers.openai_compatible import OpenAICompatibleSearchProvider, reset_openai_compatible_breakers
 from smart_search.provider_errors import ProviderCallError
+from smart_search.sources import split_answer_and_sources
 
 
 class DummyResponse:
@@ -117,6 +119,52 @@ async def test_responses_fetch_respects_stream_while_describe_and_rank_stay_non_
     assert [payload["stream"] for payload in payloads] == [True, False, False]
     assert all("instructions" in payload and "input" in payload for payload in payloads)
     assert all("messages" not in payload and "tools" not in payload for payload in payloads)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tools", [["web_search"], ["web_search_preview"]])
+async def test_responses_tools_ride_on_search_only(monkeypatch, tools):
+    provider = OpenAICompatibleSearchProvider(
+        "https://api.openai.com/v1", "test-key", "gpt-6.1-sol", api_mode="responses", tools=tools,
+    )
+    payloads = {}
+
+    def capture(name):
+        async def fake(headers, payload, ctx=None):
+            payloads.setdefault(name, payload)
+            return "1" if name == "rank" else "Title: T\nExtracts: E" if name == "describe" else "answer"
+        return fake
+
+    monkeypatch.setattr(provider, "_execute_with_transport_fallback", capture("search"))
+    await provider.search("latest python release")
+    monkeypatch.setattr(provider, "_execute_with_transport_fallback", capture("fetch"))
+    await provider.fetch("https://example.com")
+    monkeypatch.setattr(provider, "_execute_with_transport_fallback", capture("synthesize"))
+    await provider.synthesize("q", [])
+    monkeypatch.setattr(provider, "_execute_completion_with_retry", capture("describe"))
+    await provider.describe_url("https://example.com")
+    monkeypatch.setattr(provider, "_execute_completion_with_retry", capture("rank"))
+    await provider.rank_sources("q", "1. a", 1)
+
+    assert payloads["search"]["tools"] == [{"type": tool} for tool in tools]
+    assert all("tools" not in payloads[name] for name in ("fetch", "synthesize", "describe", "rank"))
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_never_sends_tools(monkeypatch):
+    provider = OpenAICompatibleSearchProvider(
+        "https://api.example.com/v1", "test-key", "gpt-5-search-api", api_mode="chat-completions", tools=["web_search"],
+    )
+    captured = {}
+
+    async def fake(headers, payload, ctx=None):
+        captured["payload"] = payload
+        return "answer"
+
+    monkeypatch.setattr(provider, "_execute_with_transport_fallback", fake)
+    await provider.search("latest python release")
+
+    assert "tools" not in captured["payload"] and "messages" in captured["payload"]
 
 
 @pytest.mark.asyncio
@@ -702,6 +750,54 @@ async def test_parse_completion_response_appends_top_level_citations():
 
     assert "hello world" in result
     assert "https://example.com/top" in result
+
+
+# OpenAI's Chat Completions search models (gpt-5-search-api) nest each citation under "url_citation".
+CHAT_ANSWER = (
+    "Python 3.15.2 is the latest stable release. ([python.org](https://www.python.org/getit/?utm_source=openai))\n\n"
+    "It was released on October 25, 2026. ([python.org](https://www.python.org/getit/?utm_source=openai))"
+)
+CHAT_ANNOTATION = {
+    "type": "url_citation",
+    "url_citation": {
+        "start_index": 45,
+        "end_index": 104,
+        "title": "Download Python | Python.org",
+        "url": "https://www.python.org/getit/?utm_source=openai",
+    },
+}
+CHAT_SOURCES = [{"url": "https://www.python.org/getit/?utm_source=openai", "title": "Download Python | Python.org"}]
+
+
+@pytest.mark.asyncio
+async def test_parse_completion_response_keeps_nested_chat_annotations():
+    provider = OpenAICompatibleSearchProvider("https://api.example.com", "test-key", "gpt-5-search-api")
+    data = {"choices": [{"message": {"role": "assistant", "content": CHAT_ANSWER, "annotations": [CHAT_ANNOTATION]}}]}
+
+    result = await provider._parse_completion_response(DummyResponse(text=json.dumps(data), json_data=data))
+
+    assert split_answer_and_sources(result) == (CHAT_ANSWER, CHAT_SOURCES)
+
+
+@pytest.mark.asyncio
+async def test_parse_streaming_response_keeps_chat_delta_annotations():
+    provider = OpenAICompatibleSearchProvider("https://api.example.com", "test-key", "gpt-5-search-api")
+    first, second = CHAT_ANSWER[:50], CHAT_ANSWER[50:]
+
+    class StreamResponse:
+        async def aiter_lines(self):
+            for chunk in (
+                {"choices": [{"delta": {"role": "assistant", "content": "", "refusal": None}}]},
+                {"choices": [{"delta": {"content": first}}]},
+                {"choices": [{"delta": {"annotations": [CHAT_ANNOTATION, CHAT_ANNOTATION]}}]},
+                {"choices": [{"delta": {"content": second}}]},
+            ):
+                yield "data: " + json.dumps(chunk)
+            yield "data: [DONE]"
+
+    result = await provider._parse_streaming_response(StreamResponse())
+
+    assert split_answer_and_sources(result) == (CHAT_ANSWER, CHAT_SOURCES)
 
 
 @pytest.mark.asyncio

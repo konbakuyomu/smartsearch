@@ -1,6 +1,10 @@
-from typing import List
+from typing import TYPE_CHECKING, List
 import re
-from .providers.base import SearchResult
+
+if TYPE_CHECKING:
+    # A runtime import would load providers/__init__.py, whose providers import this
+    # module back: importing smart_search.sources first then fails halfway.
+    from .providers.base import SearchResult
 
 _URL_PATTERN = re.compile(r'https?://[^\s<>"\'`，。、；：！？》）】\)]+')
 
@@ -52,7 +56,7 @@ def format_extra_sources(tavily_results: list[dict] | None, firecrawl_results: l
     return "\n\n".join(sections)
 
 
-def format_search_results(results: List[SearchResult]) -> str:
+def format_search_results(results: List["SearchResult"]) -> str:
     if not results:
         return "No results found."
 

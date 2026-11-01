@@ -869,6 +869,8 @@ def _format_model_markdown(data: dict[str, Any]) -> str:
         rows.append(["openai-compatible", data.get("openai_compatible_model")])
     if data.get("openai_compatible_api_mode"):
         rows.append([tr('openai-compatible API mode'), data.get("openai_compatible_api_mode")])
+    if data.get("openai_compatible_tools"):
+        rows.append([tr('openai-compatible tools'), ", ".join(data["openai_compatible_tools"])])
     fallback_models = data.get("openai_compatible_fallback_models") or []
     if fallback_models:
         rows.append([tr('openai-compatible fallback'), ", ".join(fallback_models)])
@@ -2337,6 +2339,7 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
         ("OPENAI_COMPATIBLE_MODEL", "OpenAI-compatible model", True),
         ("OPENAI_COMPATIBLE_FALLBACK_MODELS", "OpenAI-compatible fallback models (comma-separated)", True),
         ("OPENAI_COMPATIBLE_API_MODE", "OpenAI-compatible API mode (chat-completions/responses)", True),
+        ("OPENAI_COMPATIBLE_TOOLS", "OpenAI-compatible Responses tools (web_search; needs API mode responses)", True),
         ("OPENAI_COMPATIBLE_STREAM", "OpenAI-compatible stream mode (true/false)", True),
         ("SMART_SEARCH_JEV_SYNTHESIS_API_URL", "JEV synthesis API URL", True),
         ("SMART_SEARCH_JEV_SYNTHESIS_API_KEY", "JEV synthesis API key", True),
@@ -2770,6 +2773,7 @@ def _run_setup(args: argparse.Namespace) -> int:
         "OPENAI_COMPATIBLE_MODEL": args.openai_compatible_model,
         "OPENAI_COMPATIBLE_FALLBACK_MODELS": args.openai_compatible_fallback_models,
         "OPENAI_COMPATIBLE_API_MODE": args.openai_compatible_api_mode,
+        "OPENAI_COMPATIBLE_TOOLS": args.openai_compatible_tools,
         "OPENAI_COMPATIBLE_STREAM": args.openai_compatible_stream,
         "SMART_SEARCH_JEV_SYNTHESIS_API_URL": args.jev_synthesis_api_url,
         "SMART_SEARCH_JEV_SYNTHESIS_API_KEY": args.jev_synthesis_api_key,
@@ -2844,20 +2848,28 @@ def _run_setup(args: argparse.Namespace) -> int:
 
     # Validate all local enum/numeric constraints before persisting any setup
     # field, so an invalid API mode cannot leave a partial provider profile.
-    for key, value in values.items():
-        if not value:
-            continue
-        try:
-            service.config._validate_config_value(key, value)
-        except ValueError as e:
-            data = {
-                "ok": False,
-                "error_type": "parameter_error",
-                "error": str(e),
-                "config_file": service.config_path()["config_file"],
-                "saved": {},
-            }
-            return _print_result("setup", data, args.format, args.output)
+    def validate_before_saving() -> None:
+        for key, value in values.items():
+            if value:
+                service.config._validate_config_value(key, value)
+        # Tools and API mode are saved one key at a time below, so check the pair up front.
+        if values.get("OPENAI_COMPATIBLE_TOOLS") or values.get("OPENAI_COMPATIBLE_API_MODE"):
+            service.config.check_openai_compatible_tools_mode(
+                values.get("OPENAI_COMPATIBLE_TOOLS") or service.config.openai_compatible_tools_raw,
+                values.get("OPENAI_COMPATIBLE_API_MODE") or service.config._get_config_value("OPENAI_COMPATIBLE_API_MODE", "") or "",
+            )
+
+    try:
+        validate_before_saving()
+    except ValueError as e:
+        data = {
+            "ok": False,
+            "error_type": "parameter_error",
+            "error": str(e),
+            "config_file": service.config_path()["config_file"],
+            "saved": {},
+        }
+        return _print_result("setup", data, args.format, args.output)
 
     saved: dict[str, str] = {}
     for key, value in values.items():
@@ -3469,6 +3481,7 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--openai-compatible-model", default="", help="Save OPENAI_COMPATIBLE_MODEL.")
     setup_parser.add_argument("--openai-compatible-fallback-models", default="", help="Save OPENAI_COMPATIBLE_FALLBACK_MODELS.")
     setup_parser.add_argument("--openai-compatible-api-mode", default="", help="Save OPENAI_COMPATIBLE_API_MODE (chat-completions or responses).")
+    setup_parser.add_argument("--openai-compatible-tools", default="", help="Save OPENAI_COMPATIBLE_TOOLS (web_search or web_search_preview; needs --openai-compatible-api-mode responses).")
     setup_parser.add_argument("--openai-compatible-stream", default="", help="Save OPENAI_COMPATIBLE_STREAM.")
     setup_parser.add_argument("--jev-synthesis-api-url", default="", help="Save SMART_SEARCH_JEV_SYNTHESIS_API_URL.")
     setup_parser.add_argument("--jev-synthesis-api-key", default="", help="Save SMART_SEARCH_JEV_SYNTHESIS_API_KEY.")

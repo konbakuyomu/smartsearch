@@ -14,6 +14,7 @@ from .base import BaseSearchProvider
 from .openai_compatible import OpenAICompatibleSearchProvider, _StopAfterSlowFailure, _StopAtDeadline, _WaitWithRetryAfter, _is_retryable_exception, get_local_time_info
 from ..config import config
 from ..logger import log_info
+from ..provider_errors import ProviderCallError
 from ..utils import search_prompt
 
 
@@ -115,7 +116,19 @@ class XAIResponsesSearchProvider(BaseSearchProvider):
     async def search(self, query: str, platform: str = "", ctx=None) -> str:
         payload = self._build_search_payload(query, platform)
         await log_info(ctx, f"platform_prompt: {query}", config.debug_enabled)
-        return await self._execute_response_with_retry(self._build_api_headers(), payload, ctx)
+        try:
+            return await self._execute_response_with_retry(self._build_api_headers(), payload, ctx)
+        except httpx.HTTPStatusError as exc:
+            # The default XAI_TOOLS includes x_search, which only xAI serves; other Responses
+            # services (OpenAI, most relays) answer 400. Say which setting to change.
+            if exc.response.status_code == 400 and "x_search" in self.tools and "x_search" in (exc.response.text or ""):
+                host = urlsplit(self.api_url).netloc or self.api_url
+                raise ProviderCallError(
+                    "parameter_error",
+                    source_message('{0} 不支持 XAI_TOOLS 里的 x_search（HTTP 400）。x_search 只有 xAI 官方接口能用；把 XAI_TOOLS 改成 web_search 再试。', host),
+                    additional_secrets=(self.api_key,),
+                ) from exc
+            raise
 
     async def _execute_response_with_retry(self, headers: dict, payload: dict, ctx=None) -> str:
         timeout = self._request_timeout()

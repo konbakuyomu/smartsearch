@@ -652,6 +652,19 @@ async def test_search_xai_stream_follows_xai_stream_unless_overridden(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_strict_with_only_model_citations_says_what_strict_needs(monkeypatch, xai_requests):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test")
+
+    balanced = await service.search("Find this source", providers="xai-responses", fallback="off", validation="balanced")
+    strict = await service.search("Find this source", providers="xai-responses", fallback="off", validation="strict")
+
+    assert balanced["ok"] is True and balanced["sources"]
+    assert strict["ok"] is False and strict["error_type"] == "evidence_error"
+    assert "web_search" in strict["error"] and "balanced" in strict["error"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(("stream", "transport"), [(True, "stream"), (False, "non_stream")])
 async def test_search_xai_attempt_reports_transport(monkeypatch, xai_requests, stream, transport):
     monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")

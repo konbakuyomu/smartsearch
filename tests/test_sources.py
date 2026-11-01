@@ -139,6 +139,58 @@ class TestSplitAnswerAndSources:
         assert "[[1]](https://example.com/a)" in answer
         assert [s["url"] for s in sources] == ["https://example.com/a", "https://example.com/b"]
 
+    # Real gpt-5-search-api answers (2026-11-01): every sentence or bullet ends with a "([site](url))" citation.
+    def test_sentences_ending_in_inline_citations_stay_in_the_answer(self):
+        text = (
+            "The latest stable release of Python (as of November 1, 2026) is **Python 3.15.2**, released on "
+            "**October 26, 2026**. ([blog.python.org](https://blog.python.org/?utm_source=openai))\n\n"
+            "For more details, see the official release announcement: “Python 3.15.2, 3.14.10, 3.13.18, 3.12.16 "
+            "and 3.11.18 are out”. ([blog.python.org](https://blog.python.org/?utm_source=openai))"
+        )
+        answer, _ = split_answer_and_sources(text)
+        assert answer == text
+
+    def test_cited_bullet_facts_stay_in_the_answer(self):
+        text = (
+            "The arXiv paper that introduced the *Mamba* selective state space model is:\n\n"
+            "- **arXiv ID**: 2312.00752 ([arxiv.org](https://arxiv.org/abs/2312.00752?utm_source=openai))\n"
+            "- **Authors**: Albert Gu and Tri Dao ([arxiv.org](https://arxiv.org/abs/2312.00752?utm_source=openai))\n"
+            "- **Date of first version**: December 1, 2023 ([arxiv.org](https://arxiv.org/abs/2312.00752?utm_source=openai))"
+        )
+        answer, _ = split_answer_and_sources(text)
+        assert answer == text
+
+    def test_chinese_sentence_with_inline_citation_stays_in_the_answer(self):
+        text = (
+            "国家统计局公布，前三季度GDP同比增长4.6%。([stats.gov.cn](https://www.stats.gov.cn/sj/zxfb/a.html))\n"
+            "初步核算，国内生产总值为1071071亿元。（[stats.gov.cn](https://www.stats.gov.cn/sj/zxfb/a.html)）"
+        )
+        answer, _ = split_answer_and_sources(text)
+        assert answer == text
+
+    def test_trailing_link_list_still_splits_from_the_answer(self):
+        text = (
+            "Here is the answer.\n\n"
+            "- [Example](https://example.com)\n"
+            "[2] [Test](https://test.com)\n"
+            "<https://example.org/a> ([example.org](https://example.org/a))"
+        )
+        answer, sources = split_answer_and_sources(text)
+        assert answer == "Here is the answer."
+        assert [s["url"] for s in sources] == ["https://example.com", "https://test.com", "https://example.org/a"]
+
+
+def test_sources_module_imports_on_its_own():
+    # utils used to import providers at runtime, so importing sources first failed halfway.
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "src"
+    result = subprocess.run([sys.executable, "-c", "import smart_search.sources"], cwd=src,
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr[-500:]
+
 
 class TestMergeSources:
     def test_deduplicates_by_url(self):

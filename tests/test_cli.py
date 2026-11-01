@@ -947,6 +947,29 @@ def test_setup_rejects_invalid_openai_compatible_api_mode_before_saving(monkeypa
     assert saved == {}
 
 
+@pytest.mark.parametrize("mode_args", [[], ["--openai-compatible-api-mode", "chat-completions"]])
+def test_setup_rejects_openai_compatible_tools_without_responses_before_saving(monkeypatch, capsys, mode_args):
+    saved = {}
+
+    def fake_config_set(key, value):
+        saved[key] = value
+        return {"ok": True, "key": key, "value": value, "config_file": "C:/tmp/config.json"}
+
+    monkeypatch.delenv("OPENAI_COMPATIBLE_API_MODE", raising=False)
+    monkeypatch.delenv("OPENAI_COMPATIBLE_TOOLS", raising=False)
+    monkeypatch.setattr(cli.service.config, "_get_config_value", lambda key, default=None: default)
+    monkeypatch.setattr(cli.service, "config_set", fake_config_set)
+    monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
+
+    code = cli.main(["setup", "--non-interactive", "--skip-skills", "--openai-compatible-api-key", "sk-test",
+                     *mode_args, "--openai-compatible-tools", "web_search"])
+    data = json.loads(capsys.readouterr().out)
+
+    assert code == cli.EXIT_PARAMETER_ERROR
+    assert "OPENAI_COMPATIBLE_API_MODE=responses" in data["error"]
+    assert data["saved"] == {} and saved == {}
+
+
 def test_markdown_search_includes_sources(monkeypatch, capsys):
     async def fake_search(query, platform="", model="", extra_sources=0, validation="", fallback="", providers="auto"):
         return {
@@ -1717,6 +1740,8 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
         "fallback-a,fallback-b",
         "--openai-compatible-api-mode",
         "responses",
+        "--openai-compatible-tools",
+        "web_search",
         "--openai-compatible-stream",
         "true",
         "--validation-level",
@@ -1803,6 +1828,7 @@ def test_setup_non_interactive_saves_values(monkeypatch, capsys):
     assert saved["OPENAI_COMPATIBLE_MODEL"] == "relay-model"
     assert saved["OPENAI_COMPATIBLE_FALLBACK_MODELS"] == "fallback-a,fallback-b"
     assert saved["OPENAI_COMPATIBLE_API_MODE"] == "responses"
+    assert saved["OPENAI_COMPATIBLE_TOOLS"] == "web_search"
     assert saved["OPENAI_COMPATIBLE_STREAM"] == "true"
     assert saved["SMART_SEARCH_VALIDATION_LEVEL"] == "balanced"
     assert saved["SMART_SEARCH_FALLBACK_MODE"] == "auto"

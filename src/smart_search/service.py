@@ -1656,7 +1656,7 @@ def _main_search_provider_configs(model_override: str = "", providers: str = "au
             "model": model_override or config.openai_compatible_model,
             "fallback_models": [] if model_override else config.openai_compatible_fallback_models,
             "stream": config.openai_compatible_stream,
-            "tools": [],
+            "tools": config.openai_compatible_tools,
             "source": "OPENAI_COMPATIBLE_*",
         }
 
@@ -1690,6 +1690,7 @@ def _main_search_providers(provider_configs: list[dict[str, Any]], fallback: str
                     provider_config["model"],
                     provider_config.get("stream", False),
                     provider_config.get("api_mode", provider_config.get("mode", "chat-completions")),
+                    tools=provider_config.get("tools") or [],
                 )
             )
     return providers
@@ -2841,6 +2842,10 @@ def _diagnose_check_result(
     return result
 
 
+def _rate_limited(*checks: dict[str, Any]) -> bool:
+    return any(check.get("http_status") == 429 for check in checks)
+
+
 def _openai_compatible_diagnosis(quick: dict[str, Any], no_stream: dict[str, Any], stream: dict[str, Any]) -> tuple[bool, str, str]:
     quick_ok = quick.get("status") == "ok"
     no_stream_ok = no_stream.get("status") == "ok"
@@ -2852,6 +2857,12 @@ def _openai_compatible_diagnosis(quick: dict[str, Any], no_stream: dict[str, Any
             True,
             source_message('OpenAI-compatible 主链路正常。'),
             source_message('真实 search 形态的 stream=false 和 stream=true 都能返回。若用户仍卡住，更可能是调用方、PATH、超时设置或上游偶发波动。'),
+        )
+    if _rate_limited(quick, no_stream, stream):
+        return (
+            False,
+            source_message('OpenAI-compatible 被上游限流（HTTP 429），这次诊断判断不了链路是否正常。'),
+            source_message('等一分钟再运行本诊断；经常出现就降低并发、换模型，或提高账户的速率额度。地址、key 和模型名不一定有问题。'),
         )
     if stream_ok and not no_stream_ok:
         return (
@@ -2892,11 +2903,12 @@ async def _probe_openai_compatible_search_shape(
     stream: bool,
     timeout_seconds: float,
     api_mode: str = "chat-completions",
+    tools: list[str] | None = None,
 ) -> dict[str, Any]:
     name = f"真实 {api_mode} search 请求 (stream={'true' if stream else 'false'})"
     start = time.time()
-    provider = OpenAICompatibleSearchProvider(api_url, api_key, model, stream=stream, api_mode=api_mode)
-    payload = provider._build_request_payload(search_prompt, get_local_time_info() + "\nping", stream=stream)
+    provider = OpenAICompatibleSearchProvider(api_url, api_key, model, stream=stream, api_mode=api_mode, tools=tools)
+    payload = provider._build_search_payload(search_prompt, get_local_time_info() + "\nping", stream=stream)
     headers = provider._build_api_headers()
     headers["User-Agent"] = "smart-search/diagnose"
     timeout = httpx.Timeout(connect=6.0, read=timeout_seconds, write=10.0, pool=None)
@@ -2996,10 +3008,11 @@ async def _probe_openai_compatible_web_search(
     api_mode: str,
     stream: bool,
     timeout_seconds: float,
+    tools: list[str] | None = None,
 ) -> dict:
     name = "联网搜索能力"
     start = time.time()
-    provider = OpenAICompatibleSearchProvider(api_url, api_key, model, stream=stream, api_mode=api_mode)
+    provider = OpenAICompatibleSearchProvider(api_url, api_key, model, stream=stream, api_mode=api_mode, tools=tools)
     answer = ""
     try:
         content = await asyncio.wait_for(provider.search("What is the latest stable Python release? Cite the source URL."), timeout_seconds)
@@ -3026,16 +3039,15 @@ async def diagnose_openai_compatible(timeout_seconds: float = 30.0) -> dict[str,
     api_key = config.openai_compatible_api_key
     model = config.openai_compatible_model
     info = config.config_path_info()
-    try:
-        api_mode = config.openai_compatible_api_mode
-    except ValueError as e:
+
+    def invalid_config(error: Exception, configured_api_mode: str, summary: str, recommendation: str) -> dict[str, Any]:
         return {
             "ok": False,
             "provider": "openai-compatible",
             "api_url": api_url or "未配置",
             "api_key": config._mask_api_key(api_key) if api_key else "未配置",
             "model": model,
-            "configured_api_mode": "invalid",
+            "configured_api_mode": configured_api_mode,
             "configured_stream": config.openai_compatible_stream,
             "timeout_seconds": timeout_seconds,
             "config_file": info.get("config_file", ""),
@@ -3043,11 +3055,23 @@ async def diagnose_openai_compatible(timeout_seconds: float = 30.0) -> dict[str,
             "checks": [],
             "next_command": OPENAI_COMPATIBLE_DIAGNOSE_COMMAND,
             "error_type": "parameter_error",
-            "error": str(e),
-            "summary": source_message('OpenAI-compatible API mode is invalid.'),
-            "recommendation": source_message('Set OPENAI_COMPATIBLE_API_MODE to chat-completions or responses.'),
+            "error": str(error),
+            "summary": summary,
+            "recommendation": recommendation,
             "elapsed_ms": _elapsed_ms(start),
         }
+
+    try:
+        api_mode = config.openai_compatible_api_mode
+    except ValueError as e:
+        return invalid_config(e, "invalid", source_message('OpenAI-compatible API mode is invalid.'),
+                              source_message('Set OPENAI_COMPATIBLE_API_MODE to chat-completions or responses.'))
+    try:
+        tools = config.openai_compatible_tools
+    except ValueError as e:
+        return invalid_config(e, api_mode, source_message('OpenAI-compatible tools are invalid.'),
+                              source_message('Use OPENAI_COMPATIBLE_TOOLS=web_search (or web_search_preview) only with '
+                                             'OPENAI_COMPATIBLE_API_MODE=responses; otherwise leave it empty.'))
     endpoint = openai_compatible_endpoint(api_url or "", api_mode)
     result: dict[str, Any] = {
         "ok": False,
@@ -3056,6 +3080,7 @@ async def diagnose_openai_compatible(timeout_seconds: float = 30.0) -> dict[str,
         "api_key": config._mask_api_key(api_key) if api_key else "未配置",
         "model": model,
         "configured_api_mode": api_mode,
+        "configured_tools": tools,
         "endpoint": endpoint if api_url else "",
         "configured_stream": config.openai_compatible_stream,
         "timeout_seconds": timeout_seconds,
@@ -3104,18 +3129,21 @@ async def diagnose_openai_compatible(timeout_seconds: float = 30.0) -> dict[str,
         "has_content": bool(quick.get("has_content", quick.get("status") == "ok")),
     }
     result["checks"].append(quick_check)
-    probe_kwargs = {"stream": False, "timeout_seconds": timeout_seconds}
+    # Probes send what a real search sends, tools included; the quick check above never does.
+    tool_kwargs = {"tools": tools} if tools else {}
+    probe_kwargs = {"stream": False, "timeout_seconds": timeout_seconds, **tool_kwargs}
     if api_mode != "chat-completions":
         probe_kwargs["api_mode"] = api_mode
     no_stream = await _probe_openai_compatible_search_shape(api_url, api_key, model, **probe_kwargs)
     result["checks"].append(no_stream)
-    probe_kwargs = {"stream": True, "timeout_seconds": timeout_seconds}
+    probe_kwargs = {"stream": True, "timeout_seconds": timeout_seconds, **tool_kwargs}
     if api_mode != "chat-completions":
         probe_kwargs["api_mode"] = api_mode
     stream = await _probe_openai_compatible_search_shape(api_url, api_key, model, **probe_kwargs)
     result["checks"].append(stream)
     web = await _probe_openai_compatible_web_search(api_url, api_key, model, api_mode=api_mode,
-                                                   stream=config.openai_compatible_stream, timeout_seconds=timeout_seconds)
+                                                   stream=config.openai_compatible_stream, timeout_seconds=timeout_seconds,
+                                                   **tool_kwargs)
     result["checks"].append(web)
     result["web_search_capable"] = web["status"] == "ok"
 
@@ -3144,14 +3172,18 @@ async def diagnose_openai_compatible(timeout_seconds: float = 30.0) -> dict[str,
     result["timeout_policy"] = OPENAI_COMPATIBLE_TIMEOUT_POLICY
 
     ok, summary, recommendation = _openai_compatible_diagnosis(quick_check, no_stream, stream)
-    if web["status"] != "ok":
-        recommendation = source_message('{0} 另外，联网搜索能力检查未通过：{1}。OpenAI-compatible 不会发送搜索工具；如果该模型只能通过 Responses 的 web_search 工具联网，请把 XAI_API_URL、XAI_API_KEY、XAI_MODEL 指向支持 /v1/responses 的中转站。', recommendation, web['message'])
+    # Under a rate limit the web probe fails for the same reason; its advice would mislead.
+    rate_limited = not ok and _rate_limited(quick_check, no_stream, stream)
+    if web["status"] != "ok" and not rate_limited and tools:
+        recommendation = source_message('{0} 另外，联网搜索能力检查未通过：{1}。请求里已经带了 {2} 工具，可能是这个模型或中转站不支持 Responses 的联网工具；换一个支持的模型，或清空 OPENAI_COMPATIBLE_TOOLS 改用自带搜索的模型。', recommendation, web['message'], ", ".join(tools))
+    elif web["status"] != "ok" and not rate_limited:
+        recommendation = source_message('{0} 另外，联网搜索能力检查未通过：{1}。如果这个模型只能通过 Responses 的 web_search 工具联网（例如 OpenAI 官方的 gpt-6.1-sol），请设置 OPENAI_COMPATIBLE_API_MODE=responses 和 OPENAI_COMPATIBLE_TOOLS=web_search；中转站只认旧名时改用 web_search_preview。', recommendation, web['message'])
     if inventory.get("status") == "warning":
         recommendation = source_message('{0} 另外，{1}。兜底只在主模型硬失败后接力，不会再把主模型砍成 30 秒。', recommendation, inventory['message'])
     result.update(
         {
             "ok": ok,
-            "error_type": "" if ok else "network_error",
+            "error_type": "" if ok else "rate_limited" if rate_limited else "network_error",
             "error": "" if ok else summary,
             "summary": summary,
             "recommendation": recommendation,
@@ -3906,6 +3938,7 @@ async def doctor() -> dict[str, Any]:
 def current_model() -> dict[str, Any]:
     try:
         api_mode = config.openai_compatible_api_mode
+        tools = config.openai_compatible_tools
     except ValueError as e:
         return {
             "ok": False,
@@ -3920,6 +3953,7 @@ def current_model() -> dict[str, Any]:
         "openai_compatible_model": config.openai_compatible_model,
         "openai_compatible_fallback_models": config.openai_compatible_fallback_models,
         "openai_compatible_api_mode": api_mode,
+        "openai_compatible_tools": tools,
         "config_file": str(config.config_file),
     }
 

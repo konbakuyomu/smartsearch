@@ -4,6 +4,7 @@ import json
 import httpx
 import pytest
 
+from smart_search.provider_errors import ProviderCallError
 from smart_search.providers.xai_responses import XAIResponsesSearchProvider
 from smart_search.sources import split_answer_and_sources
 
@@ -288,6 +289,29 @@ async def test_xai_responses_execute_posts_to_responses(monkeypatch):
     assert result == "ok"
     assert calls[0][0] == "https://api.x.ai/v1/responses"
     assert calls[0][2]["tools"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("tools", "hinted"), [(["web_search", "x_search"], True), (["web_search"], False)])
+async def test_xai_slot_explains_x_search_rejected_by_another_service(monkeypatch, tools, hinted):
+    provider = XAIResponsesSearchProvider("https://api.openai.com/v1", "sk-test", "gpt-6.1-sol", tools)
+    body = {"error": {"message": "Invalid value: 'x_search'. Supported values are: 'web_search_preview'.",
+                      "type": "invalid_request_error", "param": "tools[1].type", "code": "invalid_value"}}
+
+    def handler(request):
+        return httpx.Response(400, json=body)
+
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+
+    with pytest.raises(Exception) as caught:
+        await provider.search("query")
+
+    if hinted:
+        assert isinstance(caught.value, ProviderCallError) and caught.value.error_type == "parameter_error"
+        assert "api.openai.com" in caught.value.error and "XAI_TOOLS" in caught.value.error and "web_search" in caught.value.error
+    else:
+        assert isinstance(caught.value, httpx.HTTPStatusError)
 
 
 def test_xai_request_timeout_follows_the_shared_deadline():

@@ -678,6 +678,9 @@ async def search(
     error_type = "" if ok else (failure.error_type if failure else "timeout" if stopped == "deadline" else "evidence_error")
     error = "" if ok else (failure.error if failure else "Search deadline exhausted" if stopped == "deadline"
                            else "Search did not obtain enough verified useful evidence")
+    if not ok and not failure and stopped != "deadline" and validation == "strict" and evidence and not has_source_evidence(evidence):
+        # Only a search model's own citations came back; strict needs pages a search provider retrieved.
+        error = source_message('strict 校验需要搜索服务独立检索到的来源；这次只有搜索模型自带的引用，不算独立证据。配置一个 web_search 提供方（例如 Tavily、智谱、元宝搜索）后再用 strict，或改用 balanced。')
     if not ok and not evidence and terminal_error:
         error_type, error = terminal_error["error_type"], terminal_error.get("error", error)
     if stopped == "cancelled":

@@ -229,6 +229,7 @@ smart-search research "query" --budget deep --fallback auto --format json --outp
 smart-search search "query" --stream --format json
 smart-search search "query" --no-stream --format json
 smart-search config set OPENAI_COMPATIBLE_API_MODE "responses" --format json
+smart-search config set OPENAI_COMPATIBLE_TOOLS "web_search" --format json
 smart-search config set OPENAI_COMPATIBLE_FALLBACK_MODELS "grok-4.3-fast" --format json
 smart-search search "nba report" --format content
 smart-search exa-search "OpenAI Responses API documentation" --include-domains platform.openai.com developers.openai.com --num-results 5 --include-text --format json

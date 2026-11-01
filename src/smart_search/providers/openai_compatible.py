@@ -173,6 +173,7 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
         model: str = "grok-4-fast",
         stream: bool = False,
         api_mode: str = "chat-completions",
+        tools: list[str] | None = None,
     ):
         super().__init__(normalize_openai_compatible_api_url(api_url), api_key)
         self.model = model
@@ -181,6 +182,8 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
         if self.api_mode not in OPENAI_COMPATIBLE_API_MODES:
             allowed = ", ".join(sorted(OPENAI_COMPATIBLE_API_MODES))
             raise ValueError(source_message('Invalid OpenAI-compatible API mode: {0}. Supported values: {1}', self.api_mode, allowed))
+        # Responses tools such as web_search, sent with search() only (OPENAI_COMPATIBLE_TOOLS).
+        self.tools = list(tools or [])
         self.last_transport_attempts: list[dict[str, Any]] = []
         self._search_deadline_monotonic: float | None = None
 
@@ -263,6 +266,13 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
             ]
         return payload
 
+    def _build_search_payload(self, instructions: str, user_content: str, *, stream: bool) -> dict[str, Any]:
+        """The search request; the only one that may carry Responses tools."""
+        payload = self._build_request_payload(instructions, user_content, stream=stream)
+        if self.api_mode == "responses" and self.tools:
+            payload["tools"] = [{"type": tool} for tool in self.tools]
+        return payload
+
     async def search(self, query: str, platform: str = "", ctx=None) -> List[SearchResult]:
         headers = self._build_api_headers()
         platform_prompt = ""
@@ -272,7 +282,7 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
 
         time_context = get_local_time_info() + "\n"
 
-        payload = self._build_request_payload(
+        payload = self._build_search_payload(
             search_prompt,
             time_context + query + platform_prompt,
             stream=self.stream,
@@ -487,6 +497,7 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
             return await self._parse_responses_streaming_response(response, ctx)
 
         content = ""
+        sources: list[dict] = []
         full_body_buffer = []
 
         async for line in response.aiter_lines():
@@ -507,6 +518,8 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                         delta = choices[0].get("delta", {})
                         if "content" in delta:
                             content += delta["content"]
+                        if isinstance(delta, dict) and delta.get("annotations"):
+                            sources = self._merge_citations(sources, self._normalize_chat_annotations(delta["annotations"]))
                 except (json.JSONDecodeError, IndexError):
                     continue
 
@@ -517,9 +530,11 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                 if "choices" in data and len(data["choices"]) > 0:
                     message = data["choices"][0].get("message", {})
                     content = message.get("content", "")
+                    sources = self._merge_citations(sources, self._extract_citations(data))
             except json.JSONDecodeError:
                 pass
 
+        content = self._append_sources(content, sources)
         await log_info(ctx, f"content: {content}", config.debug_enabled)
 
         return content
@@ -857,8 +872,23 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                 continue
             message = choice.get("message")
             if isinstance(message, dict):
-                sources = self._merge_citations(sources, self._normalize_citations(message.get("citations")))
+                sources = self._merge_citations(
+                    sources,
+                    self._normalize_citations(message.get("citations")),
+                    self._normalize_chat_annotations(message.get("annotations")),
+                )
         return sources
+
+    def _normalize_chat_annotations(self, annotations: Any) -> list[dict]:
+        """Chat Completions search models nest each citation: {"type": "url_citation", "url_citation": {...}}."""
+        if not isinstance(annotations, list):
+            return []
+        citations = [
+            item.get("url_citation") if isinstance(item.get("url_citation"), dict) else item
+            for item in annotations
+            if isinstance(item, dict) and item.get("type") == "url_citation"
+        ]
+        return self._normalize_citations(citations)
 
     def _normalize_responses_citations(self, citations: Any) -> list[dict]:
         if not citations:
