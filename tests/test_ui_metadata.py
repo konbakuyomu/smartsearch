@@ -96,6 +96,32 @@ def test_xai_reasoning_effort_is_optional_text():
     assert "low / medium / high" in field.help_en
 
 
+def test_openai_compatible_tools_is_a_free_text_field():
+    field = FIELDS_BY_KEY["OPENAI_COMPATIBLE_TOOLS"]
+    assert field.kind == "csv"
+    assert field.choices == ()  # a dropdown here can neither show "empty" nor save web_search in the Windows App
+    assert field.default == ""
+    assert field.placeholder == "web_search"
+    for text in (field.help_zh, field.help_en):
+        assert "web_search" in text and "web_search_preview" in text
+    assert "留空" in field.help_zh and "empty" in field.help_en.lower()
+
+
+# Multi-value setting whose default is two choices at once; the Windows App already preselects its first choice.
+CHOICE_DEFAULT_EXCEPTIONS = {"XAI_TOOLS"}
+
+
+def test_fields_with_choices_default_to_one_of_them():
+    # The Windows App draws `choices` as a closed dropdown. When the saved value is not among them (an empty
+    # value never is) it preselects the first choice and counts that as "unchanged", so the page shows a value
+    # that is not set and picking that value saves nothing. Such a field must be a text field instead.
+    offenders = sorted(
+        item.key for item in CONFIG_FIELDS
+        if item.choices and item.default not in item.choices and item.key not in CHOICE_DEFAULT_EXCEPTIONS
+    )
+    assert not offenders, f"{offenders}: default is not one of the choices; drop `choices` and use a text field"
+
+
 def test_yuanbao_fields_form_a_web_search_provider_card():
     fields = [FIELDS_BY_KEY[key] for key in ("YUANBAO_SECRET_ID", "YUANBAO_SECRET_KEY", "YUANBAO_API_URL", "YUANBAO_TIMEOUT_SECONDS")]
     assert {(field.provider, field.section, field.capabilities) for field in fields} == {("yuanbao", "providers", ("web_search",))}
