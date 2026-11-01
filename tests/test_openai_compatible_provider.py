@@ -1,10 +1,12 @@
 import asyncio
 import httpx
+import json
 import pytest
 import time
 
 from smart_search.providers.openai_compatible import OpenAICompatibleSearchProvider, reset_openai_compatible_breakers
 from smart_search.provider_errors import ProviderCallError
+from smart_search.sources import split_answer_and_sources
 
 
 class DummyResponse:
@@ -702,6 +704,54 @@ async def test_parse_completion_response_appends_top_level_citations():
 
     assert "hello world" in result
     assert "https://example.com/top" in result
+
+
+# OpenAI's Chat Completions search models (gpt-5-search-api) nest each citation under "url_citation".
+CHAT_ANSWER = (
+    "Python 3.15.2 is the latest stable release. ([python.org](https://www.python.org/getit/?utm_source=openai))\n\n"
+    "It was released on October 25, 2026. ([python.org](https://www.python.org/getit/?utm_source=openai))"
+)
+CHAT_ANNOTATION = {
+    "type": "url_citation",
+    "url_citation": {
+        "start_index": 45,
+        "end_index": 104,
+        "title": "Download Python | Python.org",
+        "url": "https://www.python.org/getit/?utm_source=openai",
+    },
+}
+CHAT_SOURCES = [{"url": "https://www.python.org/getit/?utm_source=openai", "title": "Download Python | Python.org"}]
+
+
+@pytest.mark.asyncio
+async def test_parse_completion_response_keeps_nested_chat_annotations():
+    provider = OpenAICompatibleSearchProvider("https://api.example.com", "test-key", "gpt-5-search-api")
+    data = {"choices": [{"message": {"role": "assistant", "content": CHAT_ANSWER, "annotations": [CHAT_ANNOTATION]}}]}
+
+    result = await provider._parse_completion_response(DummyResponse(text=json.dumps(data), json_data=data))
+
+    assert split_answer_and_sources(result) == (CHAT_ANSWER, CHAT_SOURCES)
+
+
+@pytest.mark.asyncio
+async def test_parse_streaming_response_keeps_chat_delta_annotations():
+    provider = OpenAICompatibleSearchProvider("https://api.example.com", "test-key", "gpt-5-search-api")
+    first, second = CHAT_ANSWER[:50], CHAT_ANSWER[50:]
+
+    class StreamResponse:
+        async def aiter_lines(self):
+            for chunk in (
+                {"choices": [{"delta": {"role": "assistant", "content": "", "refusal": None}}]},
+                {"choices": [{"delta": {"content": first}}]},
+                {"choices": [{"delta": {"annotations": [CHAT_ANNOTATION, CHAT_ANNOTATION]}}]},
+                {"choices": [{"delta": {"content": second}}]},
+            ):
+                yield "data: " + json.dumps(chunk)
+            yield "data: [DONE]"
+
+    result = await provider._parse_streaming_response(StreamResponse())
+
+    assert split_answer_and_sources(result) == (CHAT_ANSWER, CHAT_SOURCES)
 
 
 @pytest.mark.asyncio

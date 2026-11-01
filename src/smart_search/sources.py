@@ -13,6 +13,9 @@ from .utils import NO_WEB_SEARCH_MARKER, extract_unique_urls
 
 _MD_LINK_PATTERN = re.compile(r"\[([^\]]+)\]\((https?://[^)]+)\)")
 _INLINE_CITATION_LINK_PATTERN = re.compile(r"\[\[(\d+)\]\]\((https?://[^)]+)\)")
+# How OpenAI search models cite at the end of a sentence or bullet: "... in 2026. ([python.org](https://...))"
+_PARENTHESIZED_CITATION_PATTERN = re.compile(r"[(（]\s*\[[^\]]+\]\(https?://[^)\s]+\)\s*[)）]")
+_BARE_OR_ANGLE_URL_PATTERN = re.compile(r"<?https?://[^\s>]+>?")
 _SOURCES_HEADING_PATTERN = re.compile(
     r"(?im)^"
     r"(?:#{1,6}\s*)?"
@@ -338,9 +341,18 @@ def _is_link_only_line(line: str) -> bool:
         return False
     if stripped.startswith(("http://", "https://")):
         return True
+    citation = _PARENTHESIZED_CITATION_PATTERN.search(stripped)
+    if citation and _has_prose(stripped[: citation.start()]):
+        # A sentence that ends with its citation belongs to the answer, not to a trailing source list.
+        return False
     if _MD_LINK_PATTERN.search(stripped):
         return True
     return False
+
+
+def _has_prose(text: str) -> bool:
+    text = _BARE_OR_ANGLE_URL_PATTERN.sub("", _MD_LINK_PATTERN.sub("", text))
+    return re.search(r"[^\W\d_]", text) is not None
 
 
 def _parse_sources_payload(payload: str) -> list[dict]:
