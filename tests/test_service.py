@@ -561,13 +561,13 @@ async def test_research_context7_docs_uses_selected_library(monkeypatch, tmp_pat
             {"id": "/wrong/library", "title": "Unrelated"},
             {"id": "/reactjs/react.dev", "title": "React"}]}
     async def docs(library_id, query):
-        assert library_id == "/wrong/library"
+        assert library_id == "/reactjs/react.dev"
         return {"ok": True, "content": "React useEffect cleanup docs"}
     monkeypatch.setattr(service, "context7_library", libraries)
     monkeypatch.setattr(service, "context7_docs", docs)
     result = await service.research("React useEffect API docs", budget="standard", evidence_dir=str(tmp_path))
     assert result["ok"]
-    assert result["citations"][0]["url"] == "context7:/wrong/library"
+    assert result["citations"][0]["url"] == "context7:/reactjs/react.dev"
     assert result["degraded"]  # Retrieval succeeded; Jev verification was unavailable.
 
 
@@ -584,7 +584,7 @@ async def test_research_keeps_discovery_metadata_for_fetch(monkeypatch, tmp_path
     result = await service.research("React API docs", budget="standard", evidence_dir=str(tmp_path))
     assert result["ok"]
     assert result["discovery_sources"][0]["kind"] == "discovery"
-    assert result["citations"] == [{"url": "https://react.dev/reference", "title": "https://react.dev/reference", "provider": "jina"}]
+    assert result["citations"] == [{"url": "https://react.dev/reference", "title": "React docs", "provider": "jina"}]
     assert "Fetched React API documentation" in result["content"]
 
 
@@ -622,9 +622,10 @@ async def test_docs_search_falls_back_to_exa_when_context7_has_no_eligible_candi
 
     assert sources[0]["provider"] == "exa"
     assert [(attempt["provider"], attempt["status"]) for attempt in attempts] == [
-        ("context7", "empty"),
+        ("context7", "error"),
         ("exa", "ok"),
     ]
+    assert attempts[0]["error_type"] == "quality_error"
 
 
 def test_research_provider_profiles_are_registered_with_capability_boundaries():

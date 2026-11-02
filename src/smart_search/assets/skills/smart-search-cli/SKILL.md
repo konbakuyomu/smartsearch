@@ -23,7 +23,7 @@ Use the local `smart-search` command as the default execution layer for web rese
 1. Run `smart-search doctor --format json` when configuration or availability is uncertain.
 2. If `doctor` reports missing configuration, use `smart-search setup` or `smart-search config set KEY VALUE` when the user provides keys. Do not ask users to edit global environment variables by default.
 3. If OpenAI-compatible `search` hangs or times out after `doctor` succeeds, run `smart-search diagnose openai-compatible --format markdown` and use its summary.
-4. Keep `OPENAI_COMPATIBLE_API_MODE=chat-completions` unless a named relay has passed the official Responses subset probes; set `responses` only for that relay and keep the diagnostic evidence. For a model that searches only through the Responses `web_search` tool (for example `gpt-6.1-sol` with an official OpenAI key), also set `OPENAI_COMPATIBLE_TOOLS=web_search`.
+4. 按实际提供方和模型选择接口。官方 OpenAI 的 `gpt-6.1-sol` 联网使用 `OPENAI_COMPATIBLE_API_MODE=responses` 与 `OPENAI_COMPATIBLE_TOOLS=web_search`；支持 Chat Completions 原生搜索的模型可保留 `chat-completions`。中继切换 Responses 前须通过协议诊断，并保留证据。
 5. If `doctor` returns `ok: true`, use only `smart-search` CLI subcommands for web research. Do not call Codex native web search in the same task.
 6. Use `smart-search skills status --targets codex --format json` when the installed global skill may be stale; use `smart-search skills update --targets codex --format json` to refresh it without rerunning setup.
 7. Use `smart-search smoke --mock --format json` after CLI/provider architecture changes. Use `--live` only when real keys are available and the user expects live checks.
@@ -38,7 +38,7 @@ Use the local `smart-search` command as the default execution layer for web rese
 - `research`: shared bounded loop with Jev or local routing for complementary discovery, fetch/read, evidence gaps, and optional synthesis.
 - `deep`: offline Deep Research planner; it does not run providers, fetch pages, or replace default `search`.
 - `zhipu-search`: Chinese-language, domestic China, policy/regulatory, announcements, current news, or China-local source discovery.
-- `context7-library` / `context7-docs`: library, SDK, API, framework, or documentation intent. Ordinary search uses the first library in Context7's ranked candidates; research may ask Jev to choose a candidate, using the first candidate if Jev fails or no score reaches its threshold. Unresolved libraries allow same-capability fallback. Explicit commands retain the candidate list and supplied library id.
+- `context7-library` / `context7-docs`: library, SDK, API, framework, or documentation intent. 普通搜索和 research 均校验库名相关性；不读取明确无关的首项。Jev 不可用时只接受唯一名称匹配，歧义或无匹配时明确报错并按能力回退。 Unresolved libraries allow same-capability fallback. Explicit commands retain the candidate list and supplied library id.
 - `exa-search`: official domains, papers, product pages, trusted pages, date/domain-filtered low-noise discovery, and adjacent source discovery through `exa-similar`.
 - `fetch`: user-provided URLs or any claim that depends on page content.
 - `map`: documentation site or domain structure before fetching many pages from one site.

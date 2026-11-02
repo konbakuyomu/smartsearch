@@ -469,7 +469,7 @@ async def test_filter_outage_returns_evidence_without_another_auto_judgment(monk
         assert "synthesize" not in questions
         if phase == "filter":
             raise ProviderCallError("rate_limit", "Synthetic TypeSafe limit")
-        return answer_payload(questions, {key: .99 for key in questions})
+        return answer_payload(questions, {key: .01 if key.startswith("gap_") else .99 for key in questions})
     async def exa(*args, **kwargs):
         return {"ok": True, "results": [hit("Useful original evidence")]}
     monkeypatch.setattr(JevClient, "_request", request)
