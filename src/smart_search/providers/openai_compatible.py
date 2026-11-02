@@ -5,7 +5,6 @@ import json
 import logging
 import time
 from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
 from typing import Any, List, Optional
 from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, wait_random_exponential
 from tenacity.stop import stop_base
@@ -14,7 +13,7 @@ from .base import BaseSearchProvider, SearchResult
 from ..utils import search_prompt, fetch_prompt, url_describe_prompt, rank_sources_prompt
 from ..logger import log_info
 from ..config import config
-from ..provider_errors import ProviderCallError, classify_provider_exception
+from ..provider_errors import ProviderCallError, classify_provider_exception, retry_delay
 
 _logger = logging.getLogger(__name__)
 _ssl_warning_emitted = False
@@ -147,22 +146,7 @@ class _WaitWithRetryAfter(wait_base):
         return max(0.0, min(value, self._deadline_monotonic - time.monotonic()))
 
     def _parse_retry_after(self, response: httpx.Response) -> Optional[float]:
-        header = response.headers.get("Retry-After")
-        if not header:
-            return None
-        header = header.strip()
-
-        if header.isdigit():
-            return float(header)
-
-        try:
-            retry_dt = parsedate_to_datetime(header)
-            if retry_dt.tzinfo is None:
-                retry_dt = retry_dt.replace(tzinfo=timezone.utc)
-            delay = (retry_dt - datetime.now(timezone.utc)).total_seconds()
-            return max(0.0, delay)
-        except (TypeError, ValueError):
-            return None
+        return retry_delay(response)
 
 
 class OpenAICompatibleSearchProvider(BaseSearchProvider):

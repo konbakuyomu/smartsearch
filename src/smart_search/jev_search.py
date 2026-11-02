@@ -6,6 +6,7 @@ from .i18n import source_message
 import asyncio
 import hashlib
 import json
+import re
 import time
 from dataclasses import replace
 from typing import Any
@@ -13,25 +14,60 @@ from typing import Any
 from .jev import JevClient, assess_evidence, check_model_answer, decide_synthesis, filter_evidence, has_source_evidence, noul, select_channels
 from .provider_descriptions import PROVIDER_DESCRIPTIONS
 from .provider_errors import ProviderCallError, classify_provider_exception
+from .evidence import passage_score, query_terms, relevant_excerpt
 
 
 FALLBACK_RESERVE_RATIO = 0.75
 STRAGGLER_GRACE_SECONDS = 15.0
 ANSWER_CAPABILITIES = frozenset({"main_search", "web_search"})
+URL_CANDIDATE_LIMIT = 20
 
 
 def _fallback_family(a: str, b: str) -> bool:
     return a == b or (a in ANSWER_CAPABILITIES and b in ANSWER_CAPABILITIES)
 
 
-def available_channels(svc: Any, query: str, evidence: list[dict], providers: str = "auto", *, queries: list[dict] | None = None, include_cooldown: bool = False) -> list[dict]:
+def _source_scope(svc: Any, query: str) -> set[str] | None:
+    urls = set(svc._extract_urls(query))
+    exclusive = re.search(r"(?:仅|只)(?:能)?(?:限|使用|基于|依据|根据|从|查|读取|阅读|核验)|不要(?:替换|使用其他)|不能使用其他|\b(?:use|read|from)\s+only\b|\bonly\s+(?:these|this|the supplied|https?://)|do not (?:substitute|use other)", query, re.I)
+    return urls if urls and exclusive else None
+
+
+def _reading_urls(svc: Any, query: str, evidence: list[dict], retry_read_urls: set[str] | None = None) -> list[str]:
+    explicit = svc._extract_urls(query)
+    scope = _source_scope(svc, query)
+    read = {item.get("url") for item in evidence if item.get("read")} - (retry_read_urls or set())
+    terms = query_terms(query)
+    scores: dict[str, float] = {}
+    for item in evidence:
+        url = item.get("url", "")
+        if url and url not in read:
+            score = passage_score(item.get("title", "") + " " + relevant_excerpt(item.get("content", ""), query), terms)
+            scores[url] = max(scores.get(url, float("-inf")), score)
+    urls = [url for url in dict.fromkeys(explicit) if url not in read]
+    # Deterministic ranking precedes the bound; response arrival order is not a
+    # relevance signal. Spread discovery slots across hosts where possible.
+    from urllib.parse import urlsplit
+    ranked = sorted(scores, key=lambda url: (-scores[url], url))
+    hosts = {urlsplit(url).netloc for url in urls}
+    for diverse in (True, False):
+        for url in ranked:
+            host = urlsplit(url).netloc
+            if url in urls or (diverse and host in hosts):
+                continue
+            urls.append(url)
+            hosts.add(host)
+    return [url for url in urls if url.startswith(("https://", "http://")) and (scope is None or url in scope)][:URL_CANDIDATE_LIMIT]
+
+
+def available_channels(svc: Any, query: str, evidence: list[dict], providers: str = "auto", *, queries: list[dict] | None = None, include_cooldown: bool = False, retry_read_urls: set[str] | None = None) -> list[dict]:
     """Only configured, enabled, allowed operations enter the model's state."""
     provider_filter = svc._parse_provider_filter(providers)
     disabled = set(svc.config.research_disabled_providers)
     preferred = svc.config.research_preferred_providers
     queries = queries or [{"query": query, "reason": source_message('original question'), "subquestion_id": ""}]
-    urls = list(dict.fromkeys(svc._extract_urls(query) + [item.get("url", "") for item in evidence]))
-    urls = [url for url in urls if url.startswith(("https://", "http://"))][:5]
+    urls = _reading_urls(svc, query, evidence, retry_read_urls)
+    scope = _source_scope(svc, query)
     channels = []
     for provider, profile in svc.PROVIDER_PROFILES.items():
         if profile.get("explicit_only") or provider == "main-search" or provider in disabled:
@@ -45,6 +81,8 @@ def available_channels(svc: Any, query: str, evidence: list[dict], providers: st
             if capability == "site_map":
                 continue
             operation = "fetch" if capability == "web_fetch" else "search"
+            if scope is not None and operation != "fetch":
+                continue
             description = PROVIDER_DESCRIPTIONS[provider][operation]
             targets = [{"url": url, "query": query, "reason": source_message('read discovered source'), "subquestion_id": ""} for url in urls] if operation == "fetch" else queries
             for target in targets:
@@ -58,6 +96,14 @@ def available_channels(svc: Any, query: str, evidence: list[dict], providers: st
                     "preference_rank": preferred.index(provider) if provider in preferred else len(preferred),
                     "description": description["en"], "guidance": description["guidance_en"],
                 })
+                if operation == "fetch":
+                    matches = [item for item in evidence if item.get("url") == url]
+                    source = max(matches, key=lambda item: len(item.get("content", "")), default={})
+                    channels[-1]["source"] = {
+                        "title": source.get("title", ""),
+                        "snippet": relevant_excerpt(source.get("content", ""), query, 600),
+                        "kind": source.get("kind", ""), "provider": source.get("provider", ""),
+                    }
     return channels
 
 
@@ -145,6 +191,8 @@ class ChannelExecutor:
         self.research = research
         self.fallback = fallback
         self.model_results: dict[str, dict] = {}
+        self.fetch_attempts: dict[str, list[dict]] = {}
+        self.allowed_fetch_providers: set[str] = set()
 
     async def execute(self, channel: dict, query: str) -> list[dict]:
         svc = self.svc
@@ -156,21 +204,16 @@ class ChannelExecutor:
             raise ProviderCallError("provider_error", source_message('Selected channel is no longer enabled'))
         if operation == "fetch":
             url = channel["url"]
-            if provider == "tavily":
-                content = await svc.call_tavily_extract(url)
-            elif provider == "firecrawl":
-                content = await svc.call_firecrawl_scrape(url)
-            elif provider == "jina":
-                content = _check_data(await svc.jina_fetch(url)).get("content")
-            elif provider == "zhipu-mcp-reader":
-                content = _check_data(await svc.zhipu_mcp_reader(url)).get("content")
-            elif provider == "tinyfish":
-                content = _check_data(await svc.call_tinyfish_fetch(url)).get("content")
-            elif provider == "deepseek":
-                content = await svc.call_deepseek_fetch(url)
-            else:
-                raise ProviderCallError("parameter_error", source_message('Unsupported fetch channel'))
-            results = [{"url": url, "content": content}]
+            order = [provider, *svc._research_fetch_order(query, url)]
+            fetch_attempts: list[dict] = []
+            self.fetch_attempts[channel["id"]] = fetch_attempts
+            data, _ = await svc._run_web_fetch_fallback(
+                url, self.fallback, order, deadline=self.client.deadline,
+                allowed_providers=self.allowed_fetch_providers or {provider}, attempts=fetch_attempts)
+            if not data:
+                return []
+            provider, content = data["provider"], data["content"]
+            results = [{"url": url, "title": channel.get("source", {}).get("title", ""), "content": content}]
         elif provider == "exa":
             results = _check_data(await svc.exa_search(query, num_results=self.count, include_highlights=True)).get("results", [])
         elif provider == "zhipu":
@@ -227,14 +270,19 @@ class ChannelExecutor:
         return _normalize_results(results, provider, operation)
 
     async def _context7(self, query: str) -> list[dict]:
-        libraries = _check_data(await self.svc.context7_library(query, query)).get("results", [])[:20]
+        words = re.findall(r"[A-Za-z][A-Za-z0-9_.-]*", re.sub(r"https?://\S+", "", query))
+        generic = {"how", "what", "does", "the", "and", "explain", "use", "using", "latest", "official", "documentation", "docs", "please", "in", "for", "is", "a", "an"}
+        name = next((word for word in words if word.casefold() not in generic), "")
+        if not name:
+            raise ProviderCallError("quality_error", "Context7 could not identify the requested library name")
+        libraries = _check_data(await self.svc.context7_library(name, query)).get("results", [])[:20]
         libraries = [item for item in libraries if item.get("id")]
         if not libraries:
             return []
         # Library IDs come from Context7, never free-form model output. This is a
         # dependent provider operation after search, not a second routing review.
         library = None
-        if self.research and self.client.settings.api_key and self.client.last_error is None:
+        if self.client.settings.api_key and self.client.last_error is None:
             try:
                 scores = await self.client.evaluate(
                     {"question": query, "libraries": libraries},
@@ -249,11 +297,16 @@ class ChannelExecutor:
                 best = max(range(len(libraries)), key=lambda i: scores[f"library_{i}"])
                 if scores[f"library_{best}"] >= 0.5:
                     library = libraries[best]
-            except ProviderCallError:
-                # A router outage is not a Context7 authentication failure.
-                pass
+                else:
+                    raise ProviderCallError("quality_error", "Context7 returned no relevant library")
+            except ProviderCallError as exc:
+                if exc.error_type == "quality_error":
+                    raise
         if library is None:
-            library = libraries[0]
+            matches = [item for item in libraries if name.casefold() in re.findall(r"[a-z0-9_.-]+", (item.get("title", "") + " " + item["id"]).casefold())]
+            if len(matches) != 1:
+                raise ProviderCallError("quality_error", "Context7 library resolution is ambiguous or unrelated")
+            library = matches[0]
         data = await self.svc.context7_docs(library["id"], query)
         if data.get("error_type") == "evidence_error":
             return []
@@ -427,7 +480,8 @@ async def search(
             items = await asyncio.wait_for(executor.execute(channel, channel["query"]), timeout)
             items = [{**item, "subquestion_id": channel.get("subquestion_id", "")} for item in items]
             status = "ok" if items else "empty"
-            svc._record_provider_result(channel["provider"], status)
+            if channel["operation"] != "fetch":
+                svc._record_provider_result(channel["provider"], status)
             attempt = svc._attempt(channel["capability"], channel["provider"], status, phase_start, result_count=len(items))
         except asyncio.CancelledError:
             items, channel_cancelled = [], True
@@ -439,10 +493,14 @@ async def search(
                                    error_type="parameter_error", error=svc.sanitize_provider_error_message(exc))
         except Exception as exc:
             items = []
-            attempt = svc._attempt_with_health(channel["capability"], channel["provider"], phase_start, exc)
-        model_attempts = executor.model_results.get(channel["id"], {}).get("attempts", [])
-        for entry in model_attempts or [attempt]:
-            attempts.append({**entry, "provider": channel["provider"], "channel_id": channel["id"],
+            active_fetch = executor.fetch_attempts.get(channel["id"], [])
+            failed_provider = active_fetch[-1]["provider"] if active_fetch and active_fetch[-1]["status"] == "cancelled" else channel["provider"]
+            attempt = svc._attempt_with_health(channel["capability"], failed_provider, phase_start, exc)
+        nested_attempts = executor.fetch_attempts.get(channel["id"], []) or executor.model_results.get(channel["id"], {}).get("attempts", [])
+        if channel["operation"] == "fetch" and nested_attempts and nested_attempts[-1]["status"] == "cancelled" and attempt["status"] == "error":
+            nested_attempts[-1].update({key: value for key, value in attempt.items() if key in {"status", "error_type", "error", "provider_health"}})
+        for entry in nested_attempts or [attempt]:
+            attempts.append({**entry, "provider": entry.get("provider", channel["provider"]) if channel["operation"] == "fetch" else channel["provider"], "channel_id": channel["id"],
                              "operation": channel["operation"], "url": channel["url"], "query": channel["query"]})
         # Publish each completed channel before awaiting its siblings.
         _append_evidence(evidence, items)
@@ -455,7 +513,11 @@ async def search(
             candidates = initial
             if is_research:
                 queries = candidate_queries(query, assessment, research_plan) if round_number > 1 or require_read else None
-                candidates = [item for item in available_channels(svc, query, evidence, providers, queries=queries) if item["id"] not in attempted]
+                # A nonempty extraction can still be navigation or a challenge.
+                # An unhelpful preview permits an untried reader for the same
+                # source; it never erases the original body or proves absence.
+                retry_urls = {item["url"] for item in evidence if item.get("read")} if assessment.get("status") == "irrelevant" else set()
+                candidates = [item for item in available_channels(svc, query, evidence, providers, queries=queries, retry_read_urls=retry_urls) if item["id"] not in attempted]
             if fallback == "off" and round_number > 1:
                 candidates = [item for item in candidates if require_read and item["operation"] == "fetch"
                               and not any(a.get("url") == item["url"] for a in attempts if a.get("operation") == "fetch")]
@@ -501,6 +563,7 @@ async def search(
                 execution.record("retrieval", "timeout", time.monotonic(), 0, "shared deadline exhausted before this phase")
                 break
             attempted.update(item["id"] for item in selected)
+            executor.allowed_fetch_providers = {item["provider"] for item in candidates if item["operation"] == "fetch"}
             phase_start = time.monotonic()
             retrieval_timeout = budget.remaining_seconds() * (0.8 if is_research and judge_available else 1.0)
             if not is_research and fallback != "off" and any(
@@ -518,15 +581,13 @@ async def search(
                         done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
                         if any(not task.cancelled() and task.result() for task in done):
                             if pending:
-                                _, pending = await asyncio.wait(
-                                    pending, timeout=max(STRAGGLER_GRACE_SECONDS, time.monotonic() - phase_start)
-                                )
-                            # A search model runs its own web search and is far slower than an index
-                            # lookup; it keeps its retrieval timeout instead of the straggler grace.
-                            models = {task for task in pending if tasks[task]["capability"] == "main_search"}
-                            if models:
-                                await asyncio.wait(models)
-                                pending -= models
+                                _, pending = await asyncio.wait(pending, timeout=max(STRAGGLER_GRACE_SECONDS, time.monotonic() - phase_start))
+                            # Page readers and search models keep the retrieval
+                            # budget. A quick index hit cannot cancel verification.
+                            required = {task for task in pending if tasks[task]["operation"] == "fetch" or tasks[task]["capability"] == "main_search"}
+                            if required:
+                                await asyncio.wait(required)
+                                pending -= required
                             break
                 finally:
                     for task in pending:
@@ -546,6 +607,10 @@ async def search(
                     if evidence:
                         break
             stagnant_rounds = stagnant_rounds + 1 if len(evidence) == before else 0
+            for attempt in attempts[round_attempt_start:]:
+                if attempt.get("operation") == "fetch" and attempt.get("url"):
+                    suffix = hashlib.sha256(attempt["url"].encode()).hexdigest()[:12]
+                    attempted.add(f"{attempt['provider']}:fetch:{suffix}")
             timed_out = any(item.get("error_type") == "timeout" for item in attempts[round_attempt_start:])
             execution.record("retrieval", "timeout" if timed_out else "ok", phase_start, retrieval_timeout)
             if not is_research:
@@ -670,7 +735,10 @@ async def search(
 
     # Full text appears once in content. Trace/source metadata never reintroduces
     # discarded passages or duplicates the entire evidence in JSON output.
-    sources = [{key: value for key, value in item.items() if key != "content"} for item in answer_evidence if item.get("url")]
+    sources = []
+    for item in answer_evidence:
+        if item.get("url") and not any(source["url"] == item["url"] for source in sources):
+            sources.append({key: value for key, value in item.items() if key != "content"})
     ok = stopped != "cancelled" and bool(answer_evidence and (not is_research or assessment["useful"] or not judge_available))
     if validation == "strict":
         ok = ok and has_source_evidence(evidence) and (not is_research or assessment["sufficient"])
@@ -744,7 +812,7 @@ def _research_result(svc, result, query, evidence, plan):
     gaps = [{"subquestion_id": "", "reason": gap} for gap in assessment["gaps"]]
     if not items:
         gaps.append({"subquestion_id": "", "reason": source_message('no fetched/read evidence items were produced')})
-    if degraded and not gaps:
+    if degraded and not gaps and assessment.get("status") in {"unverified", "unknown"}:
         gaps.append({"subquestion_id": "", "reason": source_message('Jev judgment unavailable; results are unverified')})
     if gaps and not result.get("degraded_reason"):
         result["degraded_reason"] = f"Research stopped with unresolved evidence gaps: {stopped}."
@@ -756,6 +824,18 @@ def _research_result(svc, result, query, evidence, plan):
                   gap_check={"status": "closed" if items and not gaps else "degraded" if items else "failed", "gaps": gaps, "stop_reason": stopped},
                   degraded=bool(gaps) or degraded, evidence_dir=evidence_root, route_policy_version="jev-v2",
                   capability_status=svc.get_capability_status())
+    synthesis_status = result.get("synthesis", {}).get("status")
+    synthesis_failed = synthesis_status in {"failed", "decision_failed", "cancelled"}
+    unique_sources = list(dict.fromkeys(item["url"] for item in items))
+    result["completion"] = {
+        "retrieval": "ok" if items else "failed",
+        "evidence": result["gap_check"]["status"],
+        "synthesis": synthesis_status or "not_run",
+        "answer": "complete" if items and not gaps and not synthesis_failed else "partial" if items else "failed",
+        "unique_read_sources": len(unique_sources),
+    }
+    if synthesis_failed:
+        result.update(degraded=True, degraded_reason="Research synthesis did not complete; returning source excerpts.", partial_success=bool(items))
     svc._write_research_artifact(evidence_root, "00-plan.json", plan)
     for index, item in enumerate(items, 1):
         svc._write_research_artifact(evidence_root, f"evidence-{index:02d}.md", item["content"])

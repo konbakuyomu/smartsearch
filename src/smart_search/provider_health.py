@@ -31,6 +31,7 @@ from typing import Any, Callable
 
 from .config import config
 from .state_files import file_lock
+from .provider_errors import retry_delay
 
 
 STORE_FILENAME = "provider_health.json"
@@ -229,6 +230,10 @@ class ProviderHealthStore:
                     cooldown_until = now + self.cooldown_seconds * HARD_FAILURE_COOLDOWN_MULTIPLIER
                 elif failures >= self.failure_threshold:
                     cooldown_until = now + self.cooldown_seconds
+                if error_type == "rate_limited" and (delay := retry_delay(message=error)) is not None:
+                    # A short TPM window is not a dead credential. Retain the
+                    # failure and skip only until the upstream retry hint expires.
+                    cooldown_until = now + delay
                 updated = {
                     "fingerprint": fingerprint,
                     "consecutive_failures": failures,
