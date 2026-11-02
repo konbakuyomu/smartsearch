@@ -429,7 +429,7 @@ async def test_model_answer_quality_uses_same_capability_fallback(monkeypatch, p
         }
         assert any("Search model answer rejected" in warning for warning in result["warnings"])
         if primary == "openai-compatible":
-            assert any("XAI_API_URL" in warning for warning in result["warnings"])
+            assert any("OPENAI_COMPATIBLE_API_MODE=responses" in warning for warning in result["warnings"])
 
 
 @pytest.mark.asyncio
@@ -447,7 +447,7 @@ async def test_rejected_model_answer_keeps_degraded_reason(monkeypatch):
     assert result["degraded"] is True
     assert result["degraded_reason"].startswith("TYPESAFE_API_KEY is not configured")
     assert result["answer_check"]["reason"] == "no_web_search"
-    assert any("XAI_API_URL" in warning for warning in result["warnings"])
+    assert any("OPENAI_COMPATIBLE_API_MODE=responses" in warning for warning in result["warnings"])
 
 
 @pytest.mark.asyncio

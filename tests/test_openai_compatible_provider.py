@@ -147,7 +147,9 @@ async def test_responses_tools_ride_on_search_only(monkeypatch, tools):
     await provider.rank_sources("q", "1. a", 1)
 
     assert payloads["search"]["tools"] == [{"type": tool} for tool in tools]
+    assert payloads["search"]["tool_choice"] == "required"
     assert all("tools" not in payloads[name] for name in ("fetch", "synthesize", "describe", "rank"))
+    assert all("tool_choice" not in payloads[name] for name in ("fetch", "synthesize", "describe", "rank"))
 
 
 @pytest.mark.asyncio

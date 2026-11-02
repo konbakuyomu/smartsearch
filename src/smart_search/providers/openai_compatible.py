@@ -255,7 +255,21 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
         payload = self._build_request_payload(instructions, user_content, stream=stream)
         if self.api_mode == "responses" and self.tools:
             payload["tools"] = [{"type": tool} for tool in self.tools]
+            payload["tool_choice"] = "required"
         return payload
+
+    @staticmethod
+    def _requires_web_search(payload: dict) -> bool:
+        return any(tool.get("type") in {"web_search", "web_search_preview"} for tool in payload.get("tools", []))
+
+    def _validate_web_search(self, items: list[dict], required: bool) -> None:
+        calls = [{"id": item.get("id", ""), "status": item.get("status", ""),
+                  "action": item.get("action", {})}
+                 for item in items if isinstance(item, dict) and item.get("type") == "web_search_call"]
+        self.last_web_search_calls = calls
+        if required and not any(call["status"] == "completed" for call in calls):
+            raise ProviderCallError("quality_error", "Responses search did not complete a web_search_call",
+                                    additional_secrets=(self.api_key,))
 
     async def search(self, query: str, platform: str = "", ctx=None) -> List[SearchResult]:
         headers = self._build_api_headers()
@@ -344,6 +358,8 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
             "api_mode": self.api_mode,
             "endpoint": self._api_endpoint(),
         }
+        if getattr(self, "last_web_search_calls", None):
+            attempt["web_search_calls"] = self.last_web_search_calls
         if breaker_state:
             attempt["breaker_state"] = breaker_state
         if fallback_from_transport:
@@ -352,6 +368,7 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
 
     async def _execute_with_transport_fallback(self, headers: dict, payload: dict, ctx=None) -> str:
         self.last_transport_attempts = []
+        self.last_web_search_calls = []
         if not self.stream:
             payload["stream"] = False
             start = time.time()
@@ -476,9 +493,9 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
             )
             raise
 
-    async def _parse_streaming_response(self, response, ctx=None) -> str:
+    async def _parse_streaming_response(self, response, ctx=None, *, require_web_search: bool = False) -> str:
         if self.api_mode == "responses":
-            return await self._parse_responses_streaming_response(response, ctx)
+            return await self._parse_responses_streaming_response(response, ctx, require_web_search=require_web_search)
 
         content = ""
         sources: list[dict] = []
@@ -539,12 +556,13 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
             ordered = [part.strip() for part in fallback_parts if isinstance(part, str) and part.strip()]
         return "\n\n".join(ordered).strip()
 
-    async def _parse_responses_streaming_response(self, response, ctx=None) -> str:
+    async def _parse_responses_streaming_response(self, response, ctx=None, *, require_web_search: bool = False) -> str:
         delta_parts: dict[tuple[int, int], str] = {}
         completed_parts: dict[tuple[int, int], str] = {}
         output_item_parts: list[str] = []
         stream_sources: list[dict] = []
         malformed_events: list[str] = []
+        tool_items: dict[str, dict] = {}
 
         async for line in response.aiter_lines():
             stripped = line.strip()
@@ -610,6 +628,8 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                 if not isinstance(item, dict):
                     malformed_events.append("response.output_item.done had no item object")
                     continue
+                if item.get("type") == "web_search_call":
+                    tool_items[str(item.get("id") or data.get("output_index", ""))] = item
                 item_text, item_sources = self._extract_responses_content({"output": [item]})
                 if item_text:
                     output_item_parts.append(item_text)
@@ -660,6 +680,11 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                         additional_secrets=(self.api_key,),
                     )
 
+                for index, item in enumerate(response_data.get("output", []) or []):
+                    if isinstance(item, dict) and item.get("type") == "web_search_call":
+                        tool_items[str(item.get("id") or index)] = item
+                self._validate_web_search(list(tool_items.values()), require_web_search)
+
                 content, sources = self._extract_responses_content(response_data)
                 if not sources:
                     sources = stream_sources
@@ -671,8 +696,8 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                 await log_info(ctx, f"content: {content}", config.debug_enabled)
                 return content
 
-            # Other typed events describe tools, reasoning, or queue state. They are
-            # deliberately ignored; a completed terminal event still decides success.
+            # Tool completion must be backed by an output item, rather than a
+            # provisional notification or an assistant's claim to have searched.
 
         if malformed_events:
             raise ProviderCallError(
@@ -708,9 +733,9 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                         if response.status_code >= 400:
                             await response.aread()
                         response.raise_for_status()
-                        return await self._parse_streaming_response(response, ctx)
+                        return await self._parse_streaming_response(response, ctx, require_web_search=self._requires_web_search(payload))
 
-    async def _parse_completion_response(self, response: httpx.Response, ctx=None) -> str:
+    async def _parse_completion_response(self, response: httpx.Response, ctx=None, *, require_web_search: bool = False) -> str:
         """解析非流式 completion 响应，兼容 JSON 和 SSE 文本 fallback"""
         content = ""
         body_text = response.text or ""
@@ -726,6 +751,7 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                 terminal_error = self._responses_terminal_error(data)
                 if terminal_error is not None:
                     raise terminal_error
+                self._validate_web_search(data.get("output", []) or [], require_web_search)
                 content, sources = self._extract_responses_content(data)
             elif body_text.strip() and not body_text.lstrip().startswith("data:"):
                 raise ProviderCallError(
@@ -754,7 +780,7 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                     for line in self._lines:
                         yield line
 
-            content = await self._parse_streaming_response(_LineResponse(body_text), ctx)
+            content = await self._parse_streaming_response(_LineResponse(body_text), ctx, require_web_search=require_web_search)
 
         if self.api_mode == "responses" and not content:
             raise ProviderCallError(
@@ -952,7 +978,7 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                         timeout=request_timeout,
                     )
                     response.raise_for_status()
-                    return await self._parse_completion_response(response, ctx)
+                    return await self._parse_completion_response(response, ctx, require_web_search=self._requires_web_search(payload))
 
     async def describe_url(self, url: str, ctx=None) -> dict:
         headers = self._build_api_headers()
