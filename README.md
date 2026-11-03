@@ -234,7 +234,7 @@ You choose the providers and can configure several; Jev picks a channel for each
 <details>
 <summary><strong>Windows shows SmartScreen; macOS cannot verify the developer</strong></summary>
 
-Windows `-signed.exe` packages use a self-signed certificate and may still trigger SmartScreen; see [Windows signatures and first launch](docs/windows-signing.md). macOS packages use ad-hoc bundle integrity signing and separate Sparkle EdDSA update signatures, without Developer ID signing or notarization.
+Windows `-signed.exe` packages use a self-signed certificate and may still trigger SmartScreen; see [Windows signatures and first launch](docs/windows-signing.md). macOS release packages are signed with the maintainer's fixed self-signed certificate and use separate Sparkle EdDSA update signatures, without Developer ID signing or notarization; see [macOS signing](docs/macos-signing.md).
 
 </details>
 

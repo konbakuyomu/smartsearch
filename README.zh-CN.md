@@ -232,7 +232,7 @@ Smart Search 本身免费开源。服务商测试、搜索、`doctor` 和 `route
 <details>
 <summary><strong>Windows 提示 SmartScreen，macOS 提示无法验证开发者？</strong></summary>
 
-Windows 的 `-signed.exe` 安装包使用自签名证书，仍可能出现 SmartScreen 提示，详见 [Windows 签名与首次启动](docs/windows-signing.md)。macOS 包使用 ad-hoc 完整性签名和独立的 Sparkle EdDSA 更新签名，尚无 Developer ID 签名或公证。
+Windows 的 `-signed.exe` 安装包使用自签名证书，仍可能出现 SmartScreen 提示，详见 [Windows 签名与首次启动](docs/windows-signing.md)。macOS 正式包使用维护者的固定自签名证书和独立的 Sparkle EdDSA 更新签名，尚无 Developer ID 签名或公证，详见 [macOS 签名](docs/macos-signing.md)。
 
 </details>
 
