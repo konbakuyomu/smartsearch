@@ -289,6 +289,16 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
         "route_reasons": ["vertical domain discovery"],
         "experimental": True,
     },
+    "parallel": {
+        "capability": "docs_search",
+        "fallback_group": "docs_search",
+        "minimum_profile_role": "",
+        "quality_filters": ["public query confirmation required", "URL required", "excerpts are not full page reads"],
+        "route_reasons": ["one foreground public software-docs query"],
+        "explicit_only": True,
+        "foreground_only": True,
+        "route_enabled": False,
+    },
     "sciverse": {
         "capability": "vertical_search",
         "fallback_group": "vertical_search",
@@ -1006,6 +1016,8 @@ def _provider_configured(provider: str) -> bool:
         return bool(config.deepseek_api_key)
     if provider == "anysearch":
         return bool(config.anysearch_api_key)
+    if provider == "parallel":
+        return True  # Anonymous MCP; excluded from all automatic capability chains.
     if provider == "sciverse":
         return bool(config.sciverse_api_token)
     if provider == "main-search":
@@ -2234,6 +2246,7 @@ async def search(
     providers: str = "auto",
     stream: bool | None = None,
     timeout_seconds: float | None = None,
+    foreground_provider: str = "",
 ) -> dict[str, Any]:
     start = time.time()
     try:
@@ -2250,6 +2263,7 @@ async def search(
     return await jev_search.search(
         query, validation=validation_level, fallback=fallback_mode, providers=providers,
         timeout_seconds=effective_timeout, platform=platform, model=model, stream=stream, extra_sources=extra_sources,
+        foreground_provider=foreground_provider,
     )
 
 
