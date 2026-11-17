@@ -17,6 +17,14 @@ PROVIDER_DESCRIPTIONS: dict[str, dict[str, dict[str, str]]] = {
             "guidance_zh": "擅长通用网页检索与综合回答；不适合直接充当网页正文证据。搜索范围、时效和引用由上游决定。",
         },
     },
+    "parallel": {
+        "search": {
+            "en": "Finds public software documentation through Parallel Unified MCP.",
+            "zh": "通过 Parallel Unified MCP 查找公开软件文档。",
+            "guidance_en": "Only for one explicitly confirmed foreground public query; returns URLs and excerpts, not full page reads.",
+            "guidance_zh": "仅用于明确确认的单次前台公开查询；返回链接和摘录，不代表已读取完整页面。",
+        },
+    },
     "context7": {
         "search": {
             "en": "Finds a matching software library and reads its documentation.",

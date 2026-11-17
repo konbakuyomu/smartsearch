@@ -201,6 +201,9 @@ details.more[open] > summary::before { content: "▾ "; }
       stepDocs: "文档与网页检索", stepFetch: "网页读取（深入搜索推荐）",
       pickOne: "按用途选择渠道，不要求三类全部配置。", installSkill: "安装 / 更新",
       runRoute: "看它走哪些能力（免费）", runSearch: "跑一次真实搜索",
+      autoProvider: "自动选择（现有配置）", parallelProvider: "Parallel（公开软件文档，仅本次）",
+      parallelConfirm: "确认这条查询仅包含公开软件文档问题，并将输入的查询发送给 Parallel？不要包含私人内容。",
+      queryProvider: "本次搜索服务商",
       queryPlaceholder: "比如：React useEffect 清理函数怎么写",
       running: "运行中…", searchCost: "真实搜索会调用选中的检索渠道，配置 Jev 时还会进行一次选路判断，可能计费。确定继续？",
       needQuery: "先输入一个问题。", result: "结果", chain: "兜底顺序",
@@ -229,6 +232,9 @@ details.more[open] > summary::before { content: "▾ "; }
       stepDocs: "Documentation and web retrieval", stepFetch: "Page reading (recommended for research)",
       pickOne: "Choose channels for your task; all three groups are not required.", installSkill: "Install / update",
       runRoute: "Show which capabilities (free)", runSearch: "Run a real search",
+      autoProvider: "Automatic (current configuration)", parallelProvider: "Parallel (public software docs, this run only)",
+      parallelConfirm: "Confirm this is a public software documentation query and send the typed query to Parallel? Exclude private content.",
+      queryProvider: "Provider for this search",
       queryPlaceholder: "e.g. how do I write a React useEffect cleanup function",
       running: "Running…", searchCost: "A real search calls the selected channel and, when configured, Jev once for routing. Charges may apply. Continue?",
       needQuery: "Type a question first.", result: "Result", chain: "Fallback order",
@@ -825,6 +831,10 @@ details.more[open] > summary::before { content: "▾ "; }
     main.appendChild(el("p", { class: "blurb", text: L(section, "blurb") }));
 
     var box = el("input", { type: "text", placeholder: t("queryPlaceholder"), spellcheck: "false" });
+    var provider = el("select", { "aria-label": t("queryProvider") }, [
+      el("option", { value: "auto", text: t("autoProvider") }),
+      el("option", { value: "parallel", text: t("parallelProvider") })
+    ]);
     var output = el("pre", {
       class: "mono", style: "white-space:pre-wrap;word-break:break-word;margin:0;font-size:12px"
     });
@@ -835,10 +845,11 @@ details.more[open] > summary::before { content: "▾ "; }
     function run(command) {
       var query = box.value.trim();
       if (!query) { toast(t("needQuery"), true); return; }
-      if (command === "search" && !window.confirm(t("searchCost"))) return;
+      var useParallel = command === "search" && provider.value === "parallel";
+      if (command === "search" && !window.confirm(t(useParallel ? "parallelConfirm" : "searchCost"))) return;
       outputCard.style.display = "";
       output.textContent = t("running");
-      api("POST", "/api/run", { command: command, query: query }).then(function (data) {
+      api("POST", "/api/run", { command: command, query: query, provider: useParallel ? "parallel" : "auto", public_query_confirmed: useParallel }).then(function (data) {
         output.textContent = JSON.stringify(data, null, 2);
         if (!data.ok) toast(data.error || "failed", true);
       }).catch(function (e) { output.textContent = String(e); });
@@ -846,6 +857,7 @@ details.more[open] > summary::before { content: "▾ "; }
 
     main.appendChild(el("div", { class: "card" }, [
       el("div", { class: "row", style: "grid-template-columns:1fr" }, [el("div", {}, [box])]),
+      el("label", { text: t("queryProvider") }, [provider]),
       el("p", { class: "note", style: "margin:12px 0 0;display:flex;gap:8px;flex-wrap:wrap" }, [
         el("button", { class: "act", type: "button", text: t("runRoute"), onclick: function () { run("route"); } }),
         el("button", { class: "act ghost", type: "button", text: t("runSearch"), onclick: function () { run("search"); } })

@@ -197,14 +197,21 @@ async def run_query(payload: dict[str, Any]) -> dict[str, Any]:
     if len(query) > 2000:
         return _parameter_error(source_message('query is too long'))
 
+    provider = str(payload.get("provider") or "auto").strip().lower()
+    if provider not in {"auto", "parallel"}:
+        return _parameter_error("provider must be auto or parallel")
     if command == "route":
         return await service.route(query, allow_remote=False)
+    if provider == "parallel" and payload.get("public_query_confirmed") is not True:
+        return _parameter_error("Confirm that the typed query is for public software documentation before sending it to Parallel")
 
     timeout = payload.get("timeout_seconds")
     try:
         timeout_seconds = float(timeout) if timeout is not None else None
     except (TypeError, ValueError):
         return _parameter_error(source_message('timeout_seconds must be a number'))
+    if provider == "parallel":
+        return await service.search(query, timeout_seconds=timeout_seconds, foreground_provider=provider)
     return await service.search(query, timeout_seconds=timeout_seconds)
 
 

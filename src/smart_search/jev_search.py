@@ -24,7 +24,7 @@ def _fallback_family(a: str, b: str) -> bool:
     return a == b or (a in ANSWER_CAPABILITIES and b in ANSWER_CAPABILITIES)
 
 
-def available_channels(svc: Any, query: str, evidence: list[dict], providers: str = "auto", *, queries: list[dict] | None = None, include_cooldown: bool = False) -> list[dict]:
+def available_channels(svc: Any, query: str, evidence: list[dict], providers: str = "auto", *, queries: list[dict] | None = None, include_cooldown: bool = False, foreground_provider: str = "") -> list[dict]:
     """Only configured, enabled, allowed operations enter the model's state."""
     provider_filter = svc._parse_provider_filter(providers)
     disabled = set(svc.config.research_disabled_providers)
@@ -34,7 +34,12 @@ def available_channels(svc: Any, query: str, evidence: list[dict], providers: st
     urls = [url for url in urls if url.startswith(("https://", "http://"))][:5]
     channels = []
     for provider, profile in svc.PROVIDER_PROFILES.items():
-        if profile.get("explicit_only") or provider == "main-search" or provider in disabled:
+        if foreground_provider:
+            if provider != foreground_provider or not profile.get("foreground_only") or providers != provider:
+                continue
+        elif profile.get("explicit_only"):
+            continue
+        if provider == "main-search" or provider in disabled:
             continue
         if not svc._provider_configured(provider) or not svc._provider_allowed(provider, provider_filter):
             continue
@@ -135,7 +140,7 @@ def _normalize_results(results: list[dict], provider: str, operation: str) -> li
 
 
 class ChannelExecutor:
-    def __init__(self, svc: Any, client: JevClient, *, model: str = "", stream: bool | None = None, platform: str = "", count: int = 5, research: bool = False, fallback: str = "auto"):
+    def __init__(self, svc: Any, client: JevClient, *, model: str = "", stream: bool | None = None, platform: str = "", count: int = 5, research: bool = False, fallback: str = "auto", foreground_query: str | None = None):
         self.svc = svc
         self.client = client
         self.model = model
@@ -144,6 +149,7 @@ class ChannelExecutor:
         self.count = count
         self.research = research
         self.fallback = fallback
+        self.foreground_query = foreground_query
         self.model_results: dict[str, dict] = {}
 
     async def execute(self, channel: dict, query: str) -> list[dict]:
@@ -171,6 +177,11 @@ class ChannelExecutor:
             else:
                 raise ProviderCallError("parameter_error", source_message('Unsupported fetch channel'))
             results = [{"url": url, "content": content}]
+        elif provider == "parallel":
+            if self.research or self.foreground_query is None or query != self.foreground_query:
+                raise ProviderCallError("parameter_error", "Parallel requires an explicit foreground query")
+            from .providers.parallel import search_public_docs
+            results = await search_public_docs(query, self.count, verify=svc.config.ssl_verify_enabled)
         elif provider == "exa":
             results = _check_data(await svc.exa_search(query, num_results=self.count, include_highlights=True)).get("results", [])
         elif provider == "zhipu":
@@ -351,7 +362,7 @@ async def plan(query: str, validation: str, *, allow_remote: bool = False, mode:
 async def search(
     query: str, *, validation: str, fallback: str, providers: str,
     timeout_seconds: float, platform: str = "", model: str = "", stream: bool | None = None, extra_sources: int = 0,
-    research_plan: dict | None = None, single_pass: bool = True,
+    research_plan: dict | None = None, single_pass: bool = True, foreground_provider: str = "",
 ) -> dict:
     from . import service as svc
 
@@ -368,6 +379,13 @@ async def search(
     try:
         settings = svc.config.jev_settings()
         local_mode = svc.config.intent_router_mode == "local"
+        if foreground_provider:
+            if not single_pass or research_plan is not None or not svc.PROVIDER_PROFILES.get(foreground_provider, {}).get("foreground_only"):
+                raise ValueError("Provider does not support foreground search")
+            if providers != "auto":
+                raise ValueError("Foreground search cannot be combined with a provider filter")
+            providers = foreground_provider
+            local_mode = True  # Explicit selection never sends the query to a remote router.
         if local_mode:
             settings = replace(settings, api_key="")
         if not query.strip():
@@ -384,7 +402,7 @@ async def search(
                                 results_per_channel=min(settings.results_per_channel, results))
         elif single_pass:
             settings = replace(settings, max_rounds=1, max_channels=1, filter_results=False, synthesis_mode="false")
-        inventory = available_channels(svc, query, [], providers, include_cooldown=True)
+        inventory = available_channels(svc, query, [], providers, include_cooldown=True, foreground_provider=foreground_provider)
         skipped = []
         initial = []
         for channel in inventory:
@@ -404,7 +422,8 @@ async def search(
         return failed("parameter_error", str(exc))
 
     client = JevClient(settings, budget.deadline, verify=svc.config.ssl_verify_enabled)
-    executor = ChannelExecutor(svc, client, model=model, stream=stream, platform=platform, count=min(extra_sources or settings.results_per_channel, 20), research=is_research, fallback=fallback)
+    executor = ChannelExecutor(svc, client, model=model, stream=stream, platform=platform, count=min(extra_sources or settings.results_per_channel, 20), research=is_research, fallback=fallback,
+                               foreground_query=query if foreground_provider else None)
     evidence: list[dict] = []
     attempts: list[dict] = list(skipped)
     rounds: list[dict] = []
@@ -467,8 +486,8 @@ async def search(
                 execution.record("selection" if judge_available else "retrieval", "timeout", time.monotonic(), 0,
                                  "shared deadline exhausted before this phase")
                 break
-            selected, scores = [], {}
-            selection_source = "jev"
+            selected, scores = (candidates[:1] if foreground_provider else []), {}
+            selection_source = "explicit" if foreground_provider else "jev"
             phase_start = time.monotonic()
             if judge_available:
                 try:
@@ -490,7 +509,7 @@ async def search(
                 if not selected:
                     stopped = "no_suitable_channels"
                     break
-                selection_source = "local" if local_mode else "capability_fallback"
+                selection_source = "explicit" if foreground_provider else "local" if local_mode else "capability_fallback"
                 degraded = degraded or not local_mode
             round_info: dict = {"round": round_number, "selected_channels": selected, "scores": scores, "selection_source": selection_source}
             rounds.append(round_info)

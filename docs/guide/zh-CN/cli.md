@@ -164,6 +164,10 @@ smart-search ui --no-browser --port 8765
 ssh -L 8765:127.0.0.1:8765 用户@主机      # 然后在本地打开打印出来的地址
 ```
 
+在本地 UI 的查询页，「本次搜索服务商」默认保持「自动选择」，沿用现有选路。单次查找公开软件文档时，可选择「Parallel（公开软件文档，仅本次）」，输入如 `Python pathlib Path documentation` 的公开查询，再点击「跑一次真实搜索」并确认。请勿包含私人内容。Parallel Unified MCP 无需 API key 即可使用，但限流较低，详见 [Parallel MCP setup](https://docs.parallel.ai/integrations/mcp/quickstart)。
+
+该选择只向 Parallel 的 `web_search` 工具发送输入的查询和固定的文档检索目标，本次不会调用 Jev 或其他服务商。现有 JSON 结果视图保留原始来源 URL 和摘录；摘录不代表已读取完整页面。空结果、工具不可用及超时会明确返回，不会切换服务商。该选择不保存，也不加入自动搜索、研究、服务商测试或 `doctor`。「看它走哪些能力」仍是自动选路的离线预览。
+
 在 WSL 中会打开 Windows 默认浏览器；`networkingMode=mirrored` 下页面打不开时，见[在 WSL 或 Linux 上使用](troubleshooting.md#在-wsl-或-linux-上使用)。
 
 用环境变量设置的 key 会显示为锁定且不可编辑，因为环境变量在每次读取时都覆盖 `config.json`。页面会告诉你该执行哪条 `unset`。
