@@ -218,3 +218,28 @@ async def test_executor_rejects_implicit_or_changed_queries(mcp):
         with pytest.raises(service.ProviderCallError, match="explicit foreground"):
             await executor.execute(channel, query)
     assert mcp[1] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("query", ["Rust ownership borrowing", "Go slices append capacity", "Java String split"])
+async def test_explicit_selection_does_not_require_automatic_docs_keywords(mcp, monkeypatch, query):
+    seen = []
+
+    async def search(typed_query, count, **kwargs):
+        seen.append(typed_query)
+        return [{"url": URL, "content": "Documentation excerpt"}]
+
+    monkeypatch.setattr("smart_search.providers.parallel.search_public_docs", search)
+    result = await ui_api.run_query(payload(query=query))
+    assert result["ok"]
+    assert seen == [query]
+    assert result["routing_decision"]["rounds"][0]["selection_source"] == "explicit"
+
+
+def test_parallel_health_status_and_individual_reset(mcp):
+    service._record_provider_result("parallel", "error", "auth_error", "synthetic unavailable service")
+    row = next(row for row in service.provider_health_status()["providers"] if row["provider"] == "parallel")
+    assert row["configured"] is True
+    assert row["state"] == "cooldown"
+    assert ui_api.reset_health({"providers": ["parallel"]})["ok"]
+    assert service._provider_health_status("parallel")["state"] != "cooldown"

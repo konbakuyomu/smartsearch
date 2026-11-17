@@ -486,8 +486,8 @@ async def search(
                 execution.record("selection" if judge_available else "retrieval", "timeout", time.monotonic(), 0,
                                  "shared deadline exhausted before this phase")
                 break
-            selected, scores = [], {}
-            selection_source = "jev"
+            selected, scores = (candidates[:1] if foreground_provider else []), {}
+            selection_source = "explicit" if foreground_provider else "jev"
             phase_start = time.monotonic()
             if judge_available:
                 try:

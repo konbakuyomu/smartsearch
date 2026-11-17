@@ -558,6 +558,7 @@ PROVIDER_CREDENTIAL_SOURCES: dict[str, Any] = {
     "jina": lambda: (config.jina_api_key, config.jina_reader_api_url),
     "anysearch": lambda: (config.anysearch_api_key, config.anysearch_api_url),
     "sciverse": lambda: (config.sciverse_api_token, config.sciverse_api_url),
+    "parallel": lambda: ("https://mcp.parallel.ai/mcp", "anonymous"),
 }
 PROVIDER_COOLDOWN_HINT = (
     source_message('Run `smart-search providers status` for detail. Fixing the credential or `smart-search providers reset PROVIDER` retries it immediately.')
