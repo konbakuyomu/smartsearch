@@ -1833,7 +1833,10 @@ async def _run_web_fetch_fallback(
     deadline: float | None = None,
     allowed_providers: set[str] | None = None,
     attempts: list[dict] | None = None,
+    claimed: set[str] | None = None,
 ) -> tuple[dict[str, Any] | None, list[dict]]:
+    # `claimed` holds the readers already used, or in flight, for this URL in
+    # the same research run; they are skipped and each new call is added.
     attempts = [] if attempts is None else attempts
     providers = []
     if _provider_configured("tavily"):
@@ -1867,6 +1870,10 @@ async def _run_web_fetch_fallback(
         return call if deadline is None else asyncio.wait_for(call, deadline - time.monotonic())
 
     for provider in providers:
+        if claimed is not None:
+            if provider in claimed:
+                continue
+            claimed.add(provider)
         start = time.time()
         remaining = deadline - time.monotonic() if deadline is not None else None
         if remaining is not None and remaining <= _CLOCK_RESOLUTION:

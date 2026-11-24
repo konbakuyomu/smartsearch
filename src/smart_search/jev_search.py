@@ -27,10 +27,56 @@ def _fallback_family(a: str, b: str) -> bool:
     return a == b or (a in ANSWER_CAPABILITIES and b in ANSWER_CAPABILITIES)
 
 
+# A restriction must name the URLs it restricts to. "Only use <URL>" binds the
+# URLs written right after it (a short noun phrase such as "the supplied page"
+# may sit in between); "only these sources" and "do not substitute" refer to
+# every supplied URL. "Use only official sources" names a kind of source, not
+# a URL, so it never locks research to a URL mentioned elsewhere.
+_URL_SPAN = re.compile(r"https?://[^\s<>\]\)\"'，。；！？、：）】》」』]+")  # intent_router.extract_urls
+_NOUN_EN = r"(?:urls?|links?|pages?|webpages?|sites?|websites?|sources?|documents?|docs?|papers?|articles?|pdfs?|files?|references?)"
+_NOUN_ZH = r"(?:网址|链接|网页|页面|来源|文档|论文|文章|PDF|pdf|资料|URL|url|地址|站点|网站|材料|文件)"
+_ONLY_EN = r"\b(?:only|solely|exclusively)(?:\s+(?:use|using|read|reading|cite|consult|check|fetch|reference|rely\s+on|draw\s+on|from|on|with))?"
+_FILLER_EN = rf"(?:the|a|an|this|these|that|those|following|given|supplied|provided|above|below|linked|attached|specified|listed|original|primary|official|one|two|three|both|at|here|content|text|of|{_NOUN_EN})"
+_ONLY_ZH = r"(?:仅|只|唯一)(?:能|可以|可)?(?:限于|限|使用|用|基于|依据|根据|从|查看|查|读取|阅读|读|参考|核验|引用|看|抓取|采用|采信)"
+_DEICTIC_ZH = r"(?:以下|下面|下列|上面|上述|这个|这些|这两篇|这几篇|这篇|这份|该|此|给定|提供|指定|所给|附上)"
+_FILLER_ZH = rf"(?:{_DEICTIC_ZH}|原始|官方|的|两|三|一|个|篇|份|条|几|{_NOUN_ZH})"
+_BOUND_BEFORE = re.compile(rf"(?:{_ONLY_EN}(?:\s+{_FILLER_EN})*|{_ONLY_ZH}(?:\s*{_FILLER_ZH})*)\s*[:：\-–—]?\s*$", re.I)
+_BOUND_AFTER = re.compile(r"^\s*(?:(?:only|solely|exclusively)\s*(?:[.,;!?。，；！？]|$)|(?:为|作为)?唯一(?:的)?(?:来源|依据|资料|证据))", re.I)
+_LIST_JOIN = re.compile(r"^\s*(?:[,，、;；/&]|and|or|和|与|及|以及|或)?\s*$", re.I)
+_SUPPLIED = re.compile(
+    rf"{_ONLY_EN}\s+(?:the\s+)?(?:these|this|those|following|given|supplied|provided|above|linked|attached|specified|listed)\s+"
+    rf"(?:(?:one|two|three|both|original|primary|official|web|pdf)\s+){{0,2}}{_NOUN_EN}\b"
+    rf"|\b(?:these|this|those|the\s+(?:following|given|supplied|provided|above|linked|attached|specified|listed))\s+"
+    rf"(?:(?:one|two|three|both|original|primary|official|web|pdf)\s+){{0,2}}{_NOUN_EN}\s+only\b"
+    rf"|{_ONLY_ZH}(?:\s*(?:原始|官方|的))*\s*{_DEICTIC_ZH}(?:\s*(?:的|两|三|一|个|篇|份|条|几|原始|官方))*\s*{_NOUN_ZH}"
+    rf"|\b(?:do\s+not|don't|never)\s+(?:substitute|replace)\b"
+    rf"|\b(?:do\s+not|don't|never)\s+(?:use|cite|consult|read)\s+(?:any\s+)?other\s+(?:\w+\s+)?{_NOUN_EN}\b|\bno\s+other\s+{_NOUN_EN}\b"
+    rf"|(?:不要|不能|不得|禁止|请勿|勿)(?:替换|替代|换用)"
+    rf"|(?:不要|不能|不得|禁止|请勿|勿|不)(?:使用|用|引用|参考|采用|读取)其他(?:的)?{_NOUN_ZH}",
+    re.I,
+)
+
+
 def _source_scope(svc: Any, query: str) -> set[str] | None:
-    urls = set(svc._extract_urls(query))
-    exclusive = re.search(r"(?:仅|只)(?:能)?(?:限|使用|基于|依据|根据|从|查|读取|阅读|核验)|不要(?:替换|使用其他)|不能使用其他|\b(?:use|read|from)\s+only\b|\bonly\s+(?:these|this|the supplied|https?://)|do not (?:substitute|use other)", query, re.I)
-    return urls if urls and exclusive else None
+    urls = svc._extract_urls(query)
+    if not urls:
+        return None
+    if _SUPPLIED.search(query):
+        return set(urls)
+    # Group URLs written as one list ("A and B", "A、B"); a restriction right
+    # before the list or a closing "only" after it binds the whole list.
+    groups: list[list[tuple[str, int, int]]] = []
+    for match in _URL_SPAN.finditer(query):
+        url = match[0].rstrip(".,;，。；)")
+        span = (url, match.start(), match.start() + len(url))
+        if groups and _LIST_JOIN.match(query[groups[-1][-1][2]:span[1]]):
+            groups[-1].append(span)
+        else:
+            groups.append([span])
+    bound = {url for group in groups
+             if _BOUND_BEFORE.search(query[max(0, group[0][1] - 160):group[0][1]]) or _BOUND_AFTER.match(query[group[-1][2]:group[-1][2] + 40])
+             for url, _, _ in group}
+    return (bound & set(urls)) or None
 
 
 def _reading_urls(svc: Any, query: str, evidence: list[dict], retry_read_urls: set[str] | None = None) -> list[str]:
@@ -208,6 +254,10 @@ class ChannelExecutor:
         self.model_results: dict[str, dict] = {}
         self.fetch_attempts: dict[str, list[dict]] = {}
         self.allowed_fetch_providers: set[str] = set()
+        # Readers already used for each URL in this run. Sibling slots in one
+        # round and the same-URL fallback chain never call one reader twice.
+        self.fetch_claims: dict[str, set[str]] = {}
+        self.duplicate_fetches: set[str] = set()
 
     async def execute(self, channel: dict, query: str) -> list[dict]:
         svc = self.svc
@@ -219,12 +269,16 @@ class ChannelExecutor:
             raise ProviderCallError("provider_error", source_message('Selected channel is no longer enabled'))
         if operation == "fetch":
             url = channel["url"]
+            claimed = self.fetch_claims.setdefault(url, set())
+            if provider in claimed:
+                self.duplicate_fetches.add(channel["id"])
+                return []
             order = [provider, *svc._research_fetch_order(query, url)]
             fetch_attempts: list[dict] = []
             self.fetch_attempts[channel["id"]] = fetch_attempts
             data, _ = await svc._run_web_fetch_fallback(
                 url, self.fallback, order, deadline=self.client.deadline,
-                allowed_providers=self.allowed_fetch_providers or {provider}, attempts=fetch_attempts)
+                allowed_providers=self.allowed_fetch_providers or {provider}, attempts=fetch_attempts, claimed=claimed)
             if not data:
                 return []
             provider, content = data["provider"], data["content"]
@@ -516,7 +570,8 @@ async def search(
             status = "ok" if items else "empty"
             if channel["operation"] != "fetch":
                 svc._record_provider_result(channel["provider"], status)
-            attempt = svc._attempt(channel["capability"], channel["provider"], status, phase_start, result_count=len(items))
+            attempt = ({"status": "duplicate"} if channel["id"] in executor.duplicate_fetches else
+                       svc._attempt(channel["capability"], channel["provider"], status, phase_start, result_count=len(items)))
         except asyncio.CancelledError:
             items, channel_cancelled = [], True
             attempt = svc._attempt(channel["capability"], channel["provider"], "cancelled", phase_start,
@@ -533,7 +588,9 @@ async def search(
         nested_attempts = executor.fetch_attempts.get(channel["id"], []) or executor.model_results.get(channel["id"], {}).get("attempts", [])
         if channel["operation"] == "fetch" and nested_attempts and nested_attempts[-1]["status"] == "cancelled" and attempt["status"] == "error":
             nested_attempts[-1].update({key: value for key, value in attempt.items() if key in {"status", "error_type", "error", "provider_health"}})
-        for entry in nested_attempts or [attempt]:
+        # A slot whose reader already ran for this URL made no call; record none.
+        duplicate = channel["id"] in executor.duplicate_fetches and not channel_cancelled
+        for entry in [] if duplicate else nested_attempts or [attempt]:
             attempts.append({**entry, "provider": entry.get("provider", channel["provider"]) if channel["operation"] == "fetch" else channel["provider"], "channel_id": channel["id"],
                              "operation": channel["operation"], "url": channel["url"], "query": channel["query"]})
         # Publish each completed channel before awaiting its siblings.
