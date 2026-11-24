@@ -232,8 +232,9 @@ class ProviderHealthStore:
                     cooldown_until = now + self.cooldown_seconds
                 if error_type == "rate_limited" and (delay := retry_delay(message=error)) is not None:
                     # A short TPM window is not a dead credential. Retain the
-                    # failure and skip only until the upstream retry hint expires.
-                    cooldown_until = now + delay
+                    # failure and skip only until the upstream retry hint expires,
+                    # but never longer than the configured cooldown window.
+                    cooldown_until = now + min(delay, self.cooldown_seconds)
                 updated = {
                     "fingerprint": fingerprint,
                     "consecutive_failures": failures,

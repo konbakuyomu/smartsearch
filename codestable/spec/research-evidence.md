@@ -39,6 +39,6 @@ OpenAI 兼容通道的 Responses search 带 web_search 或 web_search_preview �
 
 ## 限流
 
-OpenAI 兼容适配器与提供方健康记录共用 retry hint 解析：支持 Retry-After、retry-after-ms 和错误正文的 try again in 提示。已知短暂限流按上游给出的等待时间冷却，既有重试次数和共享截止时间仍约束重试。没有有效提示时使用原有策略，鉴权失败策略保持不变。
+OpenAI 兼容适配器与提供方健康记录共用 retry hint 解析：支持 Retry-After、retry-after-ms 和错误正文的 try again in 提示。已知短暂限流从第一次 429 起按上游给出的等待时间冷却，但不超过配置的冷却时长；既有重试次数和共享截止时间仍约束重试，等待不越过截止时间。没有有效提示时使用原有策略，鉴权失败策略保持不变。
 
 本流程不增加密钥；唯一的新设置项是默认关闭的 OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH。已有的 Jev、抓取提供方及独立总结模型配置继续生效。
