@@ -8,7 +8,7 @@ created: 2026-10-31
 
 # 跳过版本只写 macOS，DSH README 标明实验性
 
-接 `001-x-ff-sync-stale-docs.md` 的顺手发现：「允许跳过指定版本」只有 macOS（Sparkle）实现，两份文档改成只写 macOS；DSH 插件包按入口页的定位，在自己的 README 开头标明实验性。
+接 `005-x-ff-sync-stale-docs.md` 的顺手发现：「允许跳过指定版本」只有 macOS（Sparkle）实现，两份文档改成只写 macOS；DSH 插件包按入口页的定位，在自己的 README 开头标明实验性。
 
 - 改动：`desktop/PROTOCOL.md` 第 118 行、`docs/app-cli-boundary.md` 第 3 行 — 跳过版本只属于 macOS；Windows 只有“立即更新”和“稍后”
 - 改动：`packages/smart-search-dsh/README.md` — 标题下加实验性说明，指向 Compatibility 一节
