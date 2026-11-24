@@ -1,5 +1,7 @@
 # Responses 联网与 research 交付验证
 
+> 后续变化（2026-11-24）：合入时把 `tool_choice=required` 和 `web_search_call` 核验改为默认关闭，用 `OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=true` 显式打开；交付与完成状态也有修正，退出码保持 main 的规则。本文是 2026-11-02 的验证记录，现行行为以 `codestable/spec/research-evidence.md` 为准。
+
 验证日期：2026-11-02。环境为 Windows、Python 3.12.12、源码 CLI 0.1.34，基础提交为 69f48fc。配置保持主搜索 `gpt-6.1-sol`、Responses、`web_search`，Jev 路由与 auto + Sol 专用总结。本轮不更改用户配置，不替换官方安装版。
 
 ## 修复契约
