@@ -239,6 +239,8 @@ class ChannelExecutor:
             results = await svc.call_tavily_search(query, self.count) or []
         elif provider == "firecrawl":
             results = await svc.call_firecrawl_search(query, self.count) or []
+        elif provider == "specstream":
+            results = await svc.call_specstream_search(query, self.count) or []
         elif provider == "tinyfish":
             results = await svc.call_tinyfish_search(query, self.count) or []
         elif provider == "deepseek":

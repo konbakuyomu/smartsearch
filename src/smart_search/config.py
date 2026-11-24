@@ -60,6 +60,7 @@ class Config:
         "tavily": "TAVILY_ENABLED",
         "firecrawl": "FIRECRAWL_ENABLED",
         "tinyfish": "TINYFISH_ENABLED",
+        "specstream": "SPECSTREAM_ENABLED",
         "yuanbao": "YUANBAO_ENABLED",
         "deepseek": "DEEPSEEK_ENABLED",
         "jina": "JINA_ENABLED",
@@ -1007,6 +1008,31 @@ class Config:
     @property
     def firecrawl_api_key(self) -> str | None:
         return self._get_config_value("FIRECRAWL_API_KEY")
+
+    @property
+    def specstream_api_key(self) -> str | None:
+        return self._get_config_value("SPECSTREAM_API_KEY")
+
+    @property
+    def specstream_search_api_url(self) -> str:
+        return (
+            self._get_config_value("SPECSTREAM_SEARCH_API_URL", "https://api.specstream.ai/v1/web-search")
+            or "https://api.specstream.ai/v1/web-search"
+        )
+
+    @property
+    def specstream_fetch_api_url(self) -> str:
+        return (
+            self._get_config_value("SPECSTREAM_FETCH_API_URL", "https://api.specstream.ai/v1/extract")
+            or "https://api.specstream.ai/v1/extract"
+        )
+
+    @property
+    def specstream_timeout(self) -> float:
+        return self._parse_positive_float_value(
+            "SPECSTREAM_TIMEOUT_SECONDS",
+            self._get_config_value("SPECSTREAM_TIMEOUT_SECONDS", "30") or "30",
+        )
 
     @property
     def tinyfish_api_key(self) -> str | None:
