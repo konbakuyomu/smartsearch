@@ -38,10 +38,10 @@ research 会把已读页面内相关的同源 Markdown 链接作为详情页候�
 - Same-capability fallback is allowed; model answers and web search are mutual fallbacks in ordinary search. Context7 is not used for unrelated broad web queries, and page extraction providers are not used as docs search providers.
 - `TAVILY_ENABLED=false` removes Tavily from registered `web_search` and `web_fetch` routes even when its key is present. Direct Tavily search/extract calls, `map`, `doctor`, and smoke must make no Tavily network request; `map` reports a local configuration error. Firecrawl remains independently configured and all fallback stays within its capability.
 - In Jev mode, Jev chooses among allowed capabilities and providers for the question; there is no mandatory main-model call or fixed global provider order. Local routing prioritizes suitable capabilities and configured preferences; a docs question with no docs channel configured uses web search instead of no channel.
-- `main_search` contains xAI Responses and OpenAI-compatible model channels; `web_search` contains Zhipu REST/MCP, Tavily, Firecrawl, TinyFish, DeepSeek and Yuanbao Search; `docs_search` contains Context7 and Exa. Failure fallback stays within the selected capability family; model answers and web search are mutual fallbacks in ordinary search.
+- `main_search` contains xAI Responses and OpenAI-compatible model channels; `web_search` contains Zhipu REST/MCP, Tavily, Firecrawl, TinyFish, DeepSeek, Yuanbao Search and experimental SpecStream; `docs_search` contains Context7 and Exa. Failure fallback stays within the selected capability family; model answers and web search are mutual fallbacks in ordinary search.
 - Context7 在普通搜索和 research 中均校验库名相关性；Jev 不可用时只接受唯一名称匹配，无关或歧义候选不会自动读取第一项。失败仍按已有能力边界回退到 Exa；显式 Context7 命令保留候选列表和用户指定的库 ID。
 - `--extra-sources N` controls the selected channel's result count. It does not add channels, split a budget between providers, or make Tavily/Firecrawl a required extra stage. A known-URL search follows the configured Jev/local routing; local routing prefers page reading.
-- `fetch` tries Tavily first, then Jina with `JINA_API_KEY`, then Zhipu Coding Plan MCP Reader, then Firecrawl, then TinyFish, then DeepSeek.
+- `fetch` tries Tavily first, then Jina with `JINA_API_KEY`, then Zhipu Coding Plan MCP Reader, then Firecrawl, then TinyFish, then DeepSeek, then SpecStream.
 
 TinyFish:
 
@@ -60,6 +60,14 @@ DeepSeek:
 - Search results normalize `summary` (falling back to `snippet`) to `description`, `site_name` to `source`, and `date` to `published_date`. Summaries are not page text: fetch a key page before citing it. An empty result set is a successful empty response.
 - Fetch returns the page Markdown. HTTP 403 (URL refused by DeepSeek's safety policy) and 404 (no usable page content, which currently includes PDF links and private network addresses) mean that page has nothing to read: the attempt is `empty`, fallback continues, and the provider is not cooled down. `401` maps to `auth_error`, `402` (insufficient balance) to `provider_error`, `429` to `rate_limited`, `5xx` to `network_error`.
 - DeepSeek bills each successful search or fetch request. `doctor` and `providers test deepseek` send one real request to each.
+
+SpecStream (experimental):
+
+- `SPECSTREAM_API_KEY` is optional and registers SpecStream for both `web_search` and `web_fetch`. It never satisfies `main_search` or `docs_search`. It is experimental: maintainers have not verified it against the live service yet. Jev scores it from the same kind of neutral description as other configured channels and may select it first; local rule routing and the direct `fetch` fallback put it last in both chains.
+- `SPECSTREAM_SEARCH_API_URL` defaults to `https://api.specstream.ai/v1/web-search` and is called as `POST` with `{"q", "num", "passages": true}`; `SPECSTREAM_FETCH_API_URL` defaults to `https://api.specstream.ai/v1/extract` and is called as `POST` with `{"urls": [url]}`. Both send `Authorization: Bearer`, honor `SSL_VERIFY` and never follow redirects: a 3xx answer is a `provider_error`. Never log or echo the key.
+- Search results normalize `excerpt` (falling back to `snippet`) to `description`, `source` to `source`, and `published` to `published_date`. Excerpts are not page text: fetch a key page before citing it. Only the query and result count are sent, so sites and dates cannot be restricted.
+- Fetch reads `results[0].markdown`, falling back to `text`. An item with `ok: false`, an empty result list or empty content is `provider_error`, a non-object payload is `parse_error`, and challenge pages are `quality_error` so same-capability fallback can continue.
+- `401`/403 map to `auth_error`, `429` to `rate_limited`, `5xx` to `network_error`, and `400`/422 to `parameter_error`. `doctor` and `providers test specstream` send one real search and one real fetch.
 
 Yuanbao Search:
 

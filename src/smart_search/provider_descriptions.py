@@ -101,16 +101,16 @@ PROVIDER_DESCRIPTIONS: dict[str, dict[str, dict[str, str]]] = {
     },
     "specstream": {
         "search": {
-            "en": "Finds live web URLs and passages through SpecStream Web Search.",
-            "zh": "通过 SpecStream Web Search 查找实时网页链接与正文摘录。",
-            "guidance_en": "Best for broad live web discovery with verified source excerpts.",
-            "guidance_zh": "擅长带有来源摘录的实时网页发现。",
+            "en": "Searches the web through SpecStream Web Search and returns linked results with excerpts.",
+            "zh": "通过 SpecStream Web Search 检索网页，返回链接和摘录。",
+            "guidance_en": "Best for broad web source discovery; excerpts are not full page text, so read key pages before citing them. This action passes only the query and a result count, so it cannot restrict sites or dates.",
+            "guidance_zh": "擅长广泛发现网页来源；摘录不是网页全文，引用关键结论前应读取原页。此操作只传入查询词和结果数，不能限定网站或时间。",
         },
         "fetch": {
-            "en": "Extracts clean page text from known URLs through SpecStream Extract.",
-            "zh": "通过 SpecStream Extract 提取已知链接的干净正文内容。",
-            "guidance_en": "Best for reading known pages into clean text or markdown.",
-            "guidance_zh": "擅长读取已知网页为干净文本或 Markdown。",
+            "en": "Reads a known URL as markdown or plain text through SpecStream Extract.",
+            "zh": "通过 SpecStream Extract 将已知链接读取为 Markdown 或纯文本。",
+            "guidance_en": "Best for reading pages already found; unsuitable for discovering new pages without a URL.",
+            "guidance_zh": "擅长读取已找到的页面；没有 URL 时不适合用于发现新页面。",
         },
     },
     "tinyfish": {
