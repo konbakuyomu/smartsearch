@@ -18230,5 +18230,13 @@
   "立即更新": [
     "立即更新",
     "Update now"
+  ],
+  "Zhipu MCP returned malformed JSON search results": [
+    "智谱 MCP 返回的 JSON 搜索结果已损坏",
+    "Zhipu MCP returned malformed JSON search results"
+  ],
+  "Zhipu MCP returned search results in an unknown format": [
+    "智谱 MCP 返回的搜索结果格式无法识别",
+    "Zhipu MCP returned search results in an unknown format"
   ]
 }

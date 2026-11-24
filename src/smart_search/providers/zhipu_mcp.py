@@ -3,6 +3,7 @@ import json
 import re
 import time
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -76,6 +77,66 @@ def _jsonrpc_error_message(data: dict[str, Any]) -> str:
     return ""
 
 
+# Quotes and backslashes end a URL: otherwise a JSON string that slipped into the
+# Markdown parser swallows the following `","content":"...` into the link.
+_URL_PATTERN = re.compile(r"https?://[^\s)>\]\"\\]+")
+_JSON_RESULTS_START = re.compile(r'^\s*(?:\[\s*[\{\]]|\{|"\s*\[)')
+
+
+def _valid_http_url(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    value = value.strip()
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return ""
+    return value if parsed.scheme in {"http", "https"} and parsed.hostname else ""
+
+
+def _parse_json_results(text: str, provider: str) -> list[dict[str, str]] | None:
+    """Map web_search_prime's JSON array (possibly encoded twice) to results.
+
+    Returns None when the text is not JSON and should go to the Markdown parser.
+    Raises ValueError for JSON that is malformed or has an unknown shape.
+    """
+    decoded: Any = (text or "").strip()
+    if not decoded.startswith(("[", "{", '"')):
+        return None
+    for layer in range(2):
+        if not isinstance(decoded, str):
+            break
+        try:
+            decoded = json.loads(decoded)
+        except json.JSONDecodeError as exc:
+            # Markdown may also start with "[" (a link); only JSON-shaped text is an error.
+            if not _JSON_RESULTS_START.match(decoded):
+                return None if layer == 0 else _parse_markdown_results(decoded, provider)
+            raise ValueError(source_message('Zhipu MCP returned malformed JSON search results')) from exc
+    if isinstance(decoded, str):
+        return _parse_markdown_results(decoded, provider)
+    if not isinstance(decoded, list):
+        raise ValueError(source_message('Zhipu MCP returned search results in an unknown format'))
+    results: list[dict[str, str]] = []
+    for item in decoded:
+        if not isinstance(item, dict):
+            continue
+        url = _valid_http_url(item.get("link")) or _valid_http_url(item.get("url"))
+        if not url:
+            continue
+        title = item.get("title")
+        results.append({
+            "title": title.strip() if isinstance(title, str) and title.strip() else url,
+            "url": url,
+            "description": item.get("content") if isinstance(item.get("content"), str) else "",
+            "provider": provider,
+            "source": item.get("media") if isinstance(item.get("media"), str) else "",
+            "published_date": item.get("publish_date") if isinstance(item.get("publish_date"), str) else "",
+            "refer": item.get("refer") if isinstance(item.get("refer"), str) else "",
+        })
+    return results
+
+
 def _parse_markdown_results(text: str, provider: str) -> list[dict[str, str]]:
     results: list[dict[str, str]] = []
     current: dict[str, str] | None = None
@@ -86,7 +147,7 @@ def _parse_markdown_results(text: str, provider: str) -> list[dict[str, str]]:
                 results.append(current)
             current = {"title": heading.group(1).strip(), "url": "", "description": "", "provider": provider}
             continue
-        url_match = re.search(r"https?://[^\s)>\]]+", line)
+        url_match = _URL_PATTERN.search(line)
         if url_match:
             if current is None:
                 current = {"title": url_match.group(0), "url": "", "description": "", "provider": provider}
@@ -98,7 +159,7 @@ def _parse_markdown_results(text: str, provider: str) -> list[dict[str, str]]:
         results.append(current)
     if results:
         return results
-    urls = re.findall(r"https?://[^\s)>\]]+", text)
+    urls = _URL_PATTERN.findall(text)
     return [{"title": url, "url": url, "description": "", "provider": provider} for url in dict.fromkeys(urls)]
 
 
@@ -250,7 +311,16 @@ class ZhipuMCPProvider:
         if name == "webReader":
             output["url"] = arguments.get("url", "")
         else:
-            results = [] if is_error else _parse_markdown_results(text, self.provider_id)
+            results: list[dict[str, str]] = []
+            if not is_error:
+                try:
+                    parsed = _parse_json_results(text, self.provider_id) if name == "web_search_prime" else None
+                except ValueError as exc:
+                    content_error = ("parse_error", str(exc))
+                    is_error = True
+                    output["ok"] = False
+                else:
+                    results = parsed if parsed is not None else _parse_markdown_results(text, self.provider_id)
             output["results"] = results
             output["total"] = len(results)
         if is_error:
