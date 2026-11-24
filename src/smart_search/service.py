@@ -49,6 +49,7 @@ from .providers.zhipu_mcp import ZhipuMCPProvider
 from .provider_errors import (
     APPROVED_PROVIDER_ERROR_TYPES,
     ProviderCallError,
+    QueryMissError,
     classify_provider_exception,
     provider_call_error,
     sanitize_provider_error_message,
@@ -514,6 +515,9 @@ def _attempt_from_exception(capability: str, provider: str, start: float, exc: B
 def _attempt_with_health(capability: str, provider: str, start: float, exc: BaseException) -> dict[str, Any]:
     """Record a raised optional-provider failure in persisted health, then report it."""
     error_type, error = classify_provider_exception(exc)
+    if isinstance(exc, QueryMissError):
+        # Nothing fit this one query; the provider itself answered normally.
+        return _attempt(capability, provider, "empty", start, error_type=error_type, error=error)
     health_extra = _record_provider_result(provider, "error", error_type, error)
     return _attempt(capability, provider, "error", start, error_type=error_type, error=error, extra=health_extra)
 

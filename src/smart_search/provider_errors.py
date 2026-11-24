@@ -104,6 +104,14 @@ class ProviderCallError(RuntimeError):
         self.error = safe_error
 
 
+class QueryMissError(ProviderCallError):
+    """The provider answered, but nothing it returned fits this one query.
+
+    Attempts report it as an empty result with its reason; it is not a provider
+    failure and never counts toward provider health.
+    """
+
+
 def _response_excerpt(response: httpx.Response | None, *, additional_secrets: Iterable[str] = ()) -> str:
     if response is None:
         return ""

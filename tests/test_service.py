@@ -691,11 +691,13 @@ async def test_docs_search_falls_back_to_exa_when_context7_has_no_eligible_candi
     sources, attempts = result["sources"], result["provider_attempts"]
 
     assert sources[0]["provider"] == "exa"
+    # An unrelated library is a miss for this question, not a Context7 failure.
     assert [(attempt["provider"], attempt["status"]) for attempt in attempts] == [
-        ("context7", "error"),
+        ("context7", "empty"),
         ("exa", "ok"),
     ]
     assert attempts[0]["error_type"] == "quality_error"
+    assert "provider_health" not in attempts[0]
 
 
 def test_research_provider_profiles_are_registered_with_capability_boundaries():
