@@ -23,7 +23,7 @@ Status: implemented
 - 必须披露提交者和服务商的关系，以及是否借助 AI 准备。
 - 用户自带 key，并且有 `*_ENABLED` 开关。没有用户凭据时 `_provider_configured()` 必须返回 false，`providers status`、`doctor` 和界面都不能显示为已配置。不接受专属入口、默认推荐或界面上的固定位置。
 - 只接在所属能力回退链的末尾。`PROVIDER_PROFILES`、`RESEARCH_PROFILE_ORDER`、抓取回退和能力状态四处的顺序必须一致。Jev 仍然按描述在已配置的服务商里公平选择，文档照实写，不承诺「永不首选」。
-- `provider_descriptions.py` 的描述保持中立，写清擅长什么、不适合什么，不用营销词。
+- `provider_descriptions.py` 的描述保持中立，写清每项操作适合什么、不适合什么；不写代码证明不了的话（「已核验」「最准确」、和别家比较）。现有条目的 "Best for …" 只是说明用途，可以沿用。
 - 接线要完整：探针覆盖声明的全部能力，遵守 `ssl_verify`，带凭据的请求不跟随重定向，覆盖异常路径的测试，文档、技能两份副本和 `codestable/` 都要跟上；全量测试必须通过。
 - 维护者用免费额度或临时测试 key 实测并记下日期和结果之前，服务商标为 `experimental`。
 - 免 key 或匿名端点只能做成按名显式调用的命令（参照 sciverse 的专用命令）：每次经用户确认，只发送本次查询，不进入自动选路。

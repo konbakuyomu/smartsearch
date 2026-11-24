@@ -19,7 +19,7 @@ We welcome providers contributed by the people who build them. Because the proje
 1. **Disclose.** State in the pull request how you relate to the provider (employee, founder, partner) and whether the change was prepared with AI assistance.
 2. **Bring your own key, off until configured.** The provider runs only after the user sets its key, and it has a `*_ENABLED` switch. With no user credential, `_provider_configured()` returns false, and `providers status`, `doctor` and the UI must not show it as configured. No vendor-specific entry points, default recommendations or fixed places in the UI.
 3. **Last in line.** Append the provider to the end of each capability it serves, so `PROVIDER_PROFILES`, `RESEARCH_PROFILE_ORDER`, the fetch fallback and the capability status all list the same order. Jev may still choose any configured provider by its description; do not claim it is never chosen first.
-4. **Neutral description.** The entries in `provider_descriptions.py` are what Jev uses to choose channels. Say what the provider does and what it does not do, the way existing entries do. No marketing words such as "best", "verified" or "most accurate".
+4. **Neutral description.** The entries in `provider_descriptions.py` are what Jev uses to choose channels. Say what each operation is suited for and what it does not do, the way existing entries do ("Best for … ; not for …"). No claims the code cannot back, such as "verified", "most accurate", "fastest" or comparisons with other providers.
 5. **Complete wiring.** Diagnostics: a `doctor` and `providers test` probe that covers every declared capability. Network: respect `ssl_verify`, and do not follow redirects on requests that carry credentials. Tests: missing key, 401, 429, 5xx, timeout, malformed responses and secret redaction. Docs: the README provider tables (English and Chinese), the configuration guide, both copies of the skill references, and a `codestable/` record.
 6. **Let maintainers verify it.** Provide a free tier or a temporary test key that covers every declared capability. The key is never committed or used in CI. Until a maintainer has run it against the live service and recorded the date and result, the provider is marked `experimental`.
 7. **Keyless or anonymous endpoints** are offered only as an explicitly named command that sends just the typed query after the user confirms each call. They are never listed as configured and never join automatic routing.
@@ -48,7 +48,7 @@ The reasoning behind these rules is in `.agents/notes/implemented/process/2026-1
 1. **披露关系**：PR 里写明你和服务商的关系（员工、创始人、合作方），以及是否借助 AI 准备。
 2. **用户自带 key，没配置就不启用**：用户设了 key 才会调用，并且有 `*_ENABLED` 开关。没有用户凭据时 `_provider_configured()` 返回 false，`providers status`、`doctor` 和界面都不能显示为已配置。不接受专属入口、默认推荐或界面上的固定位置。
 3. **排在最后**：接在所属能力回退链的末尾，`PROVIDER_PROFILES`、`RESEARCH_PROFILE_ORDER`、抓取回退和能力状态里的顺序要一致。Jev 仍会按描述在已配置的服务商里挑选，文档不能说它永远不会被首选。
-4. **描述中立**：`provider_descriptions.py` 是 Jev 选路的依据，要像现有条目那样写清擅长什么、不适合什么，不写「最好」「已核验」「最准确」之类的词。
+4. **描述中立**：`provider_descriptions.py` 是 Jev 选路的依据，要像现有条目那样写清每项操作适合什么、不适合什么，不写代码证明不了的话，比如「已核验」「最准确」「最快」或和别家比较。
 5. **接线完整**：
    - 诊断：`doctor` 和 `providers test` 的探针要覆盖声明的每项能力；
    - 网络：遵守 `ssl_verify`，带凭据的请求不跟随重定向；
