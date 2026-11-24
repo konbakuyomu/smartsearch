@@ -781,6 +781,9 @@ async def search(
             before_filter = evidence
             phase_start = time.monotonic()
             evidence, filter_info = await filter_evidence(client, query, evidence)
+            # Reassessing the filtered evidence is the final assessment; like
+            # the decision and synthesis after it, it may use the reserve.
+            client.deadline = budget.deadline
             filter_timed_out = filter_info.get("reason") == "timeout"
             execution.record("filter", "timeout" if filter_timed_out else "error" if filter_info.get("error") else "ok",
                              phase_start, max(0.0, retrieval_deadline - phase_start), reason=filter_info.get("error", ""))

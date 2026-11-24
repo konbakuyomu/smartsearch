@@ -98,6 +98,48 @@ async def test_filter_reaching_the_retrieval_cutoff_leaves_the_delivery_reserve_
 
 
 @pytest.mark.asyncio
+async def test_reassessing_filtered_evidence_can_use_the_delivery_reserve(monkeypatch, tmp_path):
+    configure_readers(monkeypatch, firecrawl=False)
+    stub_jev(monkeypatch)
+    synthesis_model(monkeypatch, "auto")
+    monkeypatch.setenv("SMART_SEARCH_JEV_FILTER_RESULTS", "true")
+    assessments = []
+
+    async def request(self, state, questions, timeout):
+        if "sufficient" in questions:
+            assessments.append(True)
+            if len(assessments) == 2:
+                await asyncio.sleep(.8)  # Past the 0.72 s retrieval cutoff, inside the 1.2 s deadline.
+        answers = {}
+        for key in questions:
+            if key.startswith("channel_"):
+                answers[key] = .99 if state["available_channels"][int(key.split("_")[1])]["operation"] == "fetch" else .01
+            elif key.startswith("group_"):
+                group = state["groups"][int(key.split("_")[1])]
+                answers[key] = .01 if all("Unrelated" in unit["content"] for unit in group) else .99
+            else:
+                answers[key] = .99 if key in {"useful", "sufficient", "synthesize"} else .01
+        return {"answers": {key: {"type": "noul", "noul": value} for key, value in answers.items()}}
+
+    async def read(url):
+        return "Unrelated navigation text." if url.endswith("/b") else "Verified requested experimental fact."
+
+    async def synthesize(self, *args):
+        return "Combined answer.", "sol"
+
+    monkeypatch.setattr(JevClient, "_request", request)
+    monkeypatch.setattr(service, "call_tavily_extract", read)
+    monkeypatch.setattr(ChannelExecutor, "synthesize", synthesize)
+    plan = service.build_deep_research_plan("q", budget="standard", evidence_dir=str(tmp_path))
+    result = await search("只读取 https://e.org/a https://e.org/b", validation="balanced", fallback="auto", providers="auto",
+                          timeout_seconds=1.2, research_plan=plan, single_pass=False)
+    assert len(assessments) == 2 and result["result_filter"]["dropped_chunk_ids"]
+    assert result["routing_decision"]["stop_reason"] == "sufficient"
+    assert result["evidence_assessment"]["sufficient"] and not result["degraded"]
+    assert result["synthesis"]["status"] == "ok" and result["completion"]["answer"] == "complete"
+
+
+@pytest.mark.asyncio
 async def test_skipped_synthesis_decision_is_not_a_complete_answer(monkeypatch, tmp_path):
     from smart_search.provider_errors import ProviderCallError
     configure_readers(monkeypatch, firecrawl=False)
