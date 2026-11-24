@@ -1119,6 +1119,7 @@
                       [--openai-compatible-fallback-models OPENAI_COMPATIBLE_FALLBACK_MODELS]
                       [--openai-compatible-api-mode OPENAI_COMPATIBLE_API_MODE]
                       [--openai-compatible-tools OPENAI_COMPATIBLE_TOOLS]
+                      [--openai-compatible-require-web-search OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH]
                       [--openai-compatible-stream OPENAI_COMPATIBLE_STREAM]
                       [--jev-synthesis-api-url JEV_SYNTHESIS_API_URL]
                       [--jev-synthesis-api-key JEV_SYNTHESIS_API_KEY]
@@ -1202,6 +1203,10 @@
                         保存 OPENAI_COMPATIBLE_TOOLS（web_search 或
                         web_search_preview；需要 --openai-compatible-api-mode
                         responses）。
+  --openai-compatible-require-web-search OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH
+                        保存 OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH（true 或
+                        false；true 会强制 tool_choice=required，需要 --openai-
+                        compatible-tools web_search）。
   --openai-compatible-stream OPENAI_COMPATIBLE_STREAM
                         保存 OPENAI_COMPATIBLE_STREAM。
   --jev-synthesis-api-url JEV_SYNTHESIS_API_URL
@@ -1299,7 +1304,7 @@
   --output OUTPUT       将渲染后的输出写入文件。
 ```
 
-解析器默认值：`--non-interactive` = `False`; `--advanced` = `False`; `--skip-skills` = `False`; `--install-skills` = ``; `--skills-root` = ``; `--xai-api-url` = ``; `--xai-api-key` = ``; `--xai-model` = ``; `--xai-tools-explicit` = ``; `--xai-stream` = ``; `--openai-compatible-api-url` = ``; `--openai-compatible-api-key` = ``; `--openai-compatible-model` = ``; `--openai-compatible-fallback-models` = ``; `--openai-compatible-api-mode` = ``; `--openai-compatible-tools` = ``; `--openai-compatible-stream` = ``; `--jev-synthesis-api-url` = ``; `--jev-synthesis-api-key` = ``; `--jev-synthesis-model` = ``; `--jev-synthesis-api-mode` = ``; `--validation-level` = ``; `--fallback-mode` = ``; `--minimum-profile` = ``; `--intent-router` = ``; `--search-timeout / --search-timeout-seconds` = ``; `--provider-cooldown / --provider-cooldown-seconds` = ``; `--provider-failure-threshold` = ``; `--exa-key` = ``; `--context7-key` = ``; `--zhipu-key` = ``; `--zhipu-api-url` = ``; `--zhipu-search-engine` = ``; `--zhipu-mcp-key` = ``; `--zhipu-mcp-search-api-url` = ``; `--zhipu-mcp-reader-api-url` = ``; `--zhipu-mcp-zread-api-url` = ``; `--zhipu-mcp-timeout` = ``; `--jina-key` = ``; `--jina-reader-api-url` = ``; `--jina-respond-with` = ``; `--jina-timeout` = ``; `--tavily-api-url` = ``; `--tavily-key` = ``; `--firecrawl-api-url` = ``; `--firecrawl-key` = ``; `--tinyfish-key` = ``; `--tinyfish-search-api-url` = ``; `--tinyfish-fetch-api-url` = ``; `--tinyfish-timeout` = ``; `--yuanbao-secret-id` = ``; `--yuanbao-secret-key` = ``; `--yuanbao-api-url` = ``; `--yuanbao-timeout` = ``; `--deepseek-key` = ``; `--deepseek-api-url` = ``; `--deepseek-timeout` = ``; `--anysearch-api-url` = ``; `--anysearch-key` = ``; `--anysearch-timeout` = ``; `--sciverse-api-url` = ``; `--sciverse-token` = ``; `--sciverse-timeout` = ``; `--format` = `json`; `--output` = ``.
+解析器默认值：`--non-interactive` = `False`; `--advanced` = `False`; `--skip-skills` = `False`; `--install-skills` = ``; `--skills-root` = ``; `--xai-api-url` = ``; `--xai-api-key` = ``; `--xai-model` = ``; `--xai-tools-explicit` = ``; `--xai-stream` = ``; `--openai-compatible-api-url` = ``; `--openai-compatible-api-key` = ``; `--openai-compatible-model` = ``; `--openai-compatible-fallback-models` = ``; `--openai-compatible-api-mode` = ``; `--openai-compatible-tools` = ``; `--openai-compatible-require-web-search` = ``; `--openai-compatible-stream` = ``; `--jev-synthesis-api-url` = ``; `--jev-synthesis-api-key` = ``; `--jev-synthesis-model` = ``; `--jev-synthesis-api-mode` = ``; `--validation-level` = ``; `--fallback-mode` = ``; `--minimum-profile` = ``; `--intent-router` = ``; `--search-timeout / --search-timeout-seconds` = ``; `--provider-cooldown / --provider-cooldown-seconds` = ``; `--provider-failure-threshold` = ``; `--exa-key` = ``; `--context7-key` = ``; `--zhipu-key` = ``; `--zhipu-api-url` = ``; `--zhipu-search-engine` = ``; `--zhipu-mcp-key` = ``; `--zhipu-mcp-search-api-url` = ``; `--zhipu-mcp-reader-api-url` = ``; `--zhipu-mcp-zread-api-url` = ``; `--zhipu-mcp-timeout` = ``; `--jina-key` = ``; `--jina-reader-api-url` = ``; `--jina-respond-with` = ``; `--jina-timeout` = ``; `--tavily-api-url` = ``; `--tavily-key` = ``; `--firecrawl-api-url` = ``; `--firecrawl-key` = ``; `--tinyfish-key` = ``; `--tinyfish-search-api-url` = ``; `--tinyfish-fetch-api-url` = ``; `--tinyfish-timeout` = ``; `--yuanbao-secret-id` = ``; `--yuanbao-secret-key` = ``; `--yuanbao-api-url` = ``; `--yuanbao-timeout` = ``; `--deepseek-key` = ``; `--deepseek-api-url` = ``; `--deepseek-timeout` = ``; `--anysearch-api-url` = ``; `--anysearch-key` = ``; `--anysearch-timeout` = ``; `--sciverse-api-url` = ``; `--sciverse-token` = ``; `--sciverse-timeout` = ``; `--format` = `json`; `--output` = ``.
 
 ## `smart-search config`
 

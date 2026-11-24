@@ -201,6 +201,142 @@ def test_retry_hints_preserved_for_transport_and_cooldown(headers, body, expecte
         assert status["cooldown_remaining_seconds"] == expected
 
 
+def _limited(headers=None, body=""):
+    request = httpx.Request("POST", "https://e.org")
+    response = httpx.Response(429, headers=headers or {}, text=body, request=request)
+    return httpx.HTTPStatusError("limited", request=request, response=response)
+
+
+class _Clock:
+    def __init__(self, now=1000.0):
+        self.now = now
+
+    def __call__(self):
+        return self.now
+
+
+@pytest.mark.parametrize("headers, body, hint", [
+    ({"retry-after-ms": "1500"}, "", 1.5),
+    ({"retry-after": "2.5"}, "", 2.5),
+    ({}, '{"error":{"message":"Rate limit reached. Please try again in 320ms."}}', .32),
+])
+def test_first_429_cools_down_until_the_parsed_hint(headers, body, hint, tmp_path):
+    from smart_search.provider_errors import classify_provider_exception
+    from smart_search.provider_health import ProviderHealthStore
+    clock = _Clock()
+    store = ProviderHealthStore(tmp_path / "health.json", cooldown_seconds=900, failure_threshold=2, clock=clock)
+    kind, message = classify_provider_exception(_limited(headers, body))
+    assert kind == "rate_limited"
+
+    # One soft failure is below the threshold, yet the upstream hint already sets the deadline.
+    first = store.record_failure("exa", "fp", kind, message)
+    assert (first["state"], first["consecutive_failures"]) == ("cooldown", 1)
+    assert first["cooldown_remaining_seconds"] == pytest.approx(hint)
+    clock.now += hint + .01
+    assert store.should_skip("exa", "fp")[0] is False
+
+
+def test_first_429_deadline_reaches_persisted_provider_health(monkeypatch):
+    monkeypatch.setenv("EXA_API_KEY", "exa-test")
+    start = time.time()
+    attempt = service._attempt_with_health("web_search", "exa", start, _limited({"retry-after-ms": "1500"}))
+    assert attempt["error_type"] == "rate_limited" and "retry after 1.5s" in attempt["error"]
+    health = service._provider_health_status("exa")
+    assert health["state"] == "cooldown" and health["consecutive_failures"] == 1
+    assert 1.0 < health["cooldown_remaining_seconds"] <= 1.5
+
+
+@pytest.mark.parametrize("headers, body", [
+    ({"retry-after": "NaN"}, ""),
+    ({"retry-after": "inf"}, ""),
+    ({"retry-after": "-5"}, ""),
+    ({"retry-after-ms": "soon"}, ""),
+    ({"retry-after": "Someday, 99 Nev 2026"}, ""),
+    ({}, '{"error":{"message":"Too many requests, try again later."}}'),
+])
+def test_invalid_retry_hints_fall_back_to_the_normal_policy(headers, body, tmp_path):
+    from smart_search.provider_errors import classify_provider_exception, retry_delay
+    from smart_search.provider_health import ProviderHealthStore
+    from smart_search.providers.openai_compatible import _WaitWithRetryAfter
+    exc = _limited(headers, body)
+    assert retry_delay(exc.response) is None
+    kind, message = classify_provider_exception(exc)
+    assert kind == "rate_limited" and "retry after" not in message
+
+    store = ProviderHealthStore(tmp_path / "health.json", cooldown_seconds=900, failure_threshold=2, clock=_Clock())
+    assert store.record_failure("exa", "fp", kind, message)["state"] == "closed"
+    assert store.record_failure("exa", "fp", kind, message)["cooldown_remaining_seconds"] == 900
+
+    class Outcome:
+        failed = True
+
+        def exception(self):
+            return exc
+
+    wait = _WaitWithRetryAfter(1, 5)(type("State", (), {"outcome": Outcome(), "attempt_number": 1})())
+    assert 0 <= wait <= 5  # the ordinary bounded backoff, not an unparsed hint
+
+
+@pytest.mark.parametrize("headers", [{"retry-after": "1e12"}, {"retry-after-ms": "1e15"}])
+def test_absurd_retry_hint_never_outlasts_the_configured_cooldown(headers, tmp_path):
+    from smart_search.provider_errors import classify_provider_exception
+    from smart_search.provider_health import ProviderHealthStore
+    store = ProviderHealthStore(tmp_path / "health.json", cooldown_seconds=900, failure_threshold=2, clock=_Clock())
+    kind, message = classify_provider_exception(_limited(headers))
+    state = store.record_failure("exa", "fp", kind, message)
+    assert state["state"] == "cooldown"
+    assert state["cooldown_remaining_seconds"] == 900
+
+
+@pytest.mark.parametrize("headers", [{"retry-after": "3600"}, {"retry-after-ms": "3600000"},
+                                     {"retry-after": "Wed, 01 Jan 2200 00:00:00 GMT"}])
+def test_retry_wait_never_exceeds_the_remaining_deadline(headers):
+    from smart_search.providers.openai_compatible import _WaitWithRetryAfter
+    exc = _limited(headers)
+
+    class Outcome:
+        failed = True
+
+        def exception(self):
+            return exc
+
+    state = type("State", (), {"outcome": Outcome(), "attempt_number": 1})()
+    deadline = time.monotonic() + 2
+    assert 0 <= _WaitWithRetryAfter(1, 5, deadline_monotonic=deadline)(state) <= 2
+    assert _WaitWithRetryAfter(1, 5, deadline_monotonic=time.monotonic() - 1)(state) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_429_hint_beyond_the_deadline_ends_within_the_search_deadline(monkeypatch, stream):
+    import smart_search.providers.openai_compatible as openai_compatible
+    from smart_search.providers.openai_compatible import OpenAICompatibleSearchProvider, reset_openai_compatible_breakers
+    reset_openai_compatible_breakers()
+    monkeypatch.setattr(openai_compatible, "MIN_RETRY_REMAINING_SECONDS", 0.0)  # let the short deadline reach the wait
+    requests, sleeps = [], []
+    original_client, original_sleep = httpx.AsyncClient, asyncio.sleep
+
+    async def recording_sleep(seconds, *args, **kwargs):
+        sleeps.append(seconds)
+        return await original_sleep(seconds, *args, **kwargs)
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(429, headers={"retry-after": "3600"}, json={"error": {"message": "slow down"}})
+
+    monkeypatch.setattr(asyncio, "sleep", recording_sleep)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: original_client(transport=httpx.MockTransport(handler), **kw))
+    provider = OpenAICompatibleSearchProvider("https://relay.example/v1", "dummy", "model", stream, "responses")
+    budget = .4
+    started = time.monotonic()
+    provider.set_search_deadline(started + budget)
+    with pytest.raises((httpx.HTTPStatusError, asyncio.TimeoutError, ProviderCallError)):
+        await provider.search("q")
+    assert time.monotonic() - started < budget + .5
+    # The hint was honoured up to the deadline and never beyond it.
+    assert requests and sleeps and all(0 <= wait <= budget for wait in sleeps)
+
+
 @pytest.mark.asyncio
 async def test_provider_versions_are_one_source_and_conflicts_remain_visible(monkeypatch):
     from smart_search.jev import assess_evidence

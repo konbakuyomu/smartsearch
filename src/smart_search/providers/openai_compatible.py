@@ -13,7 +13,7 @@ from .base import BaseSearchProvider, SearchResult
 from ..utils import search_prompt, fetch_prompt, url_describe_prompt, rank_sources_prompt
 from ..logger import log_info
 from ..config import config
-from ..provider_errors import ProviderCallError, classify_provider_exception, retry_delay
+from ..provider_errors import ProviderCallError, classify_provider_exception, retry_delay, sanitize_provider_error_message
 
 _logger = logging.getLogger(__name__)
 _ssl_warning_emitted = False
@@ -23,6 +23,7 @@ STREAM_BREAKER_COOLDOWN_SECONDS = 600.0
 SLOW_FAILURE_SECONDS = 10.0
 MIN_RETRY_REMAINING_SECONDS = 5.0
 OPENAI_COMPATIBLE_API_MODES = frozenset({"chat-completions", "responses"})
+WEB_SEARCH_TOOL_TYPES = frozenset({"web_search", "web_search_preview"})
 _OPENAI_COMPATIBLE_ENDPOINT_SUFFIXES = ("chat/completions", "responses")
 
 
@@ -158,6 +159,7 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
         stream: bool = False,
         api_mode: str = "chat-completions",
         tools: list[str] | None = None,
+        require_web_search: bool = False,
     ):
         super().__init__(normalize_openai_compatible_api_url(api_url), api_key)
         self.model = model
@@ -168,7 +170,13 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
             raise ValueError(source_message('Invalid OpenAI-compatible API mode: {0}. Supported values: {1}', self.api_mode, allowed))
         # Responses tools such as web_search, sent with search() only (OPENAI_COMPATIBLE_TOOLS).
         self.tools = list(tools or [])
+        # OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH: force the tool and reject answers
+        # without a completed call. Off, tool calls are only observed and reported.
+        self.require_web_search = bool(require_web_search)
         self.last_transport_attempts: list[dict[str, Any]] = []
+        self.last_web_search_calls: list[dict[str, Any]] = []
+        self.last_web_search_verified = False
+        self._observing_web_search = False
         self._search_deadline_monotonic: float | None = None
 
     def set_search_deadline(self, deadline_monotonic: float | None) -> None:
@@ -255,21 +263,60 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
         payload = self._build_request_payload(instructions, user_content, stream=stream)
         if self.api_mode == "responses" and self.tools:
             payload["tools"] = [{"type": tool} for tool in self.tools]
-            payload["tool_choice"] = "required"
+            if self.require_web_search and self._sends_web_search(payload):
+                # Opt-in only: relays that reject tool_choice answer 400/422.
+                payload["tool_choice"] = "required"
         return payload
 
     @staticmethod
-    def _requires_web_search(payload: dict) -> bool:
-        return any(tool.get("type") in {"web_search", "web_search_preview"} for tool in payload.get("tools", []))
+    def _sends_web_search(payload: dict) -> bool:
+        return any(tool.get("type") in WEB_SEARCH_TOOL_TYPES for tool in payload.get("tools", []))
 
-    def _validate_web_search(self, items: list[dict], required: bool) -> None:
-        calls = [{"id": item.get("id", ""), "status": item.get("status", ""),
-                  "action": item.get("action", {})}
-                 for item in items if isinstance(item, dict) and item.get("type") == "web_search_call"]
-        self.last_web_search_calls = calls
-        if required and not any(call["status"] == "completed" for call in calls):
-            raise ProviderCallError("quality_error", "Responses search did not complete a web_search_call",
-                                    additional_secrets=(self.api_key,))
+    def _requires_web_search(self, payload: dict) -> bool:
+        return self.require_web_search and self._sends_web_search(payload)
+
+    @staticmethod
+    def _web_search_call(item: dict, seen_in: str) -> dict[str, Any]:
+        return {"id": str(item.get("id") or ""), "status": str(item.get("status") or ""),
+                "action": item.get("action", {}), "seen_in": seen_in}
+
+    def _terminal_web_search_calls(self, output: Any) -> dict[str, dict]:
+        return {
+            str(item.get("id") or index): self._web_search_call(item, "terminal")
+            for index, item in enumerate(output if isinstance(output, list) else [])
+            if isinstance(item, dict) and item.get("type") == "web_search_call"
+        }
+
+    def _check_web_search(self, calls: dict[str, dict], required: bool) -> None:
+        """Record observed web_search calls; when required, one must have completed.
+
+        Keys are item ids, so a terminal output item overrides what the stream
+        reported for the same call: a completed event followed by a failed item
+        is a failed call, while a completed event without a terminal item counts.
+        """
+        self.last_web_search_calls = list(calls.values())
+        self.last_web_search_verified = any(call["status"] == "completed" for call in self.last_web_search_calls)
+        if required and not self.last_web_search_verified:
+            raise ProviderCallError(
+                "quality_error",
+                "Responses search did not complete a web_search_call (OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=true)",
+                additional_secrets=(self.api_key,),
+            )
+
+    def _raise_for_status(self, response: httpx.Response, payload: dict) -> None:
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            if payload.get("tool_choice") and response.status_code in {400, 422}:
+                excerpt = sanitize_provider_error_message(response.text, additional_secrets=(self.api_key,), limit=120)
+                raise ProviderCallError(
+                    "parameter_error",
+                    source_message('HTTP {0} with tool_choice=required: {1}. If this endpoint does not accept '
+                                   'tool_choice, set OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=false.',
+                                   response.status_code, excerpt),
+                    additional_secrets=(self.api_key,),
+                ) from exc
+            raise
 
     async def search(self, query: str, platform: str = "", ctx=None) -> List[SearchResult]:
         headers = self._build_api_headers()
@@ -358,17 +405,27 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
             "api_mode": self.api_mode,
             "endpoint": self._api_endpoint(),
         }
-        if getattr(self, "last_web_search_calls", None):
+        if self.last_web_search_calls:
             attempt["web_search_calls"] = self.last_web_search_calls
+        if self._observing_web_search:
+            # Off by default, a cited answer without a completed call still succeeds;
+            # this flag tells callers whether the tool execution was actually seen.
+            attempt["web_search_verified"] = self.last_web_search_verified
+            attempt["web_search_required"] = self.require_web_search
         if breaker_state:
             attempt["breaker_state"] = breaker_state
         if fallback_from_transport:
             attempt["fallback_from_transport"] = fallback_from_transport
         return attempt
 
+    def _reset_web_search_observation(self) -> None:
+        self.last_web_search_calls = []
+        self.last_web_search_verified = False
+
     async def _execute_with_transport_fallback(self, headers: dict, payload: dict, ctx=None) -> str:
         self.last_transport_attempts = []
-        self.last_web_search_calls = []
+        self._observing_web_search = self._sends_web_search(payload)
+        self._reset_web_search_observation()
         if not self.stream:
             payload["stream"] = False
             start = time.time()
@@ -407,6 +464,7 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
         else:
             payload["stream"] = True
             stream_start = time.time()
+            self._reset_web_search_observation()
             try:
                 content = await self._execute_stream_with_retry(headers, payload, ctx)
                 if content and content.strip():
@@ -455,6 +513,7 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
 
         payload["stream"] = False
         completion_start = time.time()
+        self._reset_web_search_observation()
         try:
             content = await self._execute_completion_with_retry(headers, payload, ctx)
             self.last_transport_attempts.append(
@@ -562,7 +621,7 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
         output_item_parts: list[str] = []
         stream_sources: list[dict] = []
         malformed_events: list[str] = []
-        tool_items: dict[str, dict] = {}
+        web_search_calls: dict[str, dict] = {}
 
         async for line in response.aiter_lines():
             stripped = line.strip()
@@ -629,11 +688,21 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                     malformed_events.append("response.output_item.done had no item object")
                     continue
                 if item.get("type") == "web_search_call":
-                    tool_items[str(item.get("id") or data.get("output_index", ""))] = item
+                    key = str(item.get("id") or data.get("output_index", ""))
+                    web_search_calls[key] = self._web_search_call(item, "output_item")
                 item_text, item_sources = self._extract_responses_content({"output": [item]})
                 if item_text:
                     output_item_parts.append(item_text)
                 stream_sources = self._merge_citations(stream_sources, item_sources)
+                continue
+
+            if event_type.startswith("response.web_search_call."):
+                # Progress events name the call by item_id. They count only until
+                # an output item for the same call says otherwise.
+                key = str(data.get("item_id") or data.get("output_index", ""))
+                if key and web_search_calls.get(key, {}).get("seen_in", "event") == "event":
+                    web_search_calls[key] = self._web_search_call(
+                        {"id": data.get("item_id"), "status": event_type.rsplit(".", 1)[1]}, "event")
                 continue
 
             if event_type == "response.output_text.annotation.added":
@@ -680,10 +749,8 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                         additional_secrets=(self.api_key,),
                     )
 
-                for index, item in enumerate(response_data.get("output", []) or []):
-                    if isinstance(item, dict) and item.get("type") == "web_search_call":
-                        tool_items[str(item.get("id") or index)] = item
-                self._validate_web_search(list(tool_items.values()), require_web_search)
+                web_search_calls.update(self._terminal_web_search_calls(response_data.get("output")))
+                self._check_web_search(web_search_calls, require_web_search)
 
                 content, sources = self._extract_responses_content(response_data)
                 if not sources:
@@ -696,8 +763,8 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                 await log_info(ctx, f"content: {content}", config.debug_enabled)
                 return content
 
-            # Tool completion must be backed by an output item, rather than a
-            # provisional notification or an assistant's claim to have searched.
+            # Other typed events describe reasoning or queue state. They are
+            # deliberately ignored; a completed terminal event still decides success.
 
         if malformed_events:
             raise ProviderCallError(
@@ -732,7 +799,7 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                     ) as response:
                         if response.status_code >= 400:
                             await response.aread()
-                        response.raise_for_status()
+                        self._raise_for_status(response, payload)
                         return await self._parse_streaming_response(response, ctx, require_web_search=self._requires_web_search(payload))
 
     async def _parse_completion_response(self, response: httpx.Response, ctx=None, *, require_web_search: bool = False) -> str:
@@ -751,7 +818,7 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                 terminal_error = self._responses_terminal_error(data)
                 if terminal_error is not None:
                     raise terminal_error
-                self._validate_web_search(data.get("output", []) or [], require_web_search)
+                self._check_web_search(self._terminal_web_search_calls(data.get("output")), require_web_search)
                 content, sources = self._extract_responses_content(data)
             elif body_text.strip() and not body_text.lstrip().startswith("data:"):
                 raise ProviderCallError(
@@ -977,7 +1044,7 @@ class OpenAICompatibleSearchProvider(BaseSearchProvider):
                         json=payload,
                         timeout=request_timeout,
                     )
-                    response.raise_for_status()
+                    self._raise_for_status(response, payload)
                     return await self._parse_completion_response(response, ctx, require_web_search=self._requires_web_search(payload))
 
     async def describe_url(self, url: str, ctx=None) -> dict:

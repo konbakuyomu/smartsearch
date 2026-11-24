@@ -18,7 +18,7 @@
 
 ## 文档与摘录
 
-Context7 分开传递技术名称和完整问题。Jev 可以在普通搜索和研究中评估库是否相关；明确判为不相关时不读取第一项。缺少 Jev 或判断不可用时，只允许唯一名称匹配，否则返回可诊断错误并走原有渠道回退。
+Context7 分开传递技术名称和完整问题。技术名称从问题中提取：跳过疑问词和请求用语，React、Next.js 这类专有名称优先于 useEffect 这类 API 成员，介词 in/with/for 之后的词再优先。Jev 可以在普通搜索和研究中评估库是否相关；明确判为不相关时不读取第一项。缺少 Jev 或判断不可用时，只允许唯一名称匹配，否则返回可诊断错误并走原有渠道回退。名称提取不到、不相关或有歧义只说明这一次问题，记为带原因的空结果，不计入提供方健康冷却。
 
 正文摘录使用英文词及中文双字词匹配，规范化 Unicode 连字符，并优先摘要、实验、结果和结论段落，降低密集链接、参考文献段落的权重。文章自身的题名、DOI 和发表或会议年份先获得受限名额；收紧序列化预算时重新摘录，避免从尾部直接截掉元数据。评估同时按相关性选择来源，遗漏和截断仍显式标记。研究的无模型报告复用相同摘录方法，auto 判断同时看到将交付的证据报告，不能仅凭隐藏正文中存在事实就认为已交付答案。该摘录是有限词法启发式，不保证找到所有关键事实，也不替代 Jev 的充分性判断。
 
@@ -40,10 +40,10 @@ ok=true 而 answer=partial 时，CLI Markdown 的状态行写成「成功（答�
 
 ## Responses 主搜索
 
-OpenAI 兼容通道在 Responses search 请求启用 web_search 或 web_search_preview 时发送 tool_choice=required，并核验返回中至少一个 web_search_call.status=completed；未调用、全部失败或仍在执行都报 quality_error。流式从 output_item.done 和终态 output 合并工具状态，非流式及 SSE 回退使用同一校验规则。传输记录保留工具状态；正文含引用不能代替执行证明。fetch、describe、rank、总结与连接测试不携带这组搜索工具或强制选择项。
+OpenAI 兼容通道的 Responses search 带 web_search 或 web_search_preview 时，默认不发 tool_choice，也不因缺少工具记录拒绝回答；传输记录保留观察到的 web_search_calls，并以 web_search_verified 标明是否看到完成的调用。OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=true（需要 responses 模式和 web_search 工具，否则为参数错误）时才发送 tool_choice=required，并要求终态输出中的完成项，或终态未以同一 item id 否定的 response.web_search_call.completed 事件；缺失或失败报 quality_error，接口以 400/422 拒绝 tool_choice 时报 parameter_error 并提示关闭该项。非流式与 SSE 回退使用同一规则；正文含引用不能代替执行证明。fetch、describe、rank、总结与连接测试不携带这组搜索工具或强制选择项。核验在 `src/smart_search/providers/openai_compatible.py`，开关与工具、接口模式的组合校验在 `src/smart_search/config.py`。
 
 ## 限流
 
-OpenAI 兼容适配器与提供方健康记录共用 retry hint 解析：支持 Retry-After、retry-after-ms 和错误正文的 try again in 提示。已知短暂限流按上游给出的等待时间冷却，既有重试次数和共享截止时间仍约束重试。没有有效提示时使用原有策略，鉴权失败策略保持不变。
+OpenAI 兼容适配器与提供方健康记录共用 retry hint 解析：支持 Retry-After、retry-after-ms 和错误正文的 try again in 提示。已知短暂限流从第一次 429 起按上游给出的等待时间冷却，但不超过配置的冷却时长；既有重试次数和共享截止时间仍约束重试，等待不越过截止时间。没有有效提示时使用原有策略，鉴权失败策略保持不变。解析在 `src/smart_search/provider_errors.py`，冷却记录在 `src/smart_search/provider_health.py`。
 
-本流程不增加密钥或设置项；已有的 Jev、抓取提供方及独立总结模型配置继续生效。
+本流程不增加密钥；唯一的新设置项是默认关闭的 OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH。已有的 Jev、抓取提供方及独立总结模型配置继续生效。

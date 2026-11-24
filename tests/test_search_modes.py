@@ -8,7 +8,7 @@ import pytest
 from smart_search import service
 from smart_search.jev import JevClient
 from smart_search.jev_search import ChannelExecutor, FALLBACK_RESERVE_RATIO
-from smart_search.provider_errors import ProviderCallError
+from smart_search.provider_errors import ProviderCallError, QueryMissError
 
 
 def response(questions, values):
@@ -823,3 +823,125 @@ async def test_context7_no_relevant_snippets_is_empty_and_uses_fallback(monkeypa
     health = service._provider_health_status("context7")
     assert health["state"] == "closed"
     assert health["consecutive_failures"] == 0
+
+
+# ---- Context7 library names from natural questions ------------------------------------------
+
+_REACT = {"id": "/reactjs/react.dev", "title": "React"}
+
+
+def _context7_without_jev(monkeypatch, results):
+    searched, read = [], []
+
+    async def libraries(name, query):
+        searched.append(name)
+        return {"ok": True, "results": results}
+
+    async def docs(library_id, query):
+        read.append(library_id)
+        return {"ok": True, "content": "Documentation"}
+
+    monkeypatch.setattr(service, "context7_library", libraries)
+    monkeypatch.setattr(service, "context7_docs", docs)
+    client = SimpleNamespace(settings=SimpleNamespace(api_key=""), last_error=None)
+    return ChannelExecutor(service, client), searched, read
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("query, name, library", [
+    ("How do I use useEffect in React?", "React", _REACT),
+    ("What is the difference between useMemo and useCallback in React?", "React", _REACT),
+    ("How can I mock requests in pytest?", "pytest", {"id": "/pytest-dev/pytest", "title": "pytest"}),
+    ("What's new in Next.js 15 app router?", "Next.js", {"id": "/vercel/next.js", "title": "Next.js"}),
+    ("React 的 useEffect 清理函数怎么写？", "React", _REACT),
+    ("如何在 Vue 3 中使用 watchEffect？", "Vue", {"id": "/vuejs/core", "title": "Vue.js"}),
+    ("Django 的 ORM 怎么做聚合查询？", "Django", {"id": "/django/django", "title": "Django"}),
+])
+async def test_context7_names_the_technology_in_a_natural_question(monkeypatch, query, name, library):
+    unrelated = {"id": "/doer/do-it", "title": "Do It", "description": "A task runner"}
+    executor, searched, read = _context7_without_jev(monkeypatch, [unrelated, library])
+
+    results = await executor._context7(query)
+
+    assert searched == [name]  # never a question word such as "do", "what" or "how"
+    assert read == [library["id"]]
+    assert results[0]["url"] == f"context7:{library['id']}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("query", ["How do I use it?", "What does this do?", "怎么用？"])
+async def test_context7_question_without_a_technology_name_is_a_query_miss(monkeypatch, query):
+    executor, searched, read = _context7_without_jev(monkeypatch, [_REACT])
+    with pytest.raises(QueryMissError, match="library name"):
+        await executor._context7(query)
+    assert searched == [] and read == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("results, message", [
+    ([_REACT, {"id": "/facebook/react", "title": "React"}], "ambiguous"),
+    ([{"id": "/zpao/qrcode.react", "title": "QRcode React"}, _REACT], "ambiguous"),
+    ([{"id": "/cleanup/tool", "title": "Artifactory Cleanup"}, {"id": "/first/library"}], "unrelated"),
+])
+async def test_context7_without_jev_rejects_ambiguous_or_unrelated_libraries(monkeypatch, results, message):
+    executor, searched, read = _context7_without_jev(monkeypatch, results)
+    with pytest.raises(QueryMissError, match=message) as raised:
+        await executor._context7("How do I use useEffect in React?")
+    assert raised.value.error_type == "quality_error"
+    assert searched == ["React"] and read == []
+
+
+@pytest.mark.asyncio
+async def test_context7_similar_package_name_is_not_the_library(monkeypatch):
+    validator = {"id": "/express-validator/express-validator", "title": "express-validator"}
+    express = {"id": "/expressjs/express", "title": "Express"}
+    executor, searched, read = _context7_without_jev(monkeypatch, [validator, express])
+    await executor._context7("How do I write Express middleware?")
+    assert searched == ["Express"] and read == ["/expressjs/express"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("results", [
+    [_REACT, {"id": "/facebook/react", "title": "React"}],
+    [{"id": "/cleanup/tool", "title": "Artifactory Cleanup"}],
+])
+async def test_context7_match_miss_falls_back_without_touching_provider_health(monkeypatch, results):
+    monkeypatch.setenv("SMART_SEARCH_INTENT_ROUTER", "local")
+    monkeypatch.setenv("CONTEXT7_API_KEY", "context7-test")
+    monkeypatch.setenv("EXA_API_KEY", "exa-test")
+    monkeypatch.setenv("SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS", "context7,exa")
+    monkeypatch.setenv("SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS", "300")
+    monkeypatch.setenv("SMART_SEARCH_PROVIDER_FAILURE_THRESHOLD", "1")
+
+    async def libraries(name, query):
+        return {"ok": True, "results": results}
+
+    async def docs(*args):
+        pytest.fail("A library that does not match the question must not be read")
+
+    async def exa(*args, **kwargs):
+        return {"ok": True, "results": [{"url": "https://example.org/docs", "content": "Fallback documentation"}]}
+
+    monkeypatch.setattr(service, "context7_library", libraries)
+    monkeypatch.setattr(service, "context7_docs", docs)
+    monkeypatch.setattr(service, "exa_search", exa)
+    for _ in range(2):  # a threshold of one would cool Context7 down after a single counted failure
+        result = await service.search("How do I use useEffect in React?")
+        assert result["ok"] and "Fallback documentation" in result["content"]
+        context7 = result["provider_attempts"][0]
+        assert (context7["provider"], context7["status"], context7["error_type"]) == ("context7", "empty", "quality_error")
+        assert "Context7" in context7["error"] and "provider_health" not in context7
+        assert not [notice for notice in result.get("provider_notices", []) if notice["provider"] == "context7"]
+    health = service._provider_health_status("context7")
+    assert health["state"] == "closed" and health["consecutive_failures"] == 0
+
+
+def test_only_query_misses_skip_provider_health(monkeypatch):
+    monkeypatch.setenv("CONTEXT7_API_KEY", "context7-test")
+    monkeypatch.setenv("SMART_SEARCH_PROVIDER_FAILURE_THRESHOLD", "1")
+    miss = service._attempt_with_health("docs_search", "context7", 0.0, QueryMissError("quality_error", "Context7 returned no relevant library"))
+    assert (miss["status"], miss["error_type"]) == ("empty", "quality_error")
+    assert service._provider_health_status("context7")["consecutive_failures"] == 0
+    failure = service._attempt_with_health("docs_search", "context7", 0.0, ProviderCallError("quality_error", "challenge page"))
+    assert failure["status"] == "error"
+    assert service._provider_health_status("context7")["state"] == "cooldown"

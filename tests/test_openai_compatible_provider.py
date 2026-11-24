@@ -122,10 +122,12 @@ async def test_responses_fetch_respects_stream_while_describe_and_rank_stay_non_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("require", [False, True])
 @pytest.mark.parametrize("tools", [["web_search"], ["web_search_preview"]])
-async def test_responses_tools_ride_on_search_only(monkeypatch, tools):
+async def test_responses_tools_ride_on_search_only(monkeypatch, tools, require):
     provider = OpenAICompatibleSearchProvider(
         "https://api.openai.com/v1", "test-key", "gpt-6.1-sol", api_mode="responses", tools=tools,
+        require_web_search=require,
     )
     payloads = {}
 
@@ -147,7 +149,8 @@ async def test_responses_tools_ride_on_search_only(monkeypatch, tools):
     await provider.rank_sources("q", "1. a", 1)
 
     assert payloads["search"]["tools"] == [{"type": tool} for tool in tools]
-    assert payloads["search"]["tool_choice"] == "required"
+    # Forcing the tool is opt-in: relays that reject tool_choice keep working by default.
+    assert payloads["search"].get("tool_choice") == ("required" if require else None)
     assert all("tools" not in payloads[name] for name in ("fetch", "synthesize", "describe", "rank"))
     assert all("tool_choice" not in payloads[name] for name in ("fetch", "synthesize", "describe", "rank"))
 
@@ -552,12 +555,15 @@ async def test_responses_non_stream_terminal_failures_are_not_successful(payload
 
 
 @pytest.mark.asyncio
-async def test_responses_stream_uses_typed_events_and_terminal_response_as_authority():
+@pytest.mark.parametrize("require_web_search", [False, True])
+async def test_responses_stream_uses_typed_events_and_terminal_response_as_authority(require_web_search):
     provider = OpenAICompatibleSearchProvider(
         "https://api.example.com/v1",
         "test-key",
         "test-model",
         api_mode="responses",
+        tools=["web_search"],
+        require_web_search=require_web_search,
     )
 
     class StreamResponse:
@@ -571,12 +577,15 @@ async def test_responses_stream_uses_typed_events_and_terminal_response_as_autho
             ]:
                 yield line
 
-    result = await provider._parse_streaming_response(StreamResponse())
+    result = await provider._parse_streaming_response(StreamResponse(), require_web_search=require_web_search)
 
     assert result.startswith("authoritative answer")
     assert "partial" not in result.split("\n\nsources(", 1)[0]
     assert "https://final.example.com" in result
     assert "https://partial.example.com" not in result
+    # The completed event names ws_1 and the terminal state does not contradict it.
+    assert provider.last_web_search_verified is True
+    assert provider.last_web_search_calls == [{"id": "ws_1", "status": "completed", "action": {}, "seen_in": "event"}]
 
 
 @pytest.mark.asyncio
@@ -1017,3 +1026,129 @@ async def test_chat_stream_done_returns_without_eof(monkeypatch):
 
     assert result == "Hello world"
     assert [attempt["transport"] for attempt in provider.last_transport_attempts] == ["stream"]
+
+
+# ---- OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH at the HTTP boundary -------------------------------
+# Off (the default) behaves like a plain Responses request with tools: no tool_choice, and a
+# missing tool item never rejects an answer; the attempt only reports web_search_verified.
+# On, the request forces the tool and the answer needs a completed call.
+
+_CITED_ANSWER = {"type": "message", "content": [{"type": "output_text", "text": "A cited answer.",
+                 "annotations": [{"type": "url_citation", "url": "https://e.org/source", "title": "Source"}]}]}
+_WS_COMPLETED_EVENT = {"type": "response.web_search_call.completed", "item_id": "ws_1", "output_index": 0}
+_WEB_SEARCH_SCENARIOS = {
+    # name: (stream-only events, terminal output, expected verified, expected recorded statuses)
+    "citations_only": ([], [_CITED_ANSWER], False, []),
+    "completed_event_only": ([{"type": "response.web_search_call.in_progress", "item_id": "ws_1", "output_index": 0},
+                              _WS_COMPLETED_EVENT], [_CITED_ANSWER], True, ["completed"]),
+    "explicit_failed": ([_WS_COMPLETED_EVENT], [{"type": "web_search_call", "id": "ws_1", "status": "failed"},
+                                                _CITED_ANSWER], False, ["failed"]),
+    "failed_item_after_completed_event": ([_WS_COMPLETED_EVENT, {"type": "response.output_item.done", "output_index": 0,
+                                           "item": {"type": "web_search_call", "id": "ws_1", "status": "failed"}}],
+                                          [_CITED_ANSWER], False, ["failed"]),
+    "completed_tool_item": ([{"type": "response.output_item.done", "output_index": 0,
+                              "item": {"type": "web_search_call", "id": "ws_1", "status": "completed", "action": {"type": "search"}}}],
+                            [{"type": "web_search_call", "id": "ws_1", "status": "completed", "action": {"type": "search"}},
+                             _CITED_ANSWER], True, ["completed"]),
+}
+
+
+def _sse(events):
+    return "".join("data: " + json.dumps(event) + "\n\n" for event in events)
+
+
+def _relay(monkeypatch, respond):
+    reset_openai_compatible_breakers()
+    bodies = []
+    original = httpx.AsyncClient
+
+    def handler(request):
+        body = json.loads(request.content)
+        bodies.append(body)
+        return respond(body)
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: original(transport=httpx.MockTransport(handler), **kw))
+    return bodies
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("require", [False, True])
+@pytest.mark.parametrize(("scenario", "transport"), [
+    (scenario, transport) for scenario in sorted(_WEB_SEARCH_SCENARIOS) for transport in ("json", "sse_in_non_stream", "stream")
+    # A JSON body has no stream events, so event-only evidence is an SSE case.
+    if transport != "json" or scenario in {"citations_only", "explicit_failed", "completed_tool_item"}
+])
+async def test_web_search_verification_policy_correlates_events_with_terminal_state(monkeypatch, scenario, transport, require):
+    events, terminal_output, verified, statuses = _WEB_SEARCH_SCENARIOS[scenario]
+
+    def respond(body):
+        terminal = {"status": "completed", "output": terminal_output}
+        if transport == "json":
+            return httpx.Response(200, json=terminal)
+        return httpx.Response(200, text=_sse([*events, {"type": "response.completed", "response": terminal}]))
+
+    bodies = _relay(monkeypatch, respond)
+    provider = OpenAICompatibleSearchProvider("https://relay.example/v1", "dummy", "sol", transport == "stream", "responses",
+                                              tools=["web_search"], require_web_search=require)
+    if verified or not require:
+        assert "A cited answer" in await provider.search("current fact")
+    else:
+        with pytest.raises(ProviderCallError, match="did not complete a web_search_call") as raised:
+            await provider.search("current fact")
+        assert raised.value.error_type == "quality_error"
+
+    assert [body.get("tool_choice") for body in bodies] == ["required" if require else None]
+    attempt = provider.last_transport_attempts[-1]
+    assert attempt["status"] == ("ok" if verified or not require else "error")
+    assert (attempt["web_search_verified"], attempt["web_search_required"]) == (verified, require)
+    assert [call["status"] for call in attempt.get("web_search_calls", [])] == statuses
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [400, 422])
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("require", [False, True])
+async def test_relay_rejecting_tool_choice_is_a_parameter_error_only_when_opted_in(monkeypatch, status, stream, require):
+    def respond(body):
+        if "tool_choice" in body:
+            return httpx.Response(status, json={"error": {"message": "Unknown parameter: 'tool_choice'.", "param": "tool_choice"}})
+        terminal = {"status": "completed", "output": [_CITED_ANSWER]}
+        if body["stream"]:
+            return httpx.Response(200, text=_sse([{"type": "response.completed", "response": terminal}]))
+        return httpx.Response(200, json=terminal)
+
+    bodies = _relay(monkeypatch, respond)
+    provider = OpenAICompatibleSearchProvider("https://relay.example/v1", "secret-key", "sol", stream, "responses",
+                                              tools=["web_search"], require_web_search=require)
+    if not require:
+        # The same request as before tool_choice existed: this relay keeps answering, unverified.
+        assert "A cited answer" in await provider.search("current fact")
+        assert all("tool_choice" not in body for body in bodies)
+        assert provider.last_transport_attempts[-1]["web_search_verified"] is False
+        return
+    with pytest.raises(ProviderCallError) as raised:
+        await provider.search("current fact")
+    assert raised.value.error_type == "parameter_error"
+    assert f"HTTP {status}" in raised.value.error and "tool_choice" in raised.value.error
+    assert "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=false" in raised.value.error
+    assert "secret-key" not in raised.value.error
+    assert len(bodies) == 1  # a 4xx is not retried and does not fall back to another transport
+    assert provider.last_transport_attempts[-1]["error_type"] == "parameter_error"
+
+
+@pytest.mark.asyncio
+async def test_other_4xx_without_tool_choice_keeps_its_plain_classification(monkeypatch):
+    _relay(monkeypatch, lambda body: httpx.Response(400, json={"error": {"message": "bad model"}}))
+    provider = OpenAICompatibleSearchProvider("https://relay.example/v1", "dummy", "sol", False, "responses", tools=["web_search"])
+    with pytest.raises(httpx.HTTPStatusError):
+        await provider.search("current fact")
+
+
+@pytest.mark.asyncio
+async def test_synthesis_never_carries_search_tools_even_when_verification_is_required(monkeypatch):
+    bodies = _relay(monkeypatch, lambda body: httpx.Response(200, json={"status": "completed", "output_text": "From evidence."}))
+    provider = OpenAICompatibleSearchProvider("https://relay.example/v1", "dummy", "sol", api_mode="responses",
+                                              tools=["web_search"], require_web_search=True)
+    assert await provider.synthesize("q", []) == "From evidence."
+    assert "tools" not in bodies[0] and "tool_choice" not in bodies[0]
+    assert "web_search_verified" not in provider.last_transport_attempts[-1]

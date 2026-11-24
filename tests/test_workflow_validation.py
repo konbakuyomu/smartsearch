@@ -12,13 +12,15 @@ from smart_search.evidence import linked_sources, relevant_excerpt
 from smart_search.jev import JevClient, assess_evidence, evidence_preview, select_channels
 from smart_search.jev_search import ChannelExecutor, available_channels, candidate_queries, search
 from smart_search.provider_errors import ProviderCallError
-from smart_search.providers.openai_compatible import OpenAICompatibleSearchProvider
+from smart_search.providers.openai_compatible import OpenAICompatibleSearchProvider, reset_openai_compatible_breakers
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("require", [False, True])
 @pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize("tool_status", [None, "failed", "in_progress", "completed"])
-async def test_search_requires_real_completed_web_tool_at_http_boundary(monkeypatch, stream, tool_status):
+async def test_search_requires_real_completed_web_tool_at_http_boundary(monkeypatch, stream, tool_status, require):
+    reset_openai_compatible_breakers()  # earlier stream rejections must not divert this case to non-stream
     original = httpx.AsyncClient
     output = [{"type": "message", "content": [{"type": "output_text", "text": "A cited answer.",
               "annotations": [{"type": "url_citation", "url": "https://e.org/source"}]}]}]
@@ -28,7 +30,7 @@ async def test_search_requires_real_completed_web_tool_at_http_boundary(monkeypa
     def handler(request):
         body = json.loads(request.content)
         assert body["tools"] == [{"type": "web_search"}]
-        assert body["tool_choice"] == "required"
+        assert body.get("tool_choice") == ("required" if require else None)
         response = {"status": "completed", "output": output}
         if body["stream"]:
             events = [{"type": "response.output_item.done", "item": item} for item in output]
@@ -38,10 +40,16 @@ async def test_search_requires_real_completed_web_tool_at_http_boundary(monkeypa
         return httpx.Response(200, json=response)
 
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: original(transport=httpx.MockTransport(handler), **kw))
-    provider = OpenAICompatibleSearchProvider("https://api.example/v1", "dummy", "sol", stream, "responses", tools=["web_search"])
-    if tool_status == "completed":
+    provider = OpenAICompatibleSearchProvider("https://api.example/v1", "dummy", "sol", stream, "responses", tools=["web_search"],
+                                              require_web_search=require)
+    if tool_status == "completed" or not require:
+        # Off by default: the answer is kept and the attempt says whether a call was seen.
         assert "A cited answer" in await provider.search("current fact")
-        assert provider.last_transport_attempts[-1]["web_search_calls"][0]["status"] == "completed"
+        attempt = provider.last_transport_attempts[-1]
+        assert attempt["web_search_verified"] is (tool_status == "completed")
+        assert attempt["web_search_required"] is require
+        if tool_status:
+            assert attempt["web_search_calls"][0]["status"] == tool_status
     else:
         with pytest.raises(ProviderCallError) as raised:
             await provider.search("current fact")

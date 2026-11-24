@@ -20,6 +20,7 @@
 | `OPENAI_COMPATIBLE_FALLBACK_MODELS` | 逗号分隔。主模型不可用时按顺序往下试。 | `csv` | 未设置 |
 | `OPENAI_COMPATIBLE_API_MODE` | 大多数服务用 chat-completions。要让 gpt-6.1-sol 这类只在 Responses 里联网的模型搜索，选 responses，再在下面的联网工具填 web_search。 | `chat-completions, responses` | `chat-completions` |
 | `OPENAI_COMPATIBLE_TOOLS` | 留空表示不发送工具。只在接口模式为 responses 时可用，只随搜索请求发送。用 OpenAI 官方 key 跑 gpt-6.1-sol 这类模型要联网，填 web_search；中转站只认旧名时填 web_search_preview；模型自带搜索（如 gpt-5-search-api）保持留空。 | `csv` | 未设置 |
+| `OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH` | 默认关闭：搜索请求带上联网工具但不强制调用，回答照常接受，尝试记录里的 web_search_verified 标出是否看到了完成的 web_search 调用。开启后请求加 tool_choice=required，没有完成的调用就报 quality_error。需要接口模式为 responses 且联网工具填了 web_search 或 web_search_preview；中转站不接受 tool_choice 时会返回 400/422，请保持关闭。 | `bool` | `false` |
 | `OPENAI_COMPATIBLE_STREAM` | 部分服务只在流式下才肯长时间思考。 | `bool` | `false` |
 | `XAI_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
 | `OPENAI_COMPATIBLE_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |

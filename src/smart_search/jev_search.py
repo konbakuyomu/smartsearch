@@ -13,7 +13,7 @@ from typing import Any
 
 from .jev import JevClient, assess_evidence, check_model_answer, decide_synthesis, filter_evidence, has_source_evidence, noul, select_channels
 from .provider_descriptions import PROVIDER_DESCRIPTIONS
-from .provider_errors import ProviderCallError, classify_provider_exception
+from .provider_errors import ProviderCallError, QueryMissError, classify_provider_exception
 from .evidence import linked_sources, passage_score, query_terms, relevant_excerpt
 
 
@@ -341,19 +341,75 @@ class ChannelExecutor:
             raise ProviderCallError("parameter_error", source_message('Unsupported search channel'))
         return _normalize_results(results, provider, operation)
 
+    # Words that phrase a question or a request, never a library. Real library names
+    # that are also English words (express, next, click, requests) stay out of it.
+    _CONTEXT7_STOPWORDS = frozenset("""
+        a about an and any are aren as at be been but by can could did didn do does doesn doing don done e.g
+        etc for from get gets had has have how i i.e if in into is isn it its just let me my need needs of on
+        or our please should so some than that the their them then there these they this those to us use used
+        uses using via want wants was wasn way we were what when where whether which who why will with
+        without won would you your
+        api apis best between correct correctly difference doc docs document documentation example examples
+        explain guide latest library libraries new official package properly reference show tell tutorial
+        version versus vs work works
+        add build call configure create fix handle implement install make migrate run set setup update upgrade write
+    """.split())
+    _CONTEXT7_PREPOSITIONS = frozenset({"in", "with", "for", "using", "from", "of", "via", "on"})
+
+    @classmethod
+    def _context7_names(cls, query: str) -> list[str]:
+        """Library-name candidates in a question, the most name-like first.
+
+        A dotted or capitalised technology name (vue-router, Next.js, React) outranks a
+        camelCase API member (useEffect), which outranks a plain word, and a word after
+        in/with/for gains more: "How do I use useEffect in React?" names React, not "do".
+        """
+        ranked = []
+        previous = ""
+        for index, match in enumerate(re.finditer(r"@?[A-Za-z][A-Za-z0-9_.+/@-]*", re.sub(r"https?://\S+", " ", query))):
+            word = match.group().rstrip("._/-")
+            folded = word.casefold()
+            if len(folded) < 2 or folded in cls._CONTEXT7_STOPWORDS or re.fullmatch(r"v?\d[\d.]*", folded):
+                previous = folded
+                continue
+            if re.search(r"[./@+-]", word):
+                score = 3
+            elif word[0].isupper() and not word.isupper():
+                # A capital that only starts the sentence proves less than one mid-sentence.
+                score = 1 if index == 0 and word[1:].islower() else 2
+            elif word.isupper():
+                score = -1  # acronyms such as ORM or SQL
+            elif not word.islower():
+                score = 1  # camelCase members such as useEffect still point at their library
+            else:
+                score = 0
+            if previous in cls._CONTEXT7_PREPOSITIONS:
+                score += 3
+            ranked.append((-score, index, word))
+            previous = folded
+        return list(dict.fromkeys(word for _, _, word in sorted(ranked)))
+
+    @staticmethod
+    def _context7_name_forms(text: str) -> set[str]:
+        """Comparable spellings: react, reactjs and react.js are one name; react-query is another."""
+        forms = set()
+        for token in re.findall(r"[a-z0-9_.+-]+", text.casefold()):
+            token = token.strip("._-")
+            if token:
+                forms.update({token, re.sub(r"(?:[._-]?js|\.(?:dev|io|org|com))$", "", token) or token})
+        return forms
+
     async def _context7(self, query: str) -> list[dict]:
-        words = re.findall(r"[A-Za-z][A-Za-z0-9_.-]*", re.sub(r"https?://\S+", "", query))
-        generic = {"how", "what", "does", "the", "and", "explain", "use", "using", "latest", "official", "documentation", "docs", "please", "in", "for", "is", "a", "an"}
-        name = next((word for word in words if word.casefold() not in generic), "")
-        if not name:
-            raise ProviderCallError("quality_error", "Context7 could not identify the requested library name")
-        libraries = _check_data(await self.svc.context7_library(name, query)).get("results", [])[:20]
+        names = self._context7_names(query)
+        if not names:
+            raise QueryMissError("quality_error", "Context7 could not identify the requested library name")
+        libraries = _check_data(await self.svc.context7_library(names[0], query)).get("results", [])[:20]
         libraries = [item for item in libraries if item.get("id")]
         if not libraries:
             return []
         # Library IDs come from Context7, never free-form model output. This is a
         # dependent provider operation after search, not a second routing review.
-        library = None
+        scores = None
         if self.client.settings.api_key and self.client.last_error is None:
             try:
                 scores = await self.client.evaluate(
@@ -366,19 +422,30 @@ class ChannelExecutor:
                     ) for i in range(len(libraries))},
                     "context7_library",
                 )
-                best = max(range(len(libraries)), key=lambda i: scores[f"library_{i}"])
-                if scores[f"library_{best}"] >= 0.5:
-                    library = libraries[best]
-                else:
-                    raise ProviderCallError("quality_error", "Context7 returned no relevant library")
             except ProviderCallError as exc:
                 if exc.error_type == "quality_error":
                     raise
-        if library is None:
-            matches = [item for item in libraries if name.casefold() in re.findall(r"[a-z0-9_.-]+", (item.get("title", "") + " " + item["id"]).casefold())]
-            if len(matches) != 1:
-                raise ProviderCallError("quality_error", "Context7 library resolution is ambiguous or unrelated")
-            library = matches[0]
+                # A router outage falls back to name matching below.
+        # A miss below is about this question, not Context7's health: QueryMissError
+        # is reported on the attempt and never opens a provider cooldown.
+        if scores is not None:
+            best = max(range(len(libraries)), key=lambda i: scores[f"library_{i}"])
+            if scores[f"library_{best}"] < 0.5:
+                raise QueryMissError("quality_error", "Context7 returned no relevant library")
+            library = libraries[best]
+        else:
+            # Without Jev only a unique name match is read; the best-ranked candidate that
+            # matches anything decides, so a lower-ranked word cannot settle a tie.
+            for name in names:
+                forms = self._context7_name_forms(name.rsplit("/", 1)[-1])
+                matches = [item for item in libraries if forms & self._context7_name_forms(item.get("title", "") + " " + item["id"])]
+                if len(matches) > 1:
+                    raise QueryMissError("quality_error", f"Context7 library resolution is ambiguous: {len(matches)} libraries match {name}")
+                if matches:
+                    library = matches[0]
+                    break
+            else:
+                raise QueryMissError("quality_error", "Context7 returned only libraries unrelated to " + ", ".join(names[:3]))
         data = await self.svc.context7_docs(library["id"], query)
         if data.get("error_type") == "evidence_error":
             return []
