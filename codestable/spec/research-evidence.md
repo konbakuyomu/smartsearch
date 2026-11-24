@@ -10,9 +10,10 @@
 - 选路历史只含最近两组历史中各最多六条操作摘要（提供方、操作、状态、错误、URL 和短查询），不重新灌入完整传输或联网工具轨迹。完整诊断轨迹仍保留在结果中；不能让更详细的观测数据挤占后续判断的输入预算。
 - 候选 source.title 最多 200 字符，超长时标记 metadata_truncated；后续模型上下文的题名和 URL 分别限制为 200 与 500 字符。实际抓取目标 URL 不截断，原始发现记录仍保留，不把异常长的上游标题反复复制进有界判断输入。
 - 已读页面的相关同源 Markdown 链接可进入详情页候选池，保留链接标题和 parent_url，仍按未读发现处理；图片、安装包和归档文件不进入网页读取候选。后续主搜索候选把现有证据与缺口作为独立 evidence_context 传给模型，供核验具体冲突，不能把摘录当作已验证事实；Tavily、Exa 等索引服务仍只收到原问题或计划生成的短查询，避免把整段证据塞入检索 query。限定来源规则也约束这些新链接。
-- 请求明确表示“只读取”“只基于”“仅使用”指定 URL 或相应英文限制时，只调度这些 URL 的读取，不从其他网页替代证据。“优先”不等同于“仅限”。这是一组明确措辞的解析规则，不是任意自然语言限制的完整理解器。
-- 正文读取和主搜索模型保留本轮 retrieval timeout，不因快速索引结果到达而取消。配置可用专用总结模型且启用 true，或有 Jev 的 auto 时，原总时限内预留 40%（最多 60 秒）用于最终评估、总结决策和实际总结；发现、选路和过滤使用提前的截止时间。剩余发现预算不足以开展有意义的下一轮时直接进入交付阶段，避免启动必然很短的读取。最终评估可使用预留时间，不能因发现截止时间到达而令 auto 错报 judgment_unavailable；外部取消和总截止时间仍生效。普通 search、false 模式及无可用专用总结模型时不预留。
+- 限定来源必须落在 URL 上：限定词后面直接写 URL（如“只用 / 只读取 / 仅使用 <URL>”“Only use / Use only <URL>”，中间可隔“the supplied page”“以下两篇论文”这类短名词短语，以“和、、、and”连写的一组 URL 一并算），或 URL 后跟“only”“为唯一来源”，就只调度这些 URL 的读取；“仅使用这个链接”“only these sources”这类指代语，以及“不要替换来源”“do not substitute”，指问题里的全部 URL。“只用官方来源”“Use only official sources”说的是来源类型而不是 URL，不会把研究锁定到问题里出现的某个 URL，发现照常进行。“优先”不等同于“仅限”。这是一组明确措辞的解析规则，不是任意自然语言限制的完整理解器。
+- 正文读取和主搜索模型保留本轮 retrieval timeout，不因快速索引结果到达而取消。配置可用专用总结模型且启用 true，或有 Jev 的 auto 时，原总时限内预留 40%（最多 60 秒）用于最终评估、总结决策和实际总结；发现、选路和过滤使用提前的截止时间。剩余发现预算不足以开展有意义的下一轮时直接进入交付阶段，避免启动必然很短的读取。最终评估可使用预留时间，不能因发现截止时间到达而令 auto 错报 judgment_unavailable；可选过滤也只用到发现截止时间，过滤因此超时只保留原证据，不把 Jev 判为不可用；过滤后的重新评估、总结决策和总结都可用预留时间。外部取消和总截止时间仍生效。普通 search、false 模式及无可用专用总结模型时不预留。
 - research 与直接 fetch 复用 `src/smart_search/service.py` 中的抓取回退链。回退只能使用已配置、已启用、未被禁用且被调用方允许的提供方；fallback=off 保持单提供方。每次空结果、错误和成功均保留在 provider_attempts，正文注明实际成功提供方。
+- 同一次研究里，一个读取提供方对同一 URL 最多调用一次：同轮选中的几个读取名额（例如本地路由给同一 URL 选了 Tavily 和 Firecrawl）与各自的回退链共用已用记录，后续轮次换读取器重试时也不再回到用过的提供方。被跳过的名额没有发生调用，不记尝试。
 - 已读取的非空正文若被评估为无用，后续轮次可以在同一 URL 尝试尚未调用的读取提供方；原始抓取版本仍保留，不把一次无用摘录当作原文不存在或全部无关的证明。
 
 ## 文档与摘录
@@ -25,11 +26,15 @@ Context7 分开传递技术名称和完整问题。Jev 可以在普通搜索和�
 
 ## 完成与失败
 
-研究结果保留原有 ok 的检索成功含义，另提供 completion：retrieval、evidence、synthesis、answer 和 unique_read_sources。answer=complete 需要存在已读证据、缺口关闭且计划中的总结未失败；它反映本次工作流判断，不是外部人工验证结论。
+研究结果保留原有 ok 的检索成功含义，另提供 completion：retrieval、evidence、synthesis、answer、reason 和 unique_read_sources。answer=complete 需要存在已读证据、缺口关闭、计划中的总结未失败，且 auto 的总结决策确实做过；它反映本次工作流判断，不是外部人工验证结论。不完整时 reason 取 cancelled、no_read_evidence、synthesis_failed、synthesis_decision_failed、synthesis_decision_skipped 或 evidence_gaps 之一（按此优先）。auto 已有可用证据和总结模型，却因 Jev 不可用（例如过滤出错）跳过总结决策时，answer=partial、reason=synthesis_decision_skipped，不报 complete。
 
-证据闭合要求全局 sufficient 达到既有配置门槛，且没有分数达到 0.5 的单项实质缺口。输出保留 sufficiency_threshold 和 sufficiency_margin，不为消除边界波动降低阈值。相同问题、验证级别与已读证据身份在同次研究内复用原判断；新正文进入后重新评估。概率服务跨调用仍可能波动，不能把分数当作经校准的正确率。
+证据闭合要求全局 sufficient 达到既有配置门槛，且没有分数达到 0.5 的单项实质缺口。单项缺口让 sufficient=false、研究继续补缺、completion.evidence 与 answer 降为 degraded / partial，但不改变 ok 和退出码：assessment 另给 global_sufficient（只看全局门槛），strict 的 ok 仍按它判断，与引入单项缺口之前相同（达到门槛 ok=true、退出码 0；未达到仍是 evidence_error、退出码 4）。输出保留 sufficiency_threshold 和 sufficiency_margin，不为消除边界波动降低阈值。相同问题、验证级别与已读证据身份在同次研究内复用原判断；新正文进入后重新评估。概率服务跨调用仍可能波动，不能把分数当作经校准的正确率。
 
-总结失败时保留证据报告及原始错误，degraded=true、partial_success=true、completion.answer=partial；不把已齐的证据缺口伪装成未齐，也不把检索成功等同于总结成功。调用方需要完整答案时应检查 completion.answer。
+总结失败时保留证据报告及原始错误，degraded=true、partial_success=true、completion.answer=partial；不把已齐的证据缺口伪装成未齐，也不把检索成功等同于总结成功。调用方需要完整答案时应检查 completion.answer；公开与打包的 smart-search-cli 技能同样提示调用方读 completion.answer、reason、gap_check 和 synthesis，不只看 ok。
+
+ok=true 而 answer=partial 时，CLI Markdown 的状态行写成「成功（答案不完整：<原因>）」/「OK (answer partial: <reason>)」，原因按 reason 取中英文说明，不再只写成功 / OK；桌面 App 的结果正文来自同一 Markdown（display_text），任务状态和退出码仍随 ok（完成、0）。
+
+取消后 ok=false、error_type=cancelled。已有已读正文或已发现网址时 partial_success=true；只发现了网址、还没读到正文时 answer=failed、reason=cancelled，discovery_sources 保留这些网址，degraded_reason 如实写明“读取任何来源之前已取消，只返回已发现的网址”，不说返回了摘录。
 
 阶段日志分别记录 synthesis_decision 和实际 synthesis 的成功、失败、超时或取消；超时列表保留实际阶段。预留量由 routing_decision.limits.synthesis_reserved_seconds 报告，不延长用户指定的总时限。
 

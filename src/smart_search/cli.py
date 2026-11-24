@@ -397,6 +397,23 @@ def _provider_notice_lines(data: dict[str, Any]) -> list[str]:
     return ["", tr('> Degraded providers: {0}. `smart-search providers status` for details.', ', '.join(parts))]
 
 
+def _research_status_label(data: dict[str, Any]) -> str:
+    """`ok` keeps its retrieval meaning; a partial answer is never shown as plain OK."""
+    label = _status_label(data.get("ok"))
+    completion = data.get("completion") or {}
+    if completion.get("answer") != "partial":
+        return label
+    reasons = {
+        "evidence_gaps": tr('evidence gaps remain; see Gaps'),
+        "synthesis_failed": tr('synthesis failed; the report shows source excerpts'),
+        "synthesis_decision_failed": tr('the automatic synthesis decision failed; the report shows source excerpts'),
+        "synthesis_decision_skipped": tr('Jev was unavailable for the synthesis decision; the report shows source excerpts'),
+        "cancelled": tr('research was cancelled'),
+    }
+    reason = completion.get("reason", "")
+    return tr('{0} (answer partial: {1})', label, reasons.get(reason, reason or "completion"))
+
+
 def _format_result_markdown(command: str, data: dict[str, Any], title: str) -> str:
     lines = [
         f"# {title}",
@@ -1087,7 +1104,7 @@ def _format_markdown(command: str, data: dict[str, Any]) -> str:
             tr('# Research Report'),
             "",
             tr('**Question:** {0}', data.get('question', '')),
-            tr('**Status:** {0}', _status_label(data.get('ok'))),
+            tr('**Status:** {0}', _research_status_label(data)),
             tr('**Route policy:** {0}', data.get('route_policy_version', '')),
             tr('**Evidence dir:** `{0}`', data.get('evidence_dir', '')),
             tr('**Fallback used:** {0}', bool(data.get('fallback_used'))),

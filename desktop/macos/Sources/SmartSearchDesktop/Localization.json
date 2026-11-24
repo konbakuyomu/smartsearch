@@ -18294,5 +18294,37 @@
   "SpecStream API request timed out": [
     "SpecStream API 请求超时",
     "SpecStream API request timed out"
+  ],
+  "{0} (answer partial: {1})": [
+    "{0}（答案不完整：{1}）",
+    "{0} (answer partial: {1})"
+  ],
+  "evidence gaps remain; see Gaps": [
+    "证据仍有缺口，见“缺口”一节",
+    "evidence gaps remain; see Gaps"
+  ],
+  "synthesis failed; the report shows source excerpts": [
+    "总结失败，报告只列出来源摘录",
+    "synthesis failed; the report shows source excerpts"
+  ],
+  "the automatic synthesis decision failed; the report shows source excerpts": [
+    "自动总结判断失败，报告只列出来源摘录",
+    "the automatic synthesis decision failed; the report shows source excerpts"
+  ],
+  "Jev was unavailable for the synthesis decision; the report shows source excerpts": [
+    "Jev 不可用，没有做自动总结判断，报告只列出来源摘录",
+    "Jev was unavailable for the synthesis decision; the report shows source excerpts"
+  ],
+  "research was cancelled": [
+    "研究已取消",
+    "research was cancelled"
+  ],
+  "Research was cancelled; returning the source excerpts read before cancellation.": [
+    "研究已取消，返回取消前已读取的来源摘录。",
+    "Research was cancelled; returning the source excerpts read before cancellation."
+  ],
+  "Research was cancelled before any source was read; returning discovered URLs only.": [
+    "研究在读取任何来源之前已取消，只返回已发现的网址。",
+    "Research was cancelled before any source was read; returning discovered URLs only."
   ]
 }
