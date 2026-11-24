@@ -417,6 +417,11 @@ class ChannelExecutor:
         return content, cfg["model"]
 
 
+def _globally_sufficient(assessment: dict) -> bool:
+    """The configured sufficiency threshold alone, without per-item gap vetoes."""
+    return bool(assessment.get("global_sufficient", assessment.get("sufficient")))
+
+
 def _append_evidence(evidence: list[dict], items: list[dict]) -> None:
     seen = {(item["url"], item["content"]): item for item in evidence}
     for item in items:
@@ -774,10 +779,17 @@ async def search(
         filter_info: dict = {"enabled": settings.filter_results, "status": "disabled" if not settings.filter_results else "skipped"}
         if settings.filter_results and assessment["useful"] and judge_available and time.monotonic() < retrieval_deadline:
             before_filter = evidence
+            phase_start = time.monotonic()
             evidence, filter_info = await filter_evidence(client, query, evidence)
+            filter_timed_out = filter_info.get("reason") == "timeout"
+            execution.record("filter", "timeout" if filter_timed_out else "error" if filter_info.get("error") else "ok",
+                             phase_start, max(0.0, retrieval_deadline - phase_start), reason=filter_info.get("error", ""))
             if filter_info["status"] != "ok":
                 warnings.append("Filtering retained the original evidence: " + filter_info.get("reason", "unknown"))
-                if filter_info.get("error"):
+                # Filtering is optional and shares the retrieval cutoff. Running
+                # out of that time keeps the original evidence and leaves the
+                # reserved delivery time to Jev; only a real Jev error disables it.
+                if filter_info.get("error") and not filter_timed_out:
                     judge_available, degraded = False, True
             elif evidence != before_filter:
                 try:
@@ -794,8 +806,9 @@ async def search(
 
         client.deadline = budget.deadline
 
-        if validation == "strict" and assessment["sufficient"] and not has_source_evidence(evidence):
-            assessment = {**assessment, "status": "partial", "sufficient": False, "gaps": ["authority"]}
+        if validation == "strict" and _globally_sufficient(assessment) and not has_source_evidence(evidence):
+            assessment = {**assessment, "status": "partial", "sufficient": False, "global_sufficient": False,
+                          "gaps": list(dict.fromkeys([*assessment.get("gaps", []), "authority"]))}
             stopped = "filtered_sources_insufficient"
             warnings.append("Filtering retained useful material but no source evidence for strict validation.")
 
@@ -816,6 +829,9 @@ async def search(
             synthesis["reason"] = "no_confirmed_useful_evidence"
         if settings.synthesis_mode == "auto" and not judge_available:
             synthesis["reason"] = "judgment_unavailable"
+            # Useful evidence and a usable model, but nobody decided: this is
+            # not a complete answer, even when the evidence gaps are closed.
+            synthesis["decision_skipped"] = bool(useful_evidence and synthesis_available)
         if settings.synthesis_mode == "auto" and useful_evidence and judge_available:
             phase_start = time.monotonic()
             try:
@@ -871,7 +887,9 @@ async def search(
             sources.append({key: value for key, value in item.items() if key != "content"})
     ok = stopped != "cancelled" and bool(answer_evidence and (not is_research or assessment["useful"] or not judge_available))
     if validation == "strict":
-        ok = ok and has_source_evidence(evidence) and (not is_research or assessment["sufficient"])
+        # Exit codes follow ok. Keep the global threshold that decided ok before
+        # per-item gaps existed; those gaps lower completion, not ok.
+        ok = ok and has_source_evidence(evidence) and (not is_research or _globally_sufficient(assessment))
     terminal_error = next((item for item in reversed(attempts) if item.get("error_type")), {})
     error_type = "" if ok else (failure.error_type if failure else "timeout" if stopped == "deadline" else "evidence_error")
     error = "" if ok else (failure.error if failure else "Search deadline exhausted" if stopped == "deadline"
@@ -955,18 +973,36 @@ def _research_result(svc, result, query, evidence, plan):
                   gap_check={"status": "closed" if items and not gaps else "degraded" if items else "failed", "gaps": gaps, "stop_reason": stopped},
                   degraded=bool(gaps) or degraded, evidence_dir=evidence_root, route_policy_version="jev-v2",
                   capability_status=svc.get_capability_status())
-    synthesis_status = result.get("synthesis", {}).get("status")
-    synthesis_failed = synthesis_status in {"failed", "decision_failed", "cancelled"}
+    synthesis = result.get("synthesis", {})
+    synthesis_status = synthesis.get("status")
+    cancelled = stopped == "cancelled"
+    # One reason explains why the answer is not complete; ok keeps its
+    # retrieval meaning and the exit code that follows from it.
+    reason = ("cancelled" if cancelled else "no_read_evidence" if not items
+              else "synthesis_failed" if synthesis_status == "failed"
+              else "synthesis_decision_failed" if synthesis_status == "decision_failed"
+              else "synthesis_decision_skipped" if synthesis.get("decision_skipped")
+              else "evidence_gaps" if gaps else "")
     unique_sources = list(dict.fromkeys(item["url"] for item in items))
     result["completion"] = {
         "retrieval": "ok" if items else "failed",
         "evidence": result["gap_check"]["status"],
         "synthesis": synthesis_status or "not_run",
-        "answer": "complete" if items and not gaps and not synthesis_failed else "partial" if items else "failed",
+        "answer": "complete" if items and not reason else "partial" if items else "failed",
+        "reason": reason,
         "unique_read_sources": len(unique_sources),
     }
-    if synthesis_failed:
-        result.update(degraded=True, degraded_reason="Research synthesis did not complete; returning source excerpts.", partial_success=bool(items))
+    if cancelled:
+        # Say what is actually returned; discovered URLs alone are still a
+        # partial result, as before completion existed.
+        cancel_reason = (source_message('Research was cancelled; returning the source excerpts read before cancellation.') if items
+                         else source_message('Research was cancelled before any source was read; returning discovered URLs only.')
+                         if result["discovery_sources"] else result.get("degraded_reason") or source_message('任务已取消。'))
+        result.update(degraded=True, degraded_reason=cancel_reason, partial_success=bool(result.get("partial_success") or items))
+    elif reason in {"synthesis_failed", "synthesis_decision_failed"}:
+        result.update(degraded=True, degraded_reason="Research synthesis did not complete; returning source excerpts.", partial_success=True)
+    elif reason == "synthesis_decision_skipped":
+        result.update(degraded=True, partial_success=True)
     svc._write_research_artifact(evidence_root, "00-plan.json", plan)
     for index, item in enumerate(items, 1):
         svc._write_research_artifact(evidence_root, f"evidence-{index:02d}.md", item["content"])

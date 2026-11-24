@@ -382,12 +382,16 @@ async def assess_evidence(client: JevClient, query: str, evidence: list[dict], v
     scores = await client.evaluate({"question": query, "validation": validation, "evidence": preview, "unique_read_sources": unique_sources}, questions, "assessment")
     useful = scores["useful"] >= 0.5
     material_gaps = [key for key in GAP_CRITERIA if scores[f"gap_{key}"] >= 0.5]
-    sufficient = useful and scores["sufficient"] >= client.settings.sufficiency_threshold and not material_gaps
+    # global_sufficient is the configured threshold alone; it decides ok (and
+    # so the exit code) as before. A material item gap still keeps the
+    # evidence open: sufficient=False, research continues, completion is partial.
+    global_sufficient = useful and scores["sufficient"] >= client.settings.sufficiency_threshold
     if validation == "strict" and not has_source_evidence(evidence):
-        sufficient = False
+        global_sufficient = False
+    sufficient = global_sufficient and not material_gaps
     return {
         "status": "sufficient" if sufficient else ("partial" if useful else "irrelevant"),
-        "useful": useful, "sufficient": sufficient,
+        "useful": useful, "sufficient": sufficient, "global_sufficient": global_sufficient,
         "gaps": (material_gaps or ["unresolved"]) if not sufficient else [],
         "scores": scores, "preview_truncated": any(item["truncated"] for item in preview),
         "sufficiency_threshold": client.settings.sufficiency_threshold,
