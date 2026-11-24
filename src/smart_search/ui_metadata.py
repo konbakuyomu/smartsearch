@@ -373,6 +373,26 @@ CONFIG_FIELDS: tuple[ConfigField, ...] = (
        label_zh="Firecrawl 地址", label_en="Firecrawl API URL", default="https://api.firecrawl.dev/v2",
        provider="firecrawl", capabilities=("web_fetch", "web_search")),
 
+    # ---- providers: SpecStream --------------------------------------------
+    _f(key="SPECSTREAM_API_KEY", section="providers", tier="enhancement", kind="secret",
+       label_zh="SpecStream API Key", label_en="SpecStream API key",
+       help_zh="一个 Key 同时支持实时网页搜索和网页正文提取。",
+       help_en="One key enables live web search and webpage extraction.",
+       provider="specstream", capabilities=("web_search", "web_fetch"),
+       key_url="https://specstream.ai", docs_url="https://specstream.ai/docs"),
+    _f(key="SPECSTREAM_SEARCH_API_URL", section="providers", tier="advanced", kind="url",
+       help_zh="SpecStream 搜索接口地址，使用官方服务时保留默认值。",
+       help_en="SpecStream search endpoint URL. Keep the default for the official service.",
+       label_zh="SpecStream 搜索地址", label_en="SpecStream search API URL",
+       default="https://api.specstream.ai/v1/web-search",
+       provider="specstream", capabilities=("web_search",)),
+    _f(key="SPECSTREAM_FETCH_API_URL", section="providers", tier="advanced", kind="url",
+       help_zh="SpecStream 网页提取接口地址，使用官方服务时保留默认值。",
+       help_en="SpecStream extract endpoint URL. Keep the default for the official service.",
+       label_zh="SpecStream 提取地址", label_en="SpecStream fetch API URL",
+       default="https://api.specstream.ai/v1/extract",
+       provider="specstream", capabilities=("web_fetch",)),
+
     # ---- providers: TinyFish ----------------------------------------------
     _f(key="TINYFISH_API_KEY", section="providers", tier="enhancement", kind="secret",
        label_zh="TinyFish API Key", label_en="TinyFish API key",

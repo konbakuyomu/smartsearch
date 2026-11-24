@@ -164,6 +164,8 @@ class ChannelExecutor:
                 content = _check_data(await svc.jina_fetch(url)).get("content")
             elif provider == "zhipu-mcp-reader":
                 content = _check_data(await svc.zhipu_mcp_reader(url)).get("content")
+            elif provider == "specstream":
+                content = _check_data(await svc.call_specstream_fetch(url)).get("content")
             elif provider == "tinyfish":
                 content = _check_data(await svc.call_tinyfish_fetch(url)).get("content")
             elif provider == "deepseek":
@@ -181,6 +183,8 @@ class ChannelExecutor:
             results = await svc.call_tavily_search(query, self.count) or []
         elif provider == "firecrawl":
             results = await svc.call_firecrawl_search(query, self.count) or []
+        elif provider == "specstream":
+            results = await svc.call_specstream_search(query, self.count) or []
         elif provider == "tinyfish":
             results = await svc.call_tinyfish_search(query, self.count) or []
         elif provider == "deepseek":

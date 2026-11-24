@@ -7,6 +7,7 @@ from .xai_responses import XAIResponsesSearchProvider
 from .exa import ExaSearchProvider
 from .jina import JinaReaderProvider
 from .sciverse import SciverseProvider
+from .specstream import SpecStreamFetchProvider, SpecStreamSearchProvider
 from .tinyfish import TinyFishFetchProvider, TinyFishSearchProvider
 from .yuanbao import YuanbaoSearchProvider
 from .zhipu import ZhipuWebSearchProvider
@@ -23,6 +24,8 @@ __all__ = [
     "ExaSearchProvider",
     "JinaReaderProvider",
     "SciverseProvider",
+    "SpecStreamFetchProvider",
+    "SpecStreamSearchProvider",
     "TinyFishFetchProvider",
     "TinyFishSearchProvider",
     "YuanbaoSearchProvider",
