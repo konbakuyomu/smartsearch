@@ -1106,16 +1106,16 @@ def _citation_items(evidence_items: list[dict[str, Any]]) -> list[dict[str, str]
 
 
 def _evidence_only_synthesis(question: str, evidence_items: list[dict[str, Any]], gaps: list[dict[str, Any]]) -> str:
+    from .evidence import relevant_excerpt
     if not evidence_items:
         return (
             f"未能为 `{question}` 获取可引用的页面正文证据。"
             "本次 research 已停止在降级状态，未对缺证据的结论做断言。"
         )
     lines = [f"Research result for: {question}", ""]
-    lines.append("Evidence-backed findings:")
+    lines.append("Retrieved source excerpts:")
     for index, item in enumerate(evidence_items, 1):
-        content = re.sub(r"\s+", " ", (item.get("content") or "").strip())
-        excerpt = content[:360]
+        excerpt = relevant_excerpt((item.get("content") or "").strip(), question, 1600)
         lines.append(f"{index}. {item.get('title') or item.get('url')} ({item.get('provider')})")
         if excerpt:
             lines.append(f"   Evidence excerpt: {excerpt}")
@@ -1817,8 +1817,10 @@ async def _run_web_fetch_fallback(
     preferred_order: list[str] | None = None,
     *,
     deadline: float | None = None,
+    allowed_providers: set[str] | None = None,
+    attempts: list[dict] | None = None,
 ) -> tuple[dict[str, Any] | None, list[dict]]:
-    attempts: list[dict] = []
+    attempts = [] if attempts is None else attempts
     providers = []
     if _provider_configured("tavily"):
         providers.append("tavily")
@@ -1832,9 +1834,11 @@ async def _run_web_fetch_fallback(
         providers.append("tinyfish")
     if _provider_configured("deepseek"):
         providers.append("deepseek")
+    if allowed_providers is not None:
+        providers = [provider for provider in providers if provider in allowed_providers]
     if preferred_order:
         allowed = {provider for provider in providers}
-        ordered = [provider for provider in preferred_order if provider in allowed]
+        ordered = list(dict.fromkeys(provider for provider in preferred_order if provider in allowed))
         ordered.extend(provider for provider in providers if provider not in ordered)
         providers = ordered
     if fallback == "off":
@@ -1895,6 +1899,9 @@ async def _run_web_fetch_fallback(
                     "content": content,
                 }, attempts
             attempts.append(_attempt("web_fetch", provider, "empty", start))
+        except asyncio.CancelledError:
+            attempts.append(_attempt("web_fetch", provider, "cancelled", start, error_type="cancelled", error="fetch cancelled"))
+            raise
         except Exception as e:
             attempts.append(_attempt_with_health("web_fetch", provider, start, e))
     return None, attempts

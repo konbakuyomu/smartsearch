@@ -429,7 +429,7 @@ async def test_model_answer_quality_uses_same_capability_fallback(monkeypatch, p
         }
         assert any("Search model answer rejected" in warning for warning in result["warnings"])
         if primary == "openai-compatible":
-            assert any("XAI_API_URL" in warning for warning in result["warnings"])
+            assert any("OPENAI_COMPATIBLE_API_MODE=responses" in warning for warning in result["warnings"])
 
 
 @pytest.mark.asyncio
@@ -447,7 +447,7 @@ async def test_rejected_model_answer_keeps_degraded_reason(monkeypatch):
     assert result["degraded"] is True
     assert result["degraded_reason"].startswith("TYPESAFE_API_KEY is not configured")
     assert result["answer_check"]["reason"] == "no_web_search"
-    assert any("XAI_API_URL" in warning for warning in result["warnings"])
+    assert any("OPENAI_COMPATIBLE_API_MODE=responses" in warning for warning in result["warnings"])
 
 
 @pytest.mark.asyncio
@@ -749,7 +749,7 @@ async def test_model_answer_with_body_markdown_link_keeps_success_without_fallba
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("research", [False, True])
-async def test_context7_without_jev_selects_first_library(monkeypatch, research):
+async def test_context7_without_jev_selects_unique_matching_library(monkeypatch, research):
     async def libraries(*args, **kwargs):
         return {"ok": True, "results": [
             {"id": "/first/library", "title": "First candidate"},
@@ -757,19 +757,19 @@ async def test_context7_without_jev_selects_first_library(monkeypatch, research)
         ]}
 
     async def docs(library_id, query):
-        assert library_id == "/first/library"
+        assert library_id == "/reactjs/react.dev"
         return {"ok": True, "content": "Documentation"}
 
     monkeypatch.setattr(service, "context7_library", libraries)
     monkeypatch.setattr(service, "context7_docs", docs)
     client = SimpleNamespace(settings=SimpleNamespace(api_key=""), last_error=None)
     results = await ChannelExecutor(service, client, research=research)._context7("React API docs")
-    assert results[0]["url"] == "context7:/first/library"
+    assert results[0]["url"] == "context7:/reactjs/react.dev"
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failed", [False, True])
-async def test_context7_jev_unresolved_selects_first_library(monkeypatch, failed):
+async def test_context7_jev_unresolved_rejects_unrelated_libraries(monkeypatch, failed):
     async def libraries(*args, **kwargs):
         return {"ok": True, "results": [{"id": "/first/library"}, {"id": "/second/library"}]}
 
@@ -779,14 +779,13 @@ async def test_context7_jev_unresolved_selects_first_library(monkeypatch, failed
         return {"library_0": 0.1, "library_1": 0.4}
 
     async def docs(library_id, query):
-        assert library_id == "/first/library"
-        return {"ok": True, "content": "Documentation"}
+        pytest.fail("Unresolved library must not be read")
 
     monkeypatch.setattr(service, "context7_library", libraries)
     monkeypatch.setattr(service, "context7_docs", docs)
     client = SimpleNamespace(settings=SimpleNamespace(api_key="jev-test"), last_error=None, evaluate=evaluate)
-    results = await ChannelExecutor(service, client, research=True)._context7("React API docs")
-    assert results[0]["url"] == "context7:/first/library"
+    with pytest.raises(ProviderCallError, match="relevant|unrelated"):
+        await ChannelExecutor(service, client, research=True)._context7("React API docs")
 
 
 @pytest.mark.asyncio

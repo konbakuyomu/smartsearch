@@ -116,6 +116,7 @@ flowchart LR
 - 改 App、CLI 与 Skill 的分工，或安装、更新流程 → `docs/app-cli-boundary.md`
 - 改原生客户端与后端之间的协议 → `desktop/PROTOCOL.md`
 - 改选路 → `docs/jev-routing.md`
+- 改研究流程的证据选路、原文回退和完成状态 → [研究证据流程](research-evidence.md)
 - 用户视角的完整说明 → `docs/guide/zh-CN/`（英文在 `docs/guide/en/`）
 - 开发与发布 → `docs/guide/zh-CN/development.md`；每版说明在 `.github/releases/`
 

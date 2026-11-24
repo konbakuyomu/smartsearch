@@ -5,6 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import math
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from collections.abc import Iterable
 from typing import Final
 
@@ -36,6 +39,36 @@ _SECRET_ASSIGNMENT_RE = re.compile(
     """
 )
 _BEARER_SECRET_RE = re.compile(r"(?i)\bbearer\s+[^\s,;}&]+")
+
+
+def retry_delay(response: httpx.Response | None = None, *, message: str = "") -> float | None:
+    """Parse upstream retry hints; unknown delays retain the normal policy."""
+    if response is not None:
+        for header, scale in (("retry-after-ms", .001), ("retry-after", 1.0)):
+            value = response.headers.get(header, "").strip()
+            if not value:
+                continue
+            try:
+                delay = float(value) * scale
+                if math.isfinite(delay) and delay >= 0:
+                    return delay
+            except ValueError:
+                if header == "retry-after":
+                    try:
+                        date = parsedate_to_datetime(value)
+                        date = date.replace(tzinfo=timezone.utc) if date.tzinfo is None else date
+                        return max(0, (date - datetime.now(timezone.utc)).total_seconds())
+                    except (ValueError, TypeError, OverflowError):
+                        pass
+        try:
+            message = response.text
+        except httpx.ResponseNotRead:
+            return None
+    match = re.search(r"(?:try again in|retry after)\s+(\d+(?:\.\d+)?)\s*(ms|milliseconds?|s|seconds?)\b", message, re.I)
+    if match:
+        delay = float(match[1]) / (1000 if match[2].lower().startswith("m") else 1)
+        return delay if math.isfinite(delay) else None
+    return None
 
 
 def sanitize_provider_error_message(
@@ -109,6 +142,8 @@ def classify_provider_exception(
             error_type = "provider_error"
         excerpt = _response_excerpt(response, additional_secrets=secrets)
         message = f"HTTP {status}"
+        if status == 429 and (delay := retry_delay(response)) is not None:
+            message += f" retry after {delay}s"
         if excerpt:
             message = f"{message}: {excerpt}"
         return error_type, message
