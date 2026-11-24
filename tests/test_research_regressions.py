@@ -334,7 +334,9 @@ async def test_429_hint_beyond_the_deadline_ends_within_the_search_deadline(monk
         await provider.search("q")
     assert time.monotonic() - started < budget + .5
     # The hint was honoured up to the deadline and never beyond it.
-    assert requests and sleeps and all(0 <= wait <= budget for wait in sleeps)
+    # deadline - now can exceed the budget by float rounding when the clock has
+    # not advanced since `started` (Windows' monotonic clock is coarse).
+    assert requests and sleeps and all(0 <= wait <= budget + 1e-9 for wait in sleeps)
 
 
 @pytest.mark.asyncio
