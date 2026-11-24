@@ -35,10 +35,10 @@ Context7 分开传递技术名称和完整问题。技术名称从问题中提�
 
 ## Responses 主搜索
 
-OpenAI 兼容通道的 Responses search 带 web_search 或 web_search_preview 时，默认不发 tool_choice，也不因缺少工具记录拒绝回答；传输记录保留观察到的 web_search_calls，并以 web_search_verified 标明是否看到完成的调用。OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=true（需要 responses 模式和 web_search 工具，否则为参数错误）时才发送 tool_choice=required，并要求终态输出中的完成项，或终态未以同一 item id 否定的 response.web_search_call.completed 事件；缺失或失败报 quality_error，接口以 400/422 拒绝 tool_choice 时报 parameter_error 并提示关闭该项。非流式与 SSE 回退使用同一规则；正文含引用不能代替执行证明。fetch、describe、rank、总结与连接测试不携带这组搜索工具或强制选择项。
+OpenAI 兼容通道的 Responses search 带 web_search 或 web_search_preview 时，默认不发 tool_choice，也不因缺少工具记录拒绝回答；传输记录保留观察到的 web_search_calls，并以 web_search_verified 标明是否看到完成的调用。OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=true（需要 responses 模式和 web_search 工具，否则为参数错误）时才发送 tool_choice=required，并要求终态输出中的完成项，或终态未以同一 item id 否定的 response.web_search_call.completed 事件；缺失或失败报 quality_error，接口以 400/422 拒绝 tool_choice 时报 parameter_error 并提示关闭该项。非流式与 SSE 回退使用同一规则；正文含引用不能代替执行证明。fetch、describe、rank、总结与连接测试不携带这组搜索工具或强制选择项。核验在 `src/smart_search/providers/openai_compatible.py`，开关与工具、接口模式的组合校验在 `src/smart_search/config.py`。
 
 ## 限流
 
-OpenAI 兼容适配器与提供方健康记录共用 retry hint 解析：支持 Retry-After、retry-after-ms 和错误正文的 try again in 提示。已知短暂限流从第一次 429 起按上游给出的等待时间冷却，但不超过配置的冷却时长；既有重试次数和共享截止时间仍约束重试，等待不越过截止时间。没有有效提示时使用原有策略，鉴权失败策略保持不变。
+OpenAI 兼容适配器与提供方健康记录共用 retry hint 解析：支持 Retry-After、retry-after-ms 和错误正文的 try again in 提示。已知短暂限流从第一次 429 起按上游给出的等待时间冷却，但不超过配置的冷却时长；既有重试次数和共享截止时间仍约束重试，等待不越过截止时间。没有有效提示时使用原有策略，鉴权失败策略保持不变。解析在 `src/smart_search/provider_errors.py`，冷却记录在 `src/smart_search/provider_health.py`。
 
 本流程不增加密钥；唯一的新设置项是默认关闭的 OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH。已有的 Jev、抓取提供方及独立总结模型配置继续生效。
