@@ -1,8 +1,12 @@
-"""SpecStream live web search and page extract provider.
+"""SpecStream live web search and page extract provider (experimental).
 
 Both endpoints authenticate with Bearer auth via ``SPECSTREAM_API_KEY``:
 - Search: ``POST https://api.specstream.ai/v1/web-search``
 - Extract: ``POST https://api.specstream.ai/v1/extract``
+
+Redirects are not followed: every request carries the key in its
+``Authorization`` header, and a redirect must not carry it to a host the user
+did not configure. A 3xx answer is reported as a provider error instead.
 """
 
 from __future__ import annotations
@@ -41,6 +45,29 @@ def _challenge_marker(content: str) -> str:
     return ""
 
 
+async def _post_json(api_url: str, api_key: str, body: dict[str, Any], read_timeout: float, verify: bool) -> Any:
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    timeout = httpx.Timeout(connect=6.0, read=read_timeout, write=10.0, pool=None)
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False, verify=verify) as client:
+        response = await client.post(api_url, headers=headers, json=body)
+        if 300 <= response.status_code < 400:
+            raise ProviderCallError(
+                "provider_error",
+                source_message(
+                    'SpecStream returned a redirect (HTTP {0}) to {1}; redirects are not followed. Check the SpecStream API URL.',
+                    response.status_code,
+                    response.headers.get("location") or "-",
+                ),
+                additional_secrets=(api_key,),
+            )
+        response.raise_for_status()
+        return response.json()
+
+
 def _normalize_search_result(item: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {
         "title": item.get("title") or "",
@@ -58,9 +85,10 @@ def _normalize_search_result(item: dict[str, Any]) -> dict[str, Any]:
 
 
 class SpecStreamSearchProvider(BaseSearchProvider):
-    def __init__(self, api_url: str, api_key: str, timeout: float = 30.0):
+    def __init__(self, api_url: str, api_key: str, timeout: float = 30.0, verify: bool = True):
         super().__init__(api_url, api_key)
         self.timeout = timeout
+        self.verify = verify
 
     def get_provider_name(self) -> str:
         return "specstream"
@@ -79,22 +107,13 @@ class SpecStreamSearchProvider(BaseSearchProvider):
                 ensure_ascii=False,
                 indent=2,
             )
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
         body = {
             "q": query,
             "num": min(max(1, int(max_results)), 20),
             "passages": True,
         }
         try:
-            timeout = httpx.Timeout(connect=6.0, read=self.timeout, write=10.0, pool=None)
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-                response = await client.post(self.api_url, headers=headers, json=body)
-                response.raise_for_status()
-                payload = response.json()
+            payload = await _post_json(self.api_url, self.api_key, body, self.timeout, self.verify)
             if not isinstance(payload, dict):
                 raise ProviderCallError(
                     "parse_error",
@@ -133,10 +152,11 @@ class SpecStreamSearchProvider(BaseSearchProvider):
 
 
 class SpecStreamFetchProvider:
-    def __init__(self, api_url: str, api_key: str, timeout: float = 45.0):
+    def __init__(self, api_url: str, api_key: str, timeout: float = 45.0, verify: bool = True):
         self.api_url = api_url
         self.api_key = api_key or ""
         self.timeout = timeout
+        self.verify = verify
 
     def get_provider_name(self) -> str:
         return "specstream"
@@ -156,18 +176,9 @@ class SpecStreamFetchProvider:
                 ensure_ascii=False,
                 indent=2,
             )
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
         body = {"urls": [url]}
         try:
-            timeout = httpx.Timeout(connect=6.0, read=self.timeout, write=10.0, pool=None)
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-                response = await client.post(self.api_url, headers=headers, json=body)
-                response.raise_for_status()
-                payload = response.json()
+            payload = await _post_json(self.api_url, self.api_key, body, self.timeout, self.verify)
             if not isinstance(payload, dict):
                 raise ProviderCallError(
                     "parse_error",

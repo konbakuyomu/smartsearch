@@ -64,6 +64,10 @@
 | `DEEPSEEK_API_KEY` | 与 DeepSeek 模型 API 共用 Key，一个 Key 支持网页搜索和抓取；按成功请求次数计费。测试会各发起一次真实请求。 | `secret` | 未设置 |
 | `DEEPSEEK_API_URL` | DeepSeek API 基础地址，程序会自动拼接 /v1/tools/search 和 /v1/tools/fetch；使用官方服务时保留默认值。 | `url` | `https://api.deepseek.com` |
 | `DEEPSEEK_TIMEOUT_SECONDS` | 等待此服务单次响应的最长秒数；超时会返回错误或按当前策略兜底，通常保留默认值。 | `float` | `60` |
+| `SPECSTREAM_API_KEY` | 一个 Key 支持网页搜索和网页正文提取，实验性。测试会各发起一次真实请求。 | `secret` | 未设置 |
+| `SPECSTREAM_SEARCH_API_URL` | SpecStream 搜索接口地址，使用官方服务时保留默认值。 | `url` | `https://api.specstream.ai/v1/web-search` |
+| `SPECSTREAM_FETCH_API_URL` | SpecStream 网页提取接口地址，使用官方服务时保留默认值。 | `url` | `https://api.specstream.ai/v1/extract` |
+| `SPECSTREAM_TIMEOUT_SECONDS` | 等待此服务单次响应的最长秒数；超时会返回错误或按当前策略兜底，通常保留默认值。 | `float` | `30` |
 | `ANYSEARCH_API_KEY` | 垂直领域搜索，实验性。 | `secret` | 未设置 |
 | `ANYSEARCH_API_URL` | AnySearch 的完整 MCP 接口地址，包含 /mcp；不是官网首页。 | `url` | `https://api.anysearch.com/mcp` |
 | `ANYSEARCH_TIMEOUT_SECONDS` | 等待此服务单次响应的最长秒数；超时会返回错误或按当前策略兜底，通常保留默认值。 | `float` | `30` |
@@ -79,6 +83,7 @@
 | `TINYFISH_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
 | `YUANBAO_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
 | `DEEPSEEK_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
+| `SPECSTREAM_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
 | `JINA_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
 | `ANYSEARCH_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |
 | `SCIVERSE_ENABLED` | 禁用后保留配置，不再发起请求。保存更改后生效。 | `bool` | `true` |

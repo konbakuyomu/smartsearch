@@ -18238,5 +18238,61 @@
   "Zhipu MCP returned search results in an unknown format": [
     "智谱 MCP 返回的搜索结果格式无法识别",
     "Zhipu MCP returned search results in an unknown format"
+  ],
+  "SPECSTREAM_API_KEY is not configured.": [
+    "未配置 SPECSTREAM_API_KEY。",
+    "SPECSTREAM_API_KEY is not configured."
+  ],
+  "SpecStream search response is not a JSON object": [
+    "SpecStream 搜索响应不是 JSON 对象",
+    "SpecStream search response is not a JSON object"
+  ],
+  "SpecStream search response is missing sources": [
+    "SpecStream 搜索响应缺少 sources",
+    "SpecStream search response is missing sources"
+  ],
+  "SpecStream search payload is missing results": [
+    "SpecStream 搜索数据缺少 results",
+    "SpecStream search payload is missing results"
+  ],
+  "SpecStream extract response is not a JSON object": [
+    "SpecStream 提取响应不是 JSON 对象",
+    "SpecStream extract response is not a JSON object"
+  ],
+  "SpecStream extract returned no results": [
+    "SpecStream 提取没有返回结果",
+    "SpecStream extract returned no results"
+  ],
+  "SpecStream extract result is not an object": [
+    "SpecStream 提取结果不是对象",
+    "SpecStream extract result is not an object"
+  ],
+  "SpecStream extract returned empty content": [
+    "SpecStream 提取返回的正文为空",
+    "SpecStream extract returned empty content"
+  ],
+  "SpecStream returned a redirect (HTTP {0}) to {1}; redirects are not followed. Check the SpecStream API URL.": [
+    "SpecStream 返回了重定向（HTTP {0}），目标为 {1}；不会跟随重定向，请检查 SpecStream 接口地址。",
+    "SpecStream returned a redirect (HTTP {0}) to {1}; redirects are not followed. Check the SpecStream API URL."
+  ],
+  "request did not succeed": [
+    "请求未成功",
+    "request did not succeed"
+  ],
+  "SpecStream search: {0}": [
+    "SpecStream 搜索：{0}",
+    "SpecStream search: {0}"
+  ],
+  "SpecStream fetch: {0}": [
+    "SpecStream 抓取：{0}",
+    "SpecStream fetch: {0}"
+  ],
+  "Both SpecStream search and fetch APIs are available": [
+    "SpecStream 搜索与抓取 API 均可用",
+    "Both SpecStream search and fetch APIs are available"
+  ],
+  "SpecStream API request timed out": [
+    "SpecStream API 请求超时",
+    "SpecStream API request timed out"
   ]
 }

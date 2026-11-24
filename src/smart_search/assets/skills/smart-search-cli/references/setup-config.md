@@ -102,6 +102,7 @@
 - Use `smart-search setup --non-interactive --deepseek-key "key"` to add DeepSeek to `web_search` and `web_fetch` with the same key as the DeepSeek model API. It never satisfies `main_search` or `docs_search`; Jev can select it among the allowed channels.
 - Use `smart-search setup --non-interactive --yuanbao-secret-id "id" --yuanbao-secret-key "key"` to add Yuanbao Search to `web_search` with a Tencent Cloud API key that has Yuanbao Search enabled. It never satisfies `main_search`, `docs_search` or `web_fetch`. `YUANBAO_API_URL` defaults to `https://wsa.tencentcloudapi.com`, and `YUANBAO_TIMEOUT_SECONDS` defaults to `30`.
 - `DEEPSEEK_API_URL` defaults to `https://api.deepseek.com`, and `DEEPSEEK_TIMEOUT_SECONDS` defaults to `60` and covers both DeepSeek search and fetch reads. Each successful DeepSeek request is billed.
+- SpecStream is experimental and has no `setup --non-interactive` flag: save `SPECSTREAM_API_KEY` with `smart-search config set` or on the App's Providers page, only when the user asks for it. It joins `web_search` and `web_fetch` and never satisfies `main_search` or `docs_search`. `SPECSTREAM_SEARCH_API_URL` defaults to `https://api.specstream.ai/v1/web-search`, `SPECSTREAM_FETCH_API_URL` to `https://api.specstream.ai/v1/extract`, and `SPECSTREAM_TIMEOUT_SECONDS` to `30` for both reads.
 
 ## Provider Failure Cooldown
 

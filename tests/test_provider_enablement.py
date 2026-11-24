@@ -18,6 +18,7 @@ PROVIDERS = [
     ("firecrawl", "FIRECRAWL_ENABLED", "FIRECRAWL_API_KEY", "web_fetch"),
     ("tinyfish", "TINYFISH_ENABLED", "TINYFISH_API_KEY", "web_fetch"),
     ("deepseek", "DEEPSEEK_ENABLED", "DEEPSEEK_API_KEY", "web_fetch"),
+    ("specstream", "SPECSTREAM_ENABLED", "SPECSTREAM_API_KEY", "web_fetch"),
     ("jina", "JINA_ENABLED", "JINA_API_KEY", "web_fetch"),
     ("anysearch", "ANYSEARCH_ENABLED", "ANYSEARCH_API_KEY", "vertical_search"),
     ("sciverse", "SCIVERSE_ENABLED", "SCIVERSE_API_TOKEN", "vertical_search"),
@@ -105,6 +106,7 @@ DIRECT_REQUESTS = [
     ("sciverse_catalog", ()), ("sciverse_search", ("query",)),
     ("sciverse_semantic", ("query",)), ("sciverse_read", ("doc",)), ("sciverse_relations", ("doc",)),
     ("jina_fetch", ("https://example.com",)), ("call_tinyfish_fetch", ("https://example.com",)),
+    ("call_specstream_fetch", ("https://example.com",)),
     ("map_site", ("https://example.com",)), ("diagnose_openai_compatible", ()),
 ]
 

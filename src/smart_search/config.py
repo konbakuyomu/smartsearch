@@ -60,9 +60,9 @@ class Config:
         "tavily": "TAVILY_ENABLED",
         "firecrawl": "FIRECRAWL_ENABLED",
         "tinyfish": "TINYFISH_ENABLED",
-        "specstream": "SPECSTREAM_ENABLED",
         "yuanbao": "YUANBAO_ENABLED",
         "deepseek": "DEEPSEEK_ENABLED",
+        "specstream": "SPECSTREAM_ENABLED",
         "jina": "JINA_ENABLED",
         "anysearch": "ANYSEARCH_ENABLED",
         "sciverse": "SCIVERSE_ENABLED",
@@ -136,6 +136,10 @@ class Config:
         "DEEPSEEK_API_KEY",
         "DEEPSEEK_API_URL",
         "DEEPSEEK_TIMEOUT_SECONDS",
+        "SPECSTREAM_API_KEY",
+        "SPECSTREAM_SEARCH_API_URL",
+        "SPECSTREAM_FETCH_API_URL",
+        "SPECSTREAM_TIMEOUT_SECONDS",
         "ANYSEARCH_API_KEY",
         "ANYSEARCH_API_URL",
         "ANYSEARCH_TIMEOUT_SECONDS",
@@ -769,7 +773,8 @@ class Config:
         if key in JEV_DEFAULTS:
             validate_jev_value(key, value)
             return
-        if key in {"SMART_SEARCH_TIMEOUT_SECONDS", "TINYFISH_TIMEOUT_SECONDS", "YUANBAO_TIMEOUT_SECONDS", "DEEPSEEK_TIMEOUT_SECONDS"}:
+        if key in {"SMART_SEARCH_TIMEOUT_SECONDS", "TINYFISH_TIMEOUT_SECONDS", "YUANBAO_TIMEOUT_SECONDS", "DEEPSEEK_TIMEOUT_SECONDS",
+                   "SPECSTREAM_TIMEOUT_SECONDS"}:
             self._parse_positive_float_value(key, value)
             return
         if key == "SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS":
@@ -1382,6 +1387,10 @@ class Config:
             "DEEPSEEK_API_URL": self.deepseek_api_url,
             "DEEPSEEK_API_KEY": self._mask_api_key(self.deepseek_api_key) if self.deepseek_api_key else tr('未配置'),
             "DEEPSEEK_TIMEOUT_SECONDS": self.deepseek_timeout,
+            "SPECSTREAM_SEARCH_API_URL": self.specstream_search_api_url,
+            "SPECSTREAM_FETCH_API_URL": self.specstream_fetch_api_url,
+            "SPECSTREAM_API_KEY": self._mask_api_key(self.specstream_api_key) if self.specstream_api_key else tr('未配置'),
+            "SPECSTREAM_TIMEOUT_SECONDS": self.specstream_timeout,
             "ANYSEARCH_API_URL": self.anysearch_api_url,
             "ANYSEARCH_API_KEY": self._mask_api_key(self.anysearch_api_key) if self.anysearch_api_key else tr('未配置'),
             "ANYSEARCH_TIMEOUT_SECONDS": self.anysearch_timeout,

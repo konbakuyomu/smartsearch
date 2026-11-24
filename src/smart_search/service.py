@@ -259,14 +259,6 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
         "quality_filters": ["non-empty normalized result", "non-empty extracted content"],
         "route_reasons": ["JS-heavy fetch", "dynamic/browser-like extraction", "robust fetch fallback"],
     },
-    "specstream": {
-        "capability": "web_search",
-        "capabilities": ["web_search", "web_fetch"],
-        "fallback_group": "web_search/web_fetch",
-        "minimum_profile_role": "",
-        "quality_filters": ["non-empty normalized result", "non-empty extracted content", "challenge page rejection"],
-        "route_reasons": ["broad live web discovery", "known URL extraction"],
-    },
     "tinyfish": {
         "capability": "web_search",
         "capabilities": ["web_search", "web_fetch"],
@@ -289,6 +281,18 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
         "minimum_profile_role": "",
         "quality_filters": ["non-empty normalized result"],
         "route_reasons": ["Chinese/current discovery", "Tencent ecosystem sources"],
+    },
+    # Last on purpose: local rule routing stable-sorts candidates by this
+    # insertion order, so SpecStream ranks after every established web provider.
+    # Experimental until maintainers verify it against the live API.
+    "specstream": {
+        "capability": "web_search",
+        "capabilities": ["web_search", "web_fetch"],
+        "fallback_group": "web_search/web_fetch",
+        "minimum_profile_role": "",
+        "quality_filters": ["non-empty normalized result", "non-empty extracted content", "challenge page rejection"],
+        "route_reasons": ["broad source discovery", "known URL extraction"],
+        "experimental": True,
     },
     "anysearch": {
         "capability": "vertical_search",
@@ -1542,10 +1546,10 @@ def get_capability_status() -> dict[str, Any]:
                     ("zhipu-mcp", _provider_configured("zhipu-mcp")),
                     ("tavily", _provider_configured("tavily")),
                     ("firecrawl", _provider_configured("firecrawl")),
-                    ("specstream", _provider_configured("specstream")),
                     ("tinyfish", _provider_configured("tinyfish")),
                     ("deepseek", _provider_configured("deepseek")),
                     ("yuanbao", _provider_configured("yuanbao")),
+                    ("specstream", _provider_configured("specstream")),
                 ]
                 if enabled
             ],
@@ -1570,9 +1574,9 @@ def get_capability_status() -> dict[str, Any]:
                     ("jina", _provider_configured("jina")),
                     ("zhipu-mcp-reader", _provider_configured("zhipu-mcp-reader")),
                     ("firecrawl", _provider_configured("firecrawl")),
-                    ("specstream", _provider_configured("specstream")),
                     ("tinyfish", _provider_configured("tinyfish")),
                     ("deepseek", _provider_configured("deepseek")),
+                    ("specstream", _provider_configured("specstream")),
                 ]
                 if enabled
             ],
@@ -1844,12 +1848,12 @@ async def _run_web_fetch_fallback(
         providers.append("zhipu-mcp-reader")
     if _provider_configured("firecrawl"):
         providers.append("firecrawl")
-    if _provider_configured("specstream"):
-        providers.append("specstream")
     if _provider_configured("tinyfish"):
         providers.append("tinyfish")
     if _provider_configured("deepseek"):
         providers.append("deepseek")
+    if _provider_configured("specstream"):
+        providers.append("specstream")
     if allowed_providers is not None:
         providers = [provider for provider in providers if provider in allowed_providers]
     if preferred_order:
@@ -1893,14 +1897,6 @@ async def _run_web_fetch_fallback(
                     health_extra = _record_provider_result(provider, status, data.get("error_type", ""), data.get("error", ""))
                     attempts.append(_attempt("web_fetch", provider, status, start, error_type=data.get("error_type", ""), error=data.get("error", ""), extra=health_extra))
                     continue
-            elif provider == "specstream":
-                data = await bounded(call_specstream_fetch(url))
-                content = data.get("content") if data.get("ok") else None
-                if not data.get("ok"):
-                    status = _attempt_status_for_result(data)
-                    health_extra = _record_provider_result(provider, status, data.get("error_type", ""), data.get("error", ""))
-                    attempts.append(_attempt("web_fetch", provider, status, start, error_type=data.get("error_type", ""), error=data.get("error", ""), extra=health_extra))
-                    continue
             elif provider == "tinyfish":
                 data = await bounded(call_tinyfish_fetch(url))
                 content = data.get("content") if data.get("ok") else None
@@ -1911,6 +1907,14 @@ async def _run_web_fetch_fallback(
                     continue
             elif provider == "deepseek":
                 content = await bounded(call_deepseek_fetch(url))
+            elif provider == "specstream":
+                data = await bounded(call_specstream_fetch(url))
+                content = data.get("content") if data.get("ok") else None
+                if not data.get("ok"):
+                    status = _attempt_status_for_result(data)
+                    health_extra = _record_provider_result(provider, status, data.get("error_type", ""), data.get("error", ""))
+                    attempts.append(_attempt("web_fetch", provider, status, start, error_type=data.get("error_type", ""), error=data.get("error", ""), extra=health_extra))
+                    continue
             else:
                 content = await bounded(call_firecrawl_scrape(url))
             if content and content.strip():
@@ -2098,19 +2102,29 @@ async def call_firecrawl_scrape(url: str, ctx=None) -> str | None:
     return None
 
 
+def _specstream_search_provider() -> SpecStreamSearchProvider:
+    return SpecStreamSearchProvider(
+        config.specstream_search_api_url, config.specstream_api_key or "", config.specstream_timeout,
+        verify=config.ssl_verify_enabled,
+    )
+
+
+def _specstream_fetch_provider() -> SpecStreamFetchProvider:
+    return SpecStreamFetchProvider(
+        config.specstream_fetch_api_url, config.specstream_api_key or "", config.specstream_timeout,
+        verify=config.ssl_verify_enabled,
+    )
+
+
 async def call_specstream_search(query: str, max_results: int = 6) -> list[dict] | None:
-    """Return normalized SpecStream search candidates, or None when unavailable."""
+    """Return normalized SpecStream candidates; a provider failure raises like TinyFish's."""
     if not config.provider_enabled("specstream"):
         return None
     api_key = config.specstream_api_key
     if not api_key:
         return None
     data = await _decode_provider_json(
-        await SpecStreamSearchProvider(
-            config.specstream_search_api_url,
-            api_key,
-            config.specstream_timeout,
-        ).search(query, max_results=max_results),
+        await _specstream_search_provider().search(query, max_results=max_results),
         provider="specstream",
     )
     if not data.get("ok"):
@@ -2137,11 +2151,7 @@ async def call_specstream_fetch(url: str) -> dict[str, Any]:
             "error_type": "config_error",
             "error": source_message("SPECSTREAM_API_KEY is not configured."),
         }
-    raw = await SpecStreamFetchProvider(
-        config.specstream_fetch_api_url,
-        api_key,
-        config.specstream_timeout,
-    ).fetch(url)
+    raw = await _specstream_fetch_provider().fetch(url)
     return await _decode_provider_json(raw, provider="specstream")
 
 
@@ -3561,25 +3571,6 @@ async def _test_firecrawl_presence() -> dict[str, Any]:
     return {"status": "configured", "message": source_message('FIRECRAWL_API_KEY 已配置（未发起真实请求验证）')}
 
 
-async def _test_specstream_connection() -> dict[str, Any]:
-    if disabled := _provider_disabled_result("specstream"):
-        return disabled
-    if not config.specstream_api_key:
-        return {"status": "not_configured", "message": source_message("SPECSTREAM_API_KEY is not configured")}
-    search_raw = await SpecStreamSearchProvider(
-        config.specstream_search_api_url,
-        config.specstream_api_key,
-        config.specstream_timeout,
-    ).search("specstream connectivity check", max_results=1)
-    search_data = await _decode_provider_json(search_raw, provider="specstream")
-    if search_data.get("ok"):
-        return {"status": "ok", "message": "SpecStream API connected"}
-    return {
-        "status": "error",
-        "message": str(search_data.get("error") or "SpecStream connection check failed"),
-    }
-
-
 async def _test_tinyfish_connection() -> dict[str, Any]:
     if disabled := _provider_disabled_result("tinyfish"):
         return disabled
@@ -3631,6 +3622,31 @@ async def _test_deepseek_connection() -> dict[str, Any]:
     return {"status": "ok", "message": source_message('DeepSeek 搜索与抓取 API 均可用'), "response_time_ms": _elapsed_ms(start)}
 
 
+async def _test_specstream_connection() -> dict[str, Any]:
+    """Probe search and fetch once each; one key and one health fingerprint cover both."""
+    if disabled := _provider_disabled_result("specstream"):
+        return disabled
+    if not config.specstream_api_key:
+        return {"status": "not_configured", "message": source_message("SPECSTREAM_API_KEY is not configured.")}
+    start = time.time()
+    raw_results = await asyncio.gather(
+        _specstream_search_provider().search("specstream connectivity check", max_results=1),
+        _specstream_fetch_provider().fetch("https://example.com"),
+    )
+    # Search alone cannot clear a fetch failure: either failing fails the probe.
+    for operation, raw in zip(("search", "fetch"), raw_results):
+        data = await _decode_provider_json(raw, provider="specstream")
+        if not data.get("ok"):
+            error_type = str(data.get("error_type") or "")
+            status = error_type if error_type in APPROVED_PROVIDER_ERROR_TYPES else "warning"
+            error = data.get("error") or source_message("request did not succeed")
+            message = (source_message("SpecStream search: {0}", error) if operation == "search"
+                       else source_message("SpecStream fetch: {0}", error))
+            return {"status": status, "message": message, "response_time_ms": _elapsed_ms(start)}
+    return {"status": "ok", "message": source_message("Both SpecStream search and fetch APIs are available"),
+            "response_time_ms": _elapsed_ms(start)}
+
+
 async def _test_yuanbao_connection() -> dict[str, Any]:
     """Run one small search; each call counts against the Tencent Cloud quota."""
     if disabled := _provider_disabled_result("yuanbao"):
@@ -3654,10 +3670,10 @@ DOCTOR_PROBE_PROVIDERS = {
     "zhipu_connection_test": "zhipu",
     "zhipu_mcp_connection_test": "zhipu-mcp",
     "context7_connection_test": "context7",
-    "specstream_connection_test": "specstream",
     "tinyfish_connection_test": "tinyfish",
     "deepseek_connection_test": "deepseek",
     "yuanbao_connection_test": "yuanbao",
+    "specstream_connection_test": "specstream",
 }
 DOCTOR_PROBE_NEUTRAL_STATUSES = {"not_configured", "configured", "skipped", "disabled"}
 
@@ -3700,10 +3716,10 @@ PROBE_KIND: dict[str, str] = {
     "zhipu": "live",
     "zhipu-mcp": "live",
     "context7": "live",
-    "specstream": "live",
     "tinyfish": "live",
     "yuanbao": "live",
     "deepseek": "live",
+    "specstream": "live",
     "anysearch": "live",
     "sciverse": "live",
     "zhipu-mcp-reader": "shared:zhipu-mcp",
@@ -3716,10 +3732,10 @@ _LIVE_PROBES: dict[str, Any] = {
     "zhipu": _test_zhipu_connection,
     "zhipu-mcp": _test_zhipu_mcp_connection,
     "context7": _test_context7_connection,
-    "specstream": _test_specstream_connection,
     "tinyfish": _test_tinyfish_connection,
     "yuanbao": _test_yuanbao_connection,
     "deepseek": _test_deepseek_connection,
+    "specstream": _test_specstream_connection,
     "anysearch": _test_anysearch_connection,
     "sciverse": _test_sciverse_connection,
     "firecrawl": _test_firecrawl_presence,
@@ -3935,6 +3951,13 @@ async def doctor() -> dict[str, Any]:
     except Exception as e:
         info["yuanbao_connection_test"] = {"status": "error", "message": sanitize_provider_error_message(e)}
 
+    try:
+        info["specstream_connection_test"] = await _test_specstream_connection()
+    except httpx.TimeoutException:
+        info["specstream_connection_test"] = {"status": "timeout", "message": source_message("SpecStream API request timed out")}
+    except Exception as e:
+        info["specstream_connection_test"] = {"status": "error", "message": sanitize_provider_error_message(e)}
+
     _record_doctor_probes(info)
     info["provider_health"] = provider_health_status()
 
@@ -4004,7 +4027,7 @@ async def doctor() -> dict[str, Any]:
     else:
         info["jev_connection_test"] = {"status": "skipped", "message": source_message('Using local routing; no Jev probe was sent.')}
     retrieval_tests = [*main_connection_tests.values(), *(info.get(f"{name}_connection_test", {}) for name in (
-        "exa", "tavily", "jina", "firecrawl", "zhipu", "zhipu_mcp", "context7", "tinyfish", "deepseek", "yuanbao",
+        "exa", "tavily", "jina", "firecrawl", "zhipu", "zhipu_mcp", "context7", "tinyfish", "deepseek", "yuanbao", "specstream",
     ))]
     retrieval_ready = any(test.get("status") in {"ok", "configured"} for test in retrieval_tests)
     info["retrieval_connection_verified"] = any(test.get("status") == "ok" for test in retrieval_tests)
