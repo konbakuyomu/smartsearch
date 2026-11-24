@@ -18262,5 +18262,29 @@
   "SpecStream extract returned empty content": [
     "SpecStream 提取返回的正文为空",
     "SpecStream extract returned empty content"
+  ],
+  "SpecStream returned a redirect (HTTP {0}) to {1}; redirects are not followed. Check the SpecStream API URL.": [
+    "SpecStream 返回了重定向（HTTP {0}），目标为 {1}；不会跟随重定向，请检查 SpecStream 接口地址。",
+    "SpecStream returned a redirect (HTTP {0}) to {1}; redirects are not followed. Check the SpecStream API URL."
+  ],
+  "request did not succeed": [
+    "请求未成功",
+    "request did not succeed"
+  ],
+  "SpecStream search: {0}": [
+    "SpecStream 搜索：{0}",
+    "SpecStream search: {0}"
+  ],
+  "SpecStream fetch: {0}": [
+    "SpecStream 抓取：{0}",
+    "SpecStream fetch: {0}"
+  ],
+  "Both SpecStream search and fetch APIs are available": [
+    "SpecStream 搜索与抓取 API 均可用",
+    "Both SpecStream search and fetch APIs are available"
+  ],
+  "SpecStream API request timed out": [
+    "SpecStream API 请求超时",
+    "SpecStream API request timed out"
   ]
 }

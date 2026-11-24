@@ -629,6 +629,7 @@ def _format_doctor_markdown(data: dict[str, Any]) -> str:
         ("tinyfish", data.get("tinyfish_connection_test") or {}),
         ("deepseek", data.get("deepseek_connection_test") or {}),
         ("yuanbao", data.get("yuanbao_connection_test") or {}),
+        ("specstream", data.get("specstream_connection_test") or {}),
         ("zhipu", data.get("zhipu_connection_test") or {}),
         ("zhipu-mcp", data.get("zhipu_mcp_connection_test") or {}),
         ("context7", data.get("context7_connection_test") or {}),
@@ -1492,6 +1493,7 @@ def _display_provider(provider: str, lang: str) -> str:
         "tinyfish": "TinyFish",
         "yuanbao": _t(lang, "元宝搜索", "Yuanbao Search"),
         "deepseek": "DeepSeek",
+        "specstream": "SpecStream",
         "anysearch": "AnySearch",
         "sciverse": "Sciverse",
     }
@@ -2383,6 +2385,10 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
         ("DEEPSEEK_API_KEY", "DeepSeek API key", True),
         ("DEEPSEEK_API_URL", "DeepSeek API URL", True),
         ("DEEPSEEK_TIMEOUT_SECONDS", "DeepSeek timeout seconds", True),
+        ("SPECSTREAM_API_KEY", "SpecStream API key (experimental)", True),
+        ("SPECSTREAM_SEARCH_API_URL", "SpecStream search API URL", True),
+        ("SPECSTREAM_FETCH_API_URL", "SpecStream fetch API URL", True),
+        ("SPECSTREAM_TIMEOUT_SECONDS", "SpecStream timeout seconds", True),
         ("ANYSEARCH_API_URL", "AnySearch MCP API URL", True),
         ("ANYSEARCH_API_KEY", "AnySearch API key", True),
         ("ANYSEARCH_TIMEOUT_SECONDS", "AnySearch timeout seconds", True),
@@ -2406,7 +2412,8 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
             value = _normalize_custom_base_url(value)
         elif key == "SCIVERSE_API_URL":
             value = _normalize_custom_base_url(value)
-        elif key in {"TINYFISH_SEARCH_API_URL", "TINYFISH_FETCH_API_URL", "DEEPSEEK_API_URL", "YUANBAO_API_URL"}:
+        elif key in {"TINYFISH_SEARCH_API_URL", "TINYFISH_FETCH_API_URL", "DEEPSEEK_API_URL", "YUANBAO_API_URL",
+                     "SPECSTREAM_SEARCH_API_URL", "SPECSTREAM_FETCH_API_URL"}:
             value = _normalize_custom_base_url(value)
         values[key] = value
 
@@ -2939,6 +2946,7 @@ def _run_regression() -> int:
         "tests/test_jina_provider.py",
         "tests/test_tinyfish_provider.py",
         "tests/test_tinyfish_service.py",
+        "tests/test_specstream_provider.py",
         "tests/test_yuanbao_provider.py",
         "tests/test_yuanbao_service.py",
         "tests/test_deepseek_provider.py",
