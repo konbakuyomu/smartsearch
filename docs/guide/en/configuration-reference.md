@@ -64,6 +64,10 @@ Generated from current configuration metadata. Active keys appear below. Retired
 | `DEEPSEEK_API_KEY` | The same key as the DeepSeek model API; one key enables web search and page fetching. Billed per successful request. Testing makes one real request for each capability. | `secret` | Not set |
 | `DEEPSEEK_API_URL` | DeepSeek API base URL. /v1/tools/search and /v1/tools/fetch are appended automatically; keep the default for the official service. | `url` | `https://api.deepseek.com` |
 | `DEEPSEEK_TIMEOUT_SECONDS` | Maximum seconds to wait for one response from this service. A timeout returns an error or uses the configured fallback; normally leave the default. | `float` | `60` |
+| `SPECSTREAM_API_KEY` | One key enables web search and page extraction. Experimental. Testing makes one real request for each capability. | `secret` | Not set |
+| `SPECSTREAM_SEARCH_API_URL` | SpecStream search endpoint URL. Keep the default for the official service. | `url` | `https://api.specstream.ai/v1/web-search` |
+| `SPECSTREAM_FETCH_API_URL` | SpecStream extract endpoint URL. Keep the default for the official service. | `url` | `https://api.specstream.ai/v1/extract` |
+| `SPECSTREAM_TIMEOUT_SECONDS` | Maximum seconds to wait for one response from this service. A timeout returns an error or uses the configured fallback; normally leave the default. | `float` | `30` |
 | `ANYSEARCH_API_KEY` | Vertical-domain search. Experimental. | `secret` | Not set |
 | `ANYSEARCH_API_URL` | Full AnySearch MCP endpoint including /mcp, not the website home page. | `url` | `https://api.anysearch.com/mcp` |
 | `ANYSEARCH_TIMEOUT_SECONDS` | Maximum seconds to wait for one response from this service. A timeout returns an error or uses the configured fallback; normally leave the default. | `float` | `30` |
@@ -79,6 +83,7 @@ Generated from current configuration metadata. Active keys appear below. Retired
 | `TINYFISH_ENABLED` | Disabling keeps the configuration and stops requests. Takes effect after saving changes. | `bool` | `true` |
 | `YUANBAO_ENABLED` | Disabling keeps the configuration and stops requests. Takes effect after saving changes. | `bool` | `true` |
 | `DEEPSEEK_ENABLED` | Disabling keeps the configuration and stops requests. Takes effect after saving changes. | `bool` | `true` |
+| `SPECSTREAM_ENABLED` | Disabling keeps the configuration and stops requests. Takes effect after saving changes. | `bool` | `true` |
 | `JINA_ENABLED` | Disabling keeps the configuration and stops requests. Takes effect after saving changes. | `bool` | `true` |
 | `ANYSEARCH_ENABLED` | Disabling keeps the configuration and stops requests. Takes effect after saving changes. | `bool` | `true` |
 | `SCIVERSE_ENABLED` | Disabling keeps the configuration and stops requests. Takes effect after saving changes. | `bool` | `true` |

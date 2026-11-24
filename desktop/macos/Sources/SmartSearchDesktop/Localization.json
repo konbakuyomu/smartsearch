@@ -18230,5 +18230,37 @@
   "立即更新": [
     "立即更新",
     "Update now"
+  ],
+  "SPECSTREAM_API_KEY is not configured.": [
+    "未配置 SPECSTREAM_API_KEY。",
+    "SPECSTREAM_API_KEY is not configured."
+  ],
+  "SpecStream search response is not a JSON object": [
+    "SpecStream 搜索响应不是 JSON 对象",
+    "SpecStream search response is not a JSON object"
+  ],
+  "SpecStream search response is missing sources": [
+    "SpecStream 搜索响应缺少 sources",
+    "SpecStream search response is missing sources"
+  ],
+  "SpecStream search payload is missing results": [
+    "SpecStream 搜索数据缺少 results",
+    "SpecStream search payload is missing results"
+  ],
+  "SpecStream extract response is not a JSON object": [
+    "SpecStream 提取响应不是 JSON 对象",
+    "SpecStream extract response is not a JSON object"
+  ],
+  "SpecStream extract returned no results": [
+    "SpecStream 提取没有返回结果",
+    "SpecStream extract returned no results"
+  ],
+  "SpecStream extract result is not an object": [
+    "SpecStream 提取结果不是对象",
+    "SpecStream extract result is not an object"
+  ],
+  "SpecStream extract returned empty content": [
+    "SpecStream 提取返回的正文为空",
+    "SpecStream extract returned empty content"
   ]
 }

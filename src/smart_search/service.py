@@ -3565,7 +3565,7 @@ async def _test_specstream_connection() -> dict[str, Any]:
     if disabled := _provider_disabled_result("specstream"):
         return disabled
     if not config.specstream_api_key:
-        return {"status": "not_configured", "message": source_message("SPECSTREAM_API_KEY is not configured")}
+        return {"status": "not_configured", "message": source_message("SPECSTREAM_API_KEY is not configured.")}
     search_raw = await SpecStreamSearchProvider(
         config.specstream_search_api_url,
         config.specstream_api_key,

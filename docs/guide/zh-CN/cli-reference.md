@@ -1064,9 +1064,9 @@
 位置参数:
   providers             Provider ids to check, e.g. exa zhipu. Known:
                         anysearch, context7, deepseek, exa, firecrawl, jina,
-                        openai-compatible, sciverse, tavily, tinyfish, xai-
-                        responses, yuanbao, zhipu, zhipu-mcp, zhipu-mcp-
-                        reader.
+                        openai-compatible, sciverse, specstream, tavily,
+                        tinyfish, xai-responses, yuanbao, zhipu, zhipu-mcp,
+                        zhipu-mcp-reader.
 
 选项:
   -h, --help            显示此帮助并退出

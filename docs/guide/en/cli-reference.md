@@ -1156,9 +1156,9 @@ usage: smart-search providers test [-h] [--lang {auto,zh,en}]
 positional arguments:
   providers             Provider ids to check, e.g. exa zhipu. Known:
                         anysearch, context7, deepseek, exa, firecrawl, jina,
-                        openai-compatible, sciverse, tavily, tinyfish, xai-
-                        responses, yuanbao, zhipu, zhipu-mcp, zhipu-mcp-
-                        reader.
+                        openai-compatible, sciverse, specstream, tavily,
+                        tinyfish, xai-responses, yuanbao, zhipu, zhipu-mcp,
+                        zhipu-mcp-reader.
 
 options:
   -h, --help            show this help message and exit
