@@ -1495,6 +1495,34 @@
     "只在 OPENAI_COMPATIBLE_API_MODE=responses 时把 OPENAI_COMPATIBLE_TOOLS 设为 web_search（或 web_search_preview）；其他情况留空。",
     "Use OPENAI_COMPATIBLE_TOOLS=web_search (or web_search_preview) only with OPENAI_COMPATIBLE_API_MODE=responses; otherwise leave it empty."
   ],
+  "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=true needs OPENAI_COMPATIBLE_API_MODE=responses and OPENAI_COMPATIBLE_TOOLS=web_search (or web_search_preview). Set both, or turn OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH off.": [
+    "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=true 需要 OPENAI_COMPATIBLE_API_MODE=responses，并且 OPENAI_COMPATIBLE_TOOLS 填 web_search（或 web_search_preview）。请把这两项设好，或关闭 OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH。",
+    "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=true needs OPENAI_COMPATIBLE_API_MODE=responses and OPENAI_COMPATIBLE_TOOLS=web_search (or web_search_preview). Set both, or turn OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH off."
+  ],
+  "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=true 需要 OPENAI_COMPATIBLE_API_MODE=responses，并且 OPENAI_COMPATIBLE_TOOLS 填 web_search（或 web_search_preview）。请把这两项设好，或关闭 OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH。": [
+    "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=true 需要 OPENAI_COMPATIBLE_API_MODE=responses，并且 OPENAI_COMPATIBLE_TOOLS 填 web_search（或 web_search_preview）。请把这两项设好，或关闭 OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH。",
+    "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=true needs OPENAI_COMPATIBLE_API_MODE=responses and OPENAI_COMPATIBLE_TOOLS=web_search (or web_search_preview). Set both, or turn OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH off."
+  ],
+  "HTTP {0} with tool_choice=required: {1}. If this endpoint does not accept tool_choice, set OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=false.": [
+    "请求带 tool_choice=required 时返回 HTTP {0}：{1}。如果这个接口不接受 tool_choice，请把 OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH 设为 false。",
+    "HTTP {0} with tool_choice=required: {1}. If this endpoint does not accept tool_choice, set OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=false."
+  ],
+  "OpenAI-compatible web search verification is invalid.": [
+    "OpenAI-compatible 联网核验配置无效。",
+    "OpenAI-compatible web search verification is invalid."
+  ],
+  "OpenAI-compatible 联网核验配置无效。": [
+    "OpenAI-compatible 联网核验配置无效。",
+    "OpenAI-compatible web search verification is invalid."
+  ],
+  "Turn OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH on only together with OPENAI_COMPATIBLE_API_MODE=responses and OPENAI_COMPATIBLE_TOOLS=web_search.": [
+    "只在 OPENAI_COMPATIBLE_API_MODE=responses 且 OPENAI_COMPATIBLE_TOOLS=web_search 时开启 OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH。",
+    "Turn OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH on only together with OPENAI_COMPATIBLE_API_MODE=responses and OPENAI_COMPATIBLE_TOOLS=web_search."
+  ],
+  "Save OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH (true or false; true forces tool_choice=required and needs --openai-compatible-tools web_search).": [
+    "保存 OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH（true 或 false；true 会强制 tool_choice=required，需要 --openai-compatible-tools web_search）。",
+    "Save OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH (true or false; true forces tool_choice=required and needs --openai-compatible-tools web_search)."
+  ],
   "Yuanbao Search API is available": [
     "元宝搜索 API 可用",
     "Yuanbao Search API is available"
@@ -18230,5 +18258,101 @@
   "立即更新": [
     "立即更新",
     "Update now"
+  ],
+  "Zhipu MCP returned malformed JSON search results": [
+    "智谱 MCP 返回的 JSON 搜索结果已损坏",
+    "Zhipu MCP returned malformed JSON search results"
+  ],
+  "Zhipu MCP returned search results in an unknown format": [
+    "智谱 MCP 返回的搜索结果格式无法识别",
+    "Zhipu MCP returned search results in an unknown format"
+  ],
+  "SPECSTREAM_API_KEY is not configured.": [
+    "未配置 SPECSTREAM_API_KEY。",
+    "SPECSTREAM_API_KEY is not configured."
+  ],
+  "SpecStream search response is not a JSON object": [
+    "SpecStream 搜索响应不是 JSON 对象",
+    "SpecStream search response is not a JSON object"
+  ],
+  "SpecStream search response is missing sources": [
+    "SpecStream 搜索响应缺少 sources",
+    "SpecStream search response is missing sources"
+  ],
+  "SpecStream search payload is missing results": [
+    "SpecStream 搜索数据缺少 results",
+    "SpecStream search payload is missing results"
+  ],
+  "SpecStream extract response is not a JSON object": [
+    "SpecStream 提取响应不是 JSON 对象",
+    "SpecStream extract response is not a JSON object"
+  ],
+  "SpecStream extract returned no results": [
+    "SpecStream 提取没有返回结果",
+    "SpecStream extract returned no results"
+  ],
+  "SpecStream extract result is not an object": [
+    "SpecStream 提取结果不是对象",
+    "SpecStream extract result is not an object"
+  ],
+  "SpecStream extract returned empty content": [
+    "SpecStream 提取返回的正文为空",
+    "SpecStream extract returned empty content"
+  ],
+  "SpecStream returned a redirect (HTTP {0}) to {1}; redirects are not followed. Check the SpecStream API URL.": [
+    "SpecStream 返回了重定向（HTTP {0}），目标为 {1}；不会跟随重定向，请检查 SpecStream 接口地址。",
+    "SpecStream returned a redirect (HTTP {0}) to {1}; redirects are not followed. Check the SpecStream API URL."
+  ],
+  "request did not succeed": [
+    "请求未成功",
+    "request did not succeed"
+  ],
+  "SpecStream search: {0}": [
+    "SpecStream 搜索：{0}",
+    "SpecStream search: {0}"
+  ],
+  "SpecStream fetch: {0}": [
+    "SpecStream 抓取：{0}",
+    "SpecStream fetch: {0}"
+  ],
+  "Both SpecStream search and fetch APIs are available": [
+    "SpecStream 搜索与抓取 API 均可用",
+    "Both SpecStream search and fetch APIs are available"
+  ],
+  "SpecStream API request timed out": [
+    "SpecStream API 请求超时",
+    "SpecStream API request timed out"
+  ],
+  "{0} (answer partial: {1})": [
+    "{0}（答案不完整：{1}）",
+    "{0} (answer partial: {1})"
+  ],
+  "evidence gaps remain; see Gaps": [
+    "证据仍有缺口，见“缺口”一节",
+    "evidence gaps remain; see Gaps"
+  ],
+  "synthesis failed; the report shows source excerpts": [
+    "总结失败，报告只列出来源摘录",
+    "synthesis failed; the report shows source excerpts"
+  ],
+  "the automatic synthesis decision failed; the report shows source excerpts": [
+    "自动总结判断失败，报告只列出来源摘录",
+    "the automatic synthesis decision failed; the report shows source excerpts"
+  ],
+  "Jev was unavailable for the synthesis decision; the report shows source excerpts": [
+    "Jev 不可用，没有做自动总结判断，报告只列出来源摘录",
+    "Jev was unavailable for the synthesis decision; the report shows source excerpts"
+  ],
+  "research was cancelled": [
+    "研究已取消",
+    "research was cancelled"
+  ],
+  "Research was cancelled; returning the source excerpts read before cancellation.": [
+    "研究已取消，返回取消前已读取的来源摘录。",
+    "Research was cancelled; returning the source excerpts read before cancellation."
+  ],
+  "Research was cancelled before any source was read; returning discovered URLs only.": [
+    "研究在读取任何来源之前已取消，只返回已发现的网址。",
+    "Research was cancelled before any source was read; returning discovered URLs only."
   ]
 }

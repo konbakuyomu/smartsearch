@@ -20,7 +20,7 @@
 | Provider / 路线 | 用途 | 主要配置项 | 官方文档 | Key / 控制台 |
 | --- | --- | --- | --- | --- |
 | xAI Responses API | 主搜索，走 `web_search,x_search` 工具 | `XAI_API_KEY`、`XAI_API_URL`、`XAI_MODEL`、`XAI_TOOLS`、`XAI_REASONING_EFFORT`、`XAI_STREAM` | [docs.x.ai](https://docs.x.ai/docs) | [xAI API keys](https://console.x.ai/team/default/api-keys) |
-| OpenAI-compatible Chat Completions / Responses | 主搜索，适合 OpenAI 官方或兼容中转；只有 Responses 模式设置了 `OPENAI_COMPATIBLE_TOOLS` 才发送搜索工具 | `OPENAI_COMPATIBLE_API_URL`、`OPENAI_COMPATIBLE_API_KEY`、`OPENAI_COMPATIBLE_MODEL`、`OPENAI_COMPATIBLE_API_MODE`、`OPENAI_COMPATIBLE_TOOLS`、`OPENAI_COMPATIBLE_FALLBACK_MODELS`、`OPENAI_COMPATIBLE_STREAM` | [OpenAI platform docs](https://platform.openai.com/docs) | [OpenAI API keys](https://platform.openai.com/api-keys) 或你的兼容服务商 |
+| OpenAI-compatible Chat Completions / Responses | 主搜索，适合 OpenAI 官方或兼容中转；只有 Responses 模式设置了 `OPENAI_COMPATIBLE_TOOLS` 才发送搜索工具 | `OPENAI_COMPATIBLE_API_URL`、`OPENAI_COMPATIBLE_API_KEY`、`OPENAI_COMPATIBLE_MODEL`、`OPENAI_COMPATIBLE_API_MODE`、`OPENAI_COMPATIBLE_TOOLS`、`OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH`、`OPENAI_COMPATIBLE_FALLBACK_MODELS`、`OPENAI_COMPATIBLE_STREAM` | [OpenAI platform docs](https://platform.openai.com/docs) | [OpenAI API keys](https://platform.openai.com/api-keys) 或你的兼容服务商 |
 | Exa | 官方文档、API、论文、产品页、可信网页的低噪声发现 | `EXA_API_KEY` | [Exa docs](https://docs.exa.ai/) | [Exa API keys](https://dashboard.exa.ai/api-keys) |
 | Context7 | SDK、库、框架、API 文档兜底 | `CONTEXT7_API_KEY`、`CONTEXT7_BASE_URL` | [Context7 docs](https://context7.com/docs) | [Context7](https://context7.com/) |
 | 智谱 Web Search API | 中文、国内、时效、域名过滤类来源发现 | `ZHIPU_API_KEY`、`ZHIPU_API_URL`、`ZHIPU_SEARCH_ENGINE` | [智谱联网搜索文档](https://docs.bigmodel.cn/cn/guide/tools/web-search) | [智谱 API keys](https://open.bigmodel.cn/usercenter/apikeys) |
@@ -31,6 +31,7 @@
 | TinyFish | 搜索与抓取兜底 | `TINYFISH_API_KEY`、`TINYFISH_SEARCH_API_URL`、`TINYFISH_FETCH_API_URL`、`TINYFISH_TIMEOUT_SECONDS` | [TinyFish 文档](https://docs.tinyfish.ai/) | [TinyFish API keys](https://agent.tinyfish.ai/api-keys) |
 | DeepSeek Search / Fetch | 网页搜索与抓取，与 DeepSeek 模型 API 共用 Key，按成功请求次数计费 | `DEEPSEEK_API_KEY`、`DEEPSEEK_API_URL`、`DEEPSEEK_TIMEOUT_SECONDS` | [网页搜索与抓取](https://api-docs.deepseek.com/zh-cn/guides/search)（[English](https://api-docs.deepseek.com/guides/search)） | [DeepSeek API keys](https://platform.deepseek.com/api_keys) |
 | 元宝搜索（腾讯云 wsa） | 网页搜索，叠加腾讯新闻等腾讯内容；需要开通元宝搜索的腾讯云 SecretId/SecretKey | `YUANBAO_SECRET_ID`、`YUANBAO_SECRET_KEY`、`YUANBAO_API_URL`、`YUANBAO_TIMEOUT_SECONDS` | [元宝搜索文档](https://cloud.tencent.com/document/product/1806) | [腾讯云 API 密钥](https://console.cloud.tencent.com/cam/capi) |
+| SpecStream（实验性） | 网页搜索与抓取；维护者还没有用真实服务验证过 | `SPECSTREAM_API_KEY`、`SPECSTREAM_SEARCH_API_URL`、`SPECSTREAM_FETCH_API_URL`、`SPECSTREAM_TIMEOUT_SECONDS` | [SpecStream 文档](https://specstream.ai/docs) | [SpecStream](https://specstream.ai) |
 | TypeSafe / Jev | 可选语义路由和证据判断 | `TYPESAFE_API_KEY`、`TYPESAFE_API_URL`、`TYPESAFE_MODEL` | [TypeSafe API](https://docs.typesafe.ai/api) | 参见 TypeSafe 文档 |
 | AnySearch | 实验垂直搜索验收入口，不是默认兜底 | `ANYSEARCH_API_URL`、`ANYSEARCH_API_KEY`、`ANYSEARCH_TIMEOUT_SECONDS` | [AnySearch 文档](https://www.anysearch.com/docs) | [AnySearch API keys](https://www.anysearch.com/console/api-keys) |
 | Sciverse | 显式实验学术检索、语义论文检索、正文片段和引用/参考文献关系，不是默认兜底 | `SCIVERSE_API_TOKEN`、`SCIVERSE_API_URL`、`SCIVERSE_TIMEOUT_SECONDS` | [Sciverse Agent Tools](https://github.com/opendatalab/Sciverse-Agent-Tools) | Sciverse 控制台 / token 提供方 |
@@ -56,7 +57,7 @@
 几个容易混淆的点：
 
 - xAI 官方联网搜索通过 `XAI_*` 走 `/responses`。OpenAI-compatible 中转默认走 `/chat/completions`；只有中转明确支持文档化的 Responses 子集时才设置 `OPENAI_COMPATIBLE_API_MODE=responses`。
-- `chat-completions` 不发送搜索工具；responses 模式也只有设置了 `OPENAI_COMPATIBLE_TOOLS` 才发送。如果模型只能通过 Responses 的 `web_search` 工具联网（例如用 OpenAI 官方 key 的 `gpt-6.1-sol`），设置 `OPENAI_COMPATIBLE_API_MODE=responses` 和 `OPENAI_COMPATIBLE_TOOLS=web_search`；中转站只认旧名时用 `web_search_preview`。工具只随搜索请求发送，不用于抓取、排序和综合。需要 `x_search` 的 Grok 模型请用 `XAI_*`。两种情况都用 `smart-search diagnose openai-compatible` 的“联网搜索能力”检查确认。
+- `chat-completions` 不发送搜索工具；responses 模式也只有设置了 `OPENAI_COMPATIBLE_TOOLS` 才发送。如果模型只能通过 Responses 的 `web_search` 工具联网（例如用 OpenAI 官方 key 的 `gpt-6.1-sol`），设置 `OPENAI_COMPATIBLE_API_MODE=responses` 和 `OPENAI_COMPATIBLE_TOOLS=web_search`；中转站只认旧名时用 `web_search_preview`。工具只随搜索请求发送，不用于抓取、排序和综合。默认不强制调用工具（不发 `tool_choice`），回答也不会因为缺少工具记录被拒；provider attempts 里的 `web_search_verified` 只在看到完成的 `web_search_call` 时为 `true`，`web_search_calls` 列出观察到的调用。设置 `OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=true` 后请求带 `tool_choice=required`，没有完成的调用就报 `quality_error`；它需要 responses 模式和 `web_search` 工具，否则报 `parameter_error`。中转站对 `tool_choice` 返回 HTTP 400/422 时请保持关闭，开启时这类返回会作为 `parameter_error` 并提示关闭此项。需要 `x_search` 的 Grok 模型请用 `XAI_*`。两种情况都用 `smart-search diagnose openai-compatible` 的“联网搜索能力”检查确认。
 - `smart-search search --stream` 和 `smart-search research --stream` 会给 xAI Responses 和 OpenAI-compatible 搜索设置 `stream=true`，包括 Jev 调度的 Grok 搜索；`--no-stream` 关闭本次流式请求。`OPENAI_COMPATIBLE_STREAM=true` 仍只设置 OpenAI-compatible 搜索和 provider 侧 fetch 的默认流式行为。
 - `XAI_STREAM` 默认 `false`，接受 `true`、`1`、`yes` 为真。设为真时所有 xAI Responses 请求都用 `stream=true`，包括 `research` 和 Jev 调度的 Grok 搜索；`--stream` / `--no-stream` 可单次覆盖。xAI 流式失败时直接报错，不会改用 `stream=false` 重试。
 - `XAI_REASONING_EFFORT` 接受 `low`、`medium`、`high`，大小写不敏感，保存为小写。可选；设置后在 xAI Responses 请求中发送 reasoning.effort，默认不发送。Jev 调度的 Grok 搜索同样适用。provider attempts 记录实际 `stream` 和 `reasoning_effort`，xAI 的记录还带 `transport`（`stream` 或 `non_stream`）；`doctor` 显示 `XAI_REASONING_EFFORT` 和 `XAI_STREAM`，`model current` 显示 `xai_stream`。`doctor` 和 App 的 xAI 连接测试发送与搜索相同的 `reasoning.effort` 和 `stream`，不带工具，并在测试消息和 `sent` 中列出；HTTP 200 之后流式失败也算测试失败。上游因不支持 reasoning 返回 4xx 时原样报错，不删除字段重发。
@@ -75,6 +76,7 @@
 - `TAVILY_ENABLED` 默认是 `true`。即使已有 key，设为 `false` 也会禁用 Tavily：它会从 web-search 和 fetch 路由中移除，直接 Tavily 调用和 `doctor` 都不会发 Tavily 请求，`map` 会本地返回配置错误。它不会启用 Firecrawl，也不会改变同 capability 兜底边界。
 - `FIRECRAWL_API_URL` 默认是 `https://api.firecrawl.dev/v2`。
 - `DEEPSEEK_API_URL` 默认是 `https://api.deepseek.com`，填 `.../v1` 也可以；程序调用 `/v1/tools/search` 和 `/v1/tools/fetch`。单个 `DEEPSEEK_API_KEY` 同时加入 `web_search` 与 `web_fetch`，不满足 `main_search` 或 `docs_search`。DeepSeek 查询词最多 128 个字符，更长的查询会在词边界截短；`site:`、`lang:`、`after:` 等搜索语法原样传递。抓取返回 403（安全策略拒绝）或 404（页面没有可用正文，目前 PDF 链接和内网地址也属于这种情况）只表示该页面读不到，会继续兜底且不让 DeepSeek 进入冷却。每次成功请求计费，`doctor` 与 `providers test deepseek` 会各发一次真实搜索和抓取。
+- SpecStream 是实验性的：维护者还没有用真实服务验证过它。`SPECSTREAM_SEARCH_API_URL` 默认是 `https://api.specstream.ai/v1/web-search`，`SPECSTREAM_FETCH_API_URL` 默认是 `https://api.specstream.ai/v1/extract`；两者都用 `POST` 和 `Authorization: Bearer` 调用，不跟随重定向（收到 3xx 按 provider error 报告），并遵守 `SSL_VERIFY`。单个 `SPECSTREAM_API_KEY` 同时加入 `web_search` 与 `web_fetch`，不满足 `main_search` 或 `docs_search`。没有 Jev 判断时，本地规则把它排在其他网页搜索和网页抓取服务商之后（`SMART_SEARCH_RESEARCH_PREFERRED_PROVIDERS` 可以把它提前），`fetch` 也最后才试它。使用 Jev 路由时，Jev 按与其他渠道同样中立的简介给它打分，配好 Key 后它可能被第一个选中。`doctor` 与 `providers test specstream` 会各发一次真实搜索和抓取。
 - AnySearch 默认走 `https://api.anysearch.com/mcp` 的 JSON-RPC 2.0 `tools/call`。没有 key 时允许匿名请求；有 key 时发送 `Authorization: Bearer ...`。HTTP 200 但 `result.isError=true` 会按 provider error 处理，不能当成功证据。`--sub-domain-params` 会先解析成 JSON object，随后可重复的 `--param key=value` 覆盖同名键；参数不合法时会在发请求前失败。
 - Sciverse 默认走 `https://api.sciverse.space` 的 native HTTP/OpenAPI。必须配置 `SCIVERSE_API_TOKEN`；未配置时本地返回 `config_error` 且不发网络请求；已配置时发送 `Authorization: Bearer ...`。它保持 explicit-only：不是 `docs_search`，不满足 `standard`，不进入默认 `search` / `research` 兜底。
 
@@ -161,6 +163,7 @@ smart-search sciverse-relations "unique-id-from-search" --relation CITATIONS --p
 | `OPENAI_COMPATIBLE_MODEL` | 兼容模型名 |
 | `OPENAI_COMPATIBLE_API_MODE` | `chat-completions` 或 `responses`，默认 `chat-completions` |
 | `OPENAI_COMPATIBLE_TOOLS` | 可选；`web_search` 或 `web_search_preview`，默认空。只在 `OPENAI_COMPATIBLE_API_MODE=responses` 时可用，只随搜索请求发送 |
+| `OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH` | 可选，默认 `false`。设为 `true` 时搜索请求带 `tool_choice=required`，没有完成的 `web_search_call` 就报 `quality_error`；需要 responses 模式和 `web_search` 工具 |
 | `OPENAI_COMPATIBLE_STREAM` | OpenAI-compatible 中转兼容开关，接受 `true/1/yes`，默认 `false` |
 | `SMART_SEARCH_TIMEOUT_SECONDS` | `search` 总时限，默认 `300`；环境变量覆盖配置文件，`search --timeout` 单次覆盖 |
 | `SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS` | 可选 provider 失败冷却时长（秒），默认 `900`，`0` 关闭 |

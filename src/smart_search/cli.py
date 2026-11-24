@@ -397,6 +397,23 @@ def _provider_notice_lines(data: dict[str, Any]) -> list[str]:
     return ["", tr('> Degraded providers: {0}. `smart-search providers status` for details.', ', '.join(parts))]
 
 
+def _research_status_label(data: dict[str, Any]) -> str:
+    """`ok` keeps its retrieval meaning; a partial answer is never shown as plain OK."""
+    label = _status_label(data.get("ok"))
+    completion = data.get("completion") or {}
+    if completion.get("answer") != "partial":
+        return label
+    reasons = {
+        "evidence_gaps": tr('evidence gaps remain; see Gaps'),
+        "synthesis_failed": tr('synthesis failed; the report shows source excerpts'),
+        "synthesis_decision_failed": tr('the automatic synthesis decision failed; the report shows source excerpts'),
+        "synthesis_decision_skipped": tr('Jev was unavailable for the synthesis decision; the report shows source excerpts'),
+        "cancelled": tr('research was cancelled'),
+    }
+    reason = completion.get("reason", "")
+    return tr('{0} (answer partial: {1})', label, reasons.get(reason, reason or "completion"))
+
+
 def _format_result_markdown(command: str, data: dict[str, Any], title: str) -> str:
     lines = [
         f"# {title}",
@@ -629,6 +646,7 @@ def _format_doctor_markdown(data: dict[str, Any]) -> str:
         ("tinyfish", data.get("tinyfish_connection_test") or {}),
         ("deepseek", data.get("deepseek_connection_test") or {}),
         ("yuanbao", data.get("yuanbao_connection_test") or {}),
+        ("specstream", data.get("specstream_connection_test") or {}),
         ("zhipu", data.get("zhipu_connection_test") or {}),
         ("zhipu-mcp", data.get("zhipu_mcp_connection_test") or {}),
         ("context7", data.get("context7_connection_test") or {}),
@@ -1086,7 +1104,7 @@ def _format_markdown(command: str, data: dict[str, Any]) -> str:
             tr('# Research Report'),
             "",
             tr('**Question:** {0}', data.get('question', '')),
-            tr('**Status:** {0}', _status_label(data.get('ok'))),
+            tr('**Status:** {0}', _research_status_label(data)),
             tr('**Route policy:** {0}', data.get('route_policy_version', '')),
             tr('**Evidence dir:** `{0}`', data.get('evidence_dir', '')),
             tr('**Fallback used:** {0}', bool(data.get('fallback_used'))),
@@ -1492,6 +1510,7 @@ def _display_provider(provider: str, lang: str) -> str:
         "tinyfish": "TinyFish",
         "yuanbao": _t(lang, "元宝搜索", "Yuanbao Search"),
         "deepseek": "DeepSeek",
+        "specstream": "SpecStream",
         "anysearch": "AnySearch",
         "sciverse": "Sciverse",
     }
@@ -2340,6 +2359,7 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
         ("OPENAI_COMPATIBLE_FALLBACK_MODELS", "OpenAI-compatible fallback models (comma-separated)", True),
         ("OPENAI_COMPATIBLE_API_MODE", "OpenAI-compatible API mode (chat-completions/responses)", True),
         ("OPENAI_COMPATIBLE_TOOLS", "OpenAI-compatible Responses tools (web_search; needs API mode responses)", True),
+        ("OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH", "Require a completed Responses web_search (true/false; needs web_search tools)", True),
         ("OPENAI_COMPATIBLE_STREAM", "OpenAI-compatible stream mode (true/false)", True),
         ("SMART_SEARCH_JEV_SYNTHESIS_API_URL", "JEV synthesis API URL", True),
         ("SMART_SEARCH_JEV_SYNTHESIS_API_KEY", "JEV synthesis API key", True),
@@ -2383,6 +2403,10 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
         ("DEEPSEEK_API_KEY", "DeepSeek API key", True),
         ("DEEPSEEK_API_URL", "DeepSeek API URL", True),
         ("DEEPSEEK_TIMEOUT_SECONDS", "DeepSeek timeout seconds", True),
+        ("SPECSTREAM_API_KEY", "SpecStream API key (experimental)", True),
+        ("SPECSTREAM_SEARCH_API_URL", "SpecStream search API URL", True),
+        ("SPECSTREAM_FETCH_API_URL", "SpecStream fetch API URL", True),
+        ("SPECSTREAM_TIMEOUT_SECONDS", "SpecStream timeout seconds", True),
         ("ANYSEARCH_API_URL", "AnySearch MCP API URL", True),
         ("ANYSEARCH_API_KEY", "AnySearch API key", True),
         ("ANYSEARCH_TIMEOUT_SECONDS", "AnySearch timeout seconds", True),
@@ -2406,7 +2430,8 @@ def _run_advanced_setup_prompts(values: dict[str, str], current: dict[str, str],
             value = _normalize_custom_base_url(value)
         elif key == "SCIVERSE_API_URL":
             value = _normalize_custom_base_url(value)
-        elif key in {"TINYFISH_SEARCH_API_URL", "TINYFISH_FETCH_API_URL", "DEEPSEEK_API_URL", "YUANBAO_API_URL"}:
+        elif key in {"TINYFISH_SEARCH_API_URL", "TINYFISH_FETCH_API_URL", "DEEPSEEK_API_URL", "YUANBAO_API_URL",
+                     "SPECSTREAM_SEARCH_API_URL", "SPECSTREAM_FETCH_API_URL"}:
             value = _normalize_custom_base_url(value)
         values[key] = value
 
@@ -2774,6 +2799,7 @@ def _run_setup(args: argparse.Namespace) -> int:
         "OPENAI_COMPATIBLE_FALLBACK_MODELS": args.openai_compatible_fallback_models,
         "OPENAI_COMPATIBLE_API_MODE": args.openai_compatible_api_mode,
         "OPENAI_COMPATIBLE_TOOLS": args.openai_compatible_tools,
+        "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH": args.openai_compatible_require_web_search,
         "OPENAI_COMPATIBLE_STREAM": args.openai_compatible_stream,
         "SMART_SEARCH_JEV_SYNTHESIS_API_URL": args.jev_synthesis_api_url,
         "SMART_SEARCH_JEV_SYNTHESIS_API_KEY": args.jev_synthesis_api_key,
@@ -2858,6 +2884,12 @@ def _run_setup(args: argparse.Namespace) -> int:
                 values.get("OPENAI_COMPATIBLE_TOOLS") or service.config.openai_compatible_tools_raw,
                 values.get("OPENAI_COMPATIBLE_API_MODE") or service.config._get_config_value("OPENAI_COMPATIBLE_API_MODE", "") or "",
             )
+        if any(values.get(key) for key in ("OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH", "OPENAI_COMPATIBLE_TOOLS", "OPENAI_COMPATIBLE_API_MODE")):
+            service.config.check_openai_compatible_web_search_policy(
+                values.get("OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH") or service.config._get_config_value("OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH", "") or "",
+                values.get("OPENAI_COMPATIBLE_TOOLS") or service.config.openai_compatible_tools_raw,
+                values.get("OPENAI_COMPATIBLE_API_MODE") or service.config._get_config_value("OPENAI_COMPATIBLE_API_MODE", "") or "",
+            )
 
     try:
         validate_before_saving()
@@ -2939,6 +2971,7 @@ def _run_regression() -> int:
         "tests/test_jina_provider.py",
         "tests/test_tinyfish_provider.py",
         "tests/test_tinyfish_service.py",
+        "tests/test_specstream_provider.py",
         "tests/test_yuanbao_provider.py",
         "tests/test_yuanbao_service.py",
         "tests/test_deepseek_provider.py",
@@ -3482,6 +3515,7 @@ def build_parser() -> argparse.ArgumentParser:
     setup_parser.add_argument("--openai-compatible-fallback-models", default="", help="Save OPENAI_COMPATIBLE_FALLBACK_MODELS.")
     setup_parser.add_argument("--openai-compatible-api-mode", default="", help="Save OPENAI_COMPATIBLE_API_MODE (chat-completions or responses).")
     setup_parser.add_argument("--openai-compatible-tools", default="", help="Save OPENAI_COMPATIBLE_TOOLS (web_search or web_search_preview; needs --openai-compatible-api-mode responses).")
+    setup_parser.add_argument("--openai-compatible-require-web-search", default="", help="Save OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH (true or false; true forces tool_choice=required and needs --openai-compatible-tools web_search).")
     setup_parser.add_argument("--openai-compatible-stream", default="", help="Save OPENAI_COMPATIBLE_STREAM.")
     setup_parser.add_argument("--jev-synthesis-api-url", default="", help="Save SMART_SEARCH_JEV_SYNTHESIS_API_URL.")
     setup_parser.add_argument("--jev-synthesis-api-key", default="", help="Save SMART_SEARCH_JEV_SYNTHESIS_API_KEY.")

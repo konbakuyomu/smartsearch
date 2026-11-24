@@ -1,0 +1,49 @@
+# 研究证据流程
+
+`src/smart_search/jev_search.py` 负责 Jev 选路、渠道执行和研究结果组装；`src/smart_search/jev.py` 负责有类型的概率判断；`src/smart_search/evidence.py` 提供共用的正文摘录。普通 search 保持单轮检索，不自动启动研究或总结。
+
+## 从发现到正文
+
+- research 先发现候选来源，再读取原文并评估缺口。需要正文时，达到既有路由阈值的 fetch 至少获得一个渠道名额，其余名额仍按 Jev 分数选择；没有合格读取动作时允许继续发现来源。
+- 候选 URL 先按指定来源、问题相关词和主机分散排序，再限制为最多 20 个；该上限控制候选判断规模，不扩大每轮执行名额。已读 URL 不重复调度，新的来源可以在后续轮次进入候选池。
+- 每个读取候选包含发现阶段的标题、摘要和提供方，供 Jev 判断其是否值得读；成功后的引用保留发现标题。选路的 state 与 questions 按序列化后最多 32,000 字符分批，全部动作的局部分数还原到全局身份后统一排序；单个判断仍不能容纳时显式报错。分批会增加 Jev 调用次数，仍受共享截止时间约束。
+- 选路历史只含最近两组历史中各最多六条操作摘要（提供方、操作、状态、错误、URL 和短查询），不重新灌入完整传输或联网工具轨迹。完整诊断轨迹仍保留在结果中；不能让更详细的观测数据挤占后续判断的输入预算。
+- 候选 source.title 最多 200 字符，超长时标记 metadata_truncated；后续模型上下文的题名和 URL 分别限制为 200 与 500 字符。实际抓取目标 URL 不截断，原始发现记录仍保留，不把异常长的上游标题反复复制进有界判断输入。
+- 已读页面的相关同源 Markdown 链接可进入详情页候选池，保留链接标题和 parent_url，仍按未读发现处理；图片、安装包和归档文件不进入网页读取候选。后续主搜索候选把现有证据与缺口作为独立 evidence_context 传给模型，供核验具体冲突，不能把摘录当作已验证事实；Tavily、Exa 等索引服务仍只收到原问题或计划生成的短查询，避免把整段证据塞入检索 query。限定来源规则也约束这些新链接。
+- 限定来源必须落在 URL 上：限定词后面直接写 URL（如“只用 / 只读取 / 仅使用 <URL>”“Only use / Use only <URL>”，中间可隔“the supplied page”“以下两篇论文”这类短名词短语，以“和、、、and”连写的一组 URL 一并算），或 URL 后跟“only”“为唯一来源”，就只调度这些 URL 的读取；“仅使用这个链接”“only these sources”这类指代语，以及“不要替换来源”“do not substitute”，指问题里的全部 URL。“只用官方来源”“Use only official sources”说的是来源类型而不是 URL，不会把研究锁定到问题里出现的某个 URL，发现照常进行。“优先”不等同于“仅限”。这是一组明确措辞的解析规则，不是任意自然语言限制的完整理解器。
+- 正文读取和主搜索模型保留本轮 retrieval timeout，不因快速索引结果到达而取消。配置可用专用总结模型且启用 true，或有 Jev 的 auto 时，原总时限内预留 40%（最多 60 秒）用于最终评估、总结决策和实际总结；发现、选路和过滤使用提前的截止时间。剩余发现预算不足以开展有意义的下一轮时直接进入交付阶段，避免启动必然很短的读取。最终评估可使用预留时间，不能因发现截止时间到达而令 auto 错报 judgment_unavailable；可选过滤也只用到发现截止时间，过滤因此超时只保留原证据，不把 Jev 判为不可用；过滤后的重新评估、总结决策和总结都可用预留时间。外部取消和总截止时间仍生效。普通 search、false 模式及无可用专用总结模型时不预留。
+- research 与直接 fetch 复用 `src/smart_search/service.py` 中的抓取回退链。回退只能使用已配置、已启用、未被禁用且被调用方允许的提供方；fallback=off 保持单提供方。每次空结果、错误和成功均保留在 provider_attempts，正文注明实际成功提供方。
+- 同一次研究里，一个读取提供方对同一 URL 最多调用一次：同轮选中的几个读取名额（例如本地路由给同一 URL 选了 Tavily 和 Firecrawl）与各自的回退链共用已用记录，后续轮次换读取器重试时也不再回到用过的提供方。被跳过的名额没有发生调用，不记尝试。
+- 已读取的非空正文若被评估为无用，后续轮次可以在同一 URL 尝试尚未调用的读取提供方；原始抓取版本仍保留，不把一次无用摘录当作原文不存在或全部无关的证明。
+
+## 文档与摘录
+
+Context7 分开传递技术名称和完整问题。技术名称从问题中提取：跳过疑问词和请求用语，React、Next.js 这类专有名称优先于 useEffect 这类 API 成员，介词 in/with/for 之后的词再优先。Jev 可以在普通搜索和研究中评估库是否相关；明确判为不相关时不读取第一项。缺少 Jev 或判断不可用时，只允许唯一名称匹配，否则返回可诊断错误并走原有渠道回退。名称提取不到、不相关或有歧义只说明这一次问题，记为带原因的空结果，不计入提供方健康冷却。
+
+正文摘录使用英文词及中文双字词匹配，规范化 Unicode 连字符，并优先摘要、实验、结果和结论段落，降低密集链接、参考文献段落的权重。文章自身的题名、DOI 和发表或会议年份先获得受限名额；收紧序列化预算时重新摘录，避免从尾部直接截掉元数据。评估同时按相关性选择来源，遗漏和截断仍显式标记。研究的无模型报告复用相同摘录方法，auto 判断同时看到将交付的证据报告，不能仅凭隐藏正文中存在事实就认为已交付答案。该摘录是有限词法启发式，不保证找到所有关键事实，也不替代 Jev 的充分性判断。
+
+同 URL 的不同抓取版本保留正文及提供方，不按多个独立来源互证。评估带 source_identity 和 unique_read_sources，引用与 sources 按 URL 去重。
+
+## 完成与失败
+
+研究结果保留原有 ok 的检索成功含义，另提供 completion：retrieval、evidence、synthesis、answer、reason 和 unique_read_sources。answer=complete 需要存在已读证据、缺口关闭、计划中的总结未失败，且 auto 的总结决策确实做过；它反映本次工作流判断，不是外部人工验证结论。不完整时 reason 取 cancelled、no_read_evidence、synthesis_failed、synthesis_decision_failed、synthesis_decision_skipped 或 evidence_gaps 之一（按此优先）。auto 已有可用证据和总结模型，却因 Jev 不可用（例如过滤出错）跳过总结决策时，answer=partial、reason=synthesis_decision_skipped，不报 complete。
+
+证据闭合要求全局 sufficient 达到既有配置门槛，且没有分数达到 0.5 的单项实质缺口。单项缺口让 sufficient=false、研究继续补缺、completion.evidence 与 answer 降为 degraded / partial，但不改变 ok 和退出码：assessment 另给 global_sufficient（只看全局门槛），strict 的 ok 仍按它判断，与引入单项缺口之前相同（达到门槛 ok=true、退出码 0；未达到仍是 evidence_error、退出码 4）。输出保留 sufficiency_threshold 和 sufficiency_margin，不为消除边界波动降低阈值。相同问题、验证级别与已读证据身份在同次研究内复用原判断；新正文进入后重新评估。概率服务跨调用仍可能波动，不能把分数当作经校准的正确率。
+
+总结失败时保留证据报告及原始错误，degraded=true、partial_success=true、completion.answer=partial；不把已齐的证据缺口伪装成未齐，也不把检索成功等同于总结成功。调用方需要完整答案时应检查 completion.answer；公开与打包的 smart-search-cli 技能同样提示调用方读 completion.answer、reason、gap_check 和 synthesis，不只看 ok。
+
+ok=true 而 answer=partial 时，CLI Markdown 的状态行写成「成功（答案不完整：<原因>）」/「OK (answer partial: <reason>)」，原因按 reason 取中英文说明，不再只写成功 / OK；桌面 App 的结果正文来自同一 Markdown（display_text），任务状态和退出码仍随 ok（完成、0）。
+
+取消后 ok=false、error_type=cancelled。已有已读正文或已发现网址时 partial_success=true；只发现了网址、还没读到正文时 answer=failed、reason=cancelled，discovery_sources 保留这些网址，degraded_reason 如实写明“读取任何来源之前已取消，只返回已发现的网址”，不说返回了摘录。
+
+阶段日志分别记录 synthesis_decision 和实际 synthesis 的成功、失败、超时或取消；超时列表保留实际阶段。预留量由 routing_decision.limits.synthesis_reserved_seconds 报告，不延长用户指定的总时限。
+
+## Responses 主搜索
+
+OpenAI 兼容通道的 Responses search 带 web_search 或 web_search_preview 时，默认不发 tool_choice，也不因缺少工具记录拒绝回答；传输记录保留观察到的 web_search_calls，并以 web_search_verified 标明是否看到完成的调用。OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=true（需要 responses 模式和 web_search 工具，否则为参数错误）时才发送 tool_choice=required，并要求终态输出中的完成项，或终态未以同一 item id 否定的 response.web_search_call.completed 事件；缺失或失败报 quality_error，接口以 400/422 拒绝 tool_choice 时报 parameter_error 并提示关闭该项。非流式与 SSE 回退使用同一规则；正文含引用不能代替执行证明。fetch、describe、rank、总结与连接测试不携带这组搜索工具或强制选择项。核验在 `src/smart_search/providers/openai_compatible.py`，开关与工具、接口模式的组合校验在 `src/smart_search/config.py`。
+
+## 限流
+
+OpenAI 兼容适配器与提供方健康记录共用 retry hint 解析：支持 Retry-After、retry-after-ms 和错误正文的 try again in 提示。已知短暂限流从第一次 429 起按上游给出的等待时间冷却，但不超过配置的冷却时长；既有重试次数和共享截止时间仍约束重试，等待不越过截止时间。没有有效提示时使用原有策略，鉴权失败策略保持不变。解析在 `src/smart_search/provider_errors.py`，冷却记录在 `src/smart_search/provider_health.py`。
+
+本流程不增加密钥；唯一的新设置项是默认关闭的 OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH。已有的 Jev、抓取提供方及独立总结模型配置继续生效。

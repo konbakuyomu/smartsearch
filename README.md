@@ -170,8 +170,8 @@ One provider per capability is enough. Enter keys on the App's **Providers** pag
 | --- | --- | --- |
 | Main search | xAI, OpenAI-compatible API | A model searches the web and answers with citations |
 | Documentation search | Context7, Exa | Library, API and official documentation pages |
-| Web search | Zhipu, Zhipu Coding Plan, Tavily, TinyFish, DeepSeek, Firecrawl, Yuanbao Search | Discovers pages and excerpts |
-| Page fetching | Jina, Firecrawl, Zhipu page reading, Tavily, TinyFish, DeepSeek | Reads a known URL as clean text |
+| Web search | Zhipu, Zhipu Coding Plan, Tavily, TinyFish, DeepSeek, Firecrawl, Yuanbao Search, SpecStream (experimental) | Discovers pages and excerpts |
+| Page fetching | Jina, Firecrawl, Zhipu page reading, Tavily, TinyFish, DeepSeek, SpecStream (experimental) | Reads a known URL as clean text |
 | Vertical retrieval (experimental) | AnySearch, SciVerse | Domain and academic retrieval; SciVerse runs only when named explicitly |
 | Intent routing (optional) | Jev (TypeSafe) | Scores candidate channels and routes |
 
@@ -234,7 +234,7 @@ You choose the providers and can configure several; Jev picks a channel for each
 <details>
 <summary><strong>Windows shows SmartScreen; macOS cannot verify the developer</strong></summary>
 
-Windows `-signed.exe` packages use a self-signed certificate and may still trigger SmartScreen; see [Windows signatures and first launch](docs/windows-signing.md). macOS packages use ad-hoc bundle integrity signing and separate Sparkle EdDSA update signatures, without Developer ID signing or notarization.
+Windows `-signed.exe` packages use a self-signed certificate and may still trigger SmartScreen; see [Windows signatures and first launch](docs/windows-signing.md). macOS release packages are signed with the maintainer's fixed self-signed certificate and use separate Sparkle EdDSA update signatures, without Developer ID signing or notarization; see [macOS signing](docs/macos-signing.md).
 
 </details>
 

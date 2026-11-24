@@ -342,3 +342,158 @@ async def test_zhipu_mcp_sse_response_is_parsed(monkeypatch):
 
     assert data["ok"] is True
     assert data["results"][0]["url"] == "https://example.com"
+
+
+# ---- web_search_prime JSON results (issue #84) -------------------------------
+
+SEARCH_URL = "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp"
+
+
+def _search_items(count: int = 9) -> list[dict]:
+    items = []
+    for index in range(count):
+        item = {
+            "title": f"Result {index}",
+            "link": f"https://example.com/page-{index}?q=a%20b",
+            "content": f"Snippet {index}",
+            "refer": f"ref_{index + 1}",
+        }
+        if index == 0:
+            item.update(publish_date="2026-10-01", media="IRS")
+        items.append(item)
+    return items
+
+
+def _search_response(text: str) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={"jsonrpc": "2.0", "id": 2, "result": {"content": [{"type": "text", "text": text}]}},
+        request=_request(SEARCH_URL),
+    )
+
+
+async def _search_with_text(monkeypatch, text: str, tool: str = "web_search") -> dict:
+    FakeZhipuMCPClient.responses = [_initialize_response(SEARCH_URL), _search_response(text)]
+    monkeypatch.setattr("smart_search.providers.zhipu_mcp.httpx.AsyncClient", FakeZhipuMCPClient)
+    provider = ZhipuMCPProvider(SEARCH_URL, "zmcp-secret")
+    if tool == "search_doc":
+        return json.loads(await provider.search_doc("owner/repo", "install"))
+    return json.loads(await provider.web_search("IRS ITIN renewal"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("layers", [1, 2])
+async def test_zhipu_mcp_web_search_parses_json_results(monkeypatch, layers):
+    text = json.dumps(_search_items(), ensure_ascii=False)
+    if layers == 2:  # The Coding Plan endpoint wraps the array in one more JSON string.
+        text = json.dumps(text, ensure_ascii=False)
+
+    data = await _search_with_text(monkeypatch, text)
+
+    assert data["ok"] is True
+    assert data["total"] == 9
+    assert [item["url"] for item in data["results"]] == [f"https://example.com/page-{i}?q=a%20b" for i in range(9)]
+    first = data["results"][0]
+    assert first["title"] == "Result 0"
+    assert first["description"] == "Snippet 0"
+    assert first["published_date"] == "2026-10-01"
+    assert first["source"] == "IRS"
+    assert first["refer"] == "ref_1"
+    assert first["provider"] == "zhipu-mcp"
+    assert data["raw_content"] == text
+
+
+@pytest.mark.asyncio
+async def test_zhipu_mcp_web_search_skips_items_without_a_usable_link(monkeypatch):
+    items = [
+        "not an object",
+        {"title": "no link", "content": "x"},
+        {"title": "blank link", "link": "   ", "url": "https://example.com/fallback"},
+        {"title": "ftp", "link": "ftp://example.com/file"},
+        {"title": "", "link": " https://example.com/trimmed "},
+        {"title": 3, "link": "https://example.com/odd-title", "content": None},
+    ]
+
+    data = await _search_with_text(monkeypatch, json.dumps(items))
+
+    assert data["ok"] is True
+    assert [item["url"] for item in data["results"]] == [
+        "https://example.com/fallback", "https://example.com/trimmed", "https://example.com/odd-title"]
+    assert data["results"][1]["title"] == "https://example.com/trimmed"
+    assert data["results"][2]["description"] == ""
+
+
+@pytest.mark.asyncio
+async def test_zhipu_mcp_web_search_empty_array_is_zero_results(monkeypatch):
+    data = await _search_with_text(monkeypatch, "[]")
+
+    assert data["ok"] is True
+    assert data["total"] == 0
+    assert data["results"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text", ['[{"title": "cut off", "link": "https://example.com', '"[{\\"title\\": ', '{"items": []}'])
+async def test_zhipu_mcp_web_search_malformed_or_unknown_json_is_parse_error(monkeypatch, text):
+    data = await _search_with_text(monkeypatch, text)
+
+    assert data["ok"] is False
+    assert data["error_type"] == "parse_error"
+    assert data["results"] == []
+    assert "zmcp-secret" not in json.dumps(data)
+
+
+@pytest.mark.asyncio
+async def test_zhipu_mcp_web_search_double_encoded_error_stays_provider_error(monkeypatch):
+    data = await _search_with_text(monkeypatch, json.dumps(json.dumps({"error": "quota exceeded"})))
+
+    assert data["ok"] is False
+    assert data["error_type"] == "provider_error"
+    assert "quota exceeded" in data["error"]
+
+
+@pytest.mark.asyncio
+async def test_zhipu_mcp_markdown_results_still_parse_and_stop_urls_at_quotes(monkeypatch):
+    text = '## Result\n- **URL**: https://example.com/a","content":"tail\n[Docs](https://example.com/b)'
+
+    data = await _search_with_text(monkeypatch, text)
+
+    assert data["ok"] is True
+    assert data["results"][0]["url"] == "https://example.com/a"
+
+
+@pytest.mark.asyncio
+async def test_zread_output_keeps_the_markdown_path(monkeypatch):
+    # Only web_search_prime returns the JSON array; other tools keep their text parsing.
+    data = await _search_with_text(monkeypatch, "[Install](https://example.com/install)", tool="search_doc")
+
+    assert data["ok"] is True
+    assert data["results"][0]["url"] == "https://example.com/install"
+
+
+@pytest.mark.asyncio
+async def test_ordinary_search_receives_the_full_original_urls(monkeypatch):
+    from smart_search import jev_search, service
+
+    monkeypatch.setenv("ZHIPU_MCP_API_KEY", "zmcp-secret")
+    monkeypatch.setenv("ZHIPU_MCP_ENABLED", "true")
+    FakeZhipuMCPClient.responses = [
+        _initialize_response(SEARCH_URL),
+        _search_response(json.dumps(json.dumps(_search_items(3)))),
+    ]
+    monkeypatch.setattr("smart_search.providers.zhipu_mcp.httpx.AsyncClient", FakeZhipuMCPClient)
+
+    data = await service.zhipu_mcp_search("IRS ITIN renewal", count=3)
+    sources = jev_search._normalize_results(data["results"], "zhipu-mcp", "search")
+
+    assert [source["url"] for source in sources] == [f"https://example.com/page-{i}?q=a%20b" for i in range(3)]
+    assert sources[0]["content"] == "Snippet 0"
+    assert sources[0]["published_date"] == "2026-10-01"
+
+
+@pytest.mark.asyncio
+async def test_zhipu_mcp_json_encoded_markdown_text_is_parsed_as_markdown(monkeypatch):
+    data = await _search_with_text(monkeypatch, json.dumps("### Result\nhttps://example.com/quoted"))
+
+    assert data["ok"] is True
+    assert data["results"][0]["url"] == "https://example.com/quoted"

@@ -39,6 +39,8 @@ class Config:
     _ALLOWED_OPENAI_COMPATIBLE_API_MODES = {"chat-completions", "responses"}
     # Responses tools the OpenAI-compatible channel may attach to search(); empty sends none.
     _ALLOWED_OPENAI_COMPATIBLE_TOOLS = {"web_search", "web_search_preview"}
+    _BOOL_VALUES = {"true", "false", "1", "0", "yes", "no", "on", "off"}
+    _TRUE_VALUES = {"true", "1", "yes", "on"}
     _ALLOWED_VALIDATION_LEVELS = {"fast", "balanced", "strict"}
     _ALLOWED_FALLBACK_MODES = {"auto", "off"}
     _ALLOWED_MINIMUM_PROFILES = {"standard", "off"}
@@ -62,6 +64,7 @@ class Config:
         "tinyfish": "TINYFISH_ENABLED",
         "yuanbao": "YUANBAO_ENABLED",
         "deepseek": "DEEPSEEK_ENABLED",
+        "specstream": "SPECSTREAM_ENABLED",
         "jina": "JINA_ENABLED",
         "anysearch": "ANYSEARCH_ENABLED",
         "sciverse": "SCIVERSE_ENABLED",
@@ -80,6 +83,7 @@ class Config:
         "OPENAI_COMPATIBLE_FALLBACK_MODELS",
         "OPENAI_COMPATIBLE_API_MODE",
         "OPENAI_COMPATIBLE_TOOLS",
+        "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH",
         "OPENAI_COMPATIBLE_STREAM",
         "SMART_SEARCH_VALIDATION_LEVEL",
         "SMART_SEARCH_FALLBACK_MODE",
@@ -135,6 +139,10 @@ class Config:
         "DEEPSEEK_API_KEY",
         "DEEPSEEK_API_URL",
         "DEEPSEEK_TIMEOUT_SECONDS",
+        "SPECSTREAM_API_KEY",
+        "SPECSTREAM_SEARCH_API_URL",
+        "SPECSTREAM_FETCH_API_URL",
+        "SPECSTREAM_TIMEOUT_SECONDS",
         "ANYSEARCH_API_KEY",
         "ANYSEARCH_API_URL",
         "ANYSEARCH_TIMEOUT_SECONDS",
@@ -170,6 +178,7 @@ class Config:
         "OPENAI_COMPATIBLE_FALLBACK_MODELS",
         "OPENAI_COMPATIBLE_API_MODE",
         "OPENAI_COMPATIBLE_TOOLS",
+        "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH",
         "OPENAI_COMPATIBLE_STREAM",
         "SMART_SEARCH_VALIDATION_LEVEL",
         "SMART_SEARCH_FALLBACK_MODE",
@@ -525,7 +534,8 @@ class Config:
                     for old_key, new_key in self._LEGACY_CONFIG_KEYS.items():
                         if new_key == key:
                             config_data.pop(old_key, None)
-                if {"OPENAI_COMPATIBLE_TOOLS", "OPENAI_COMPATIBLE_API_MODE"} & (set(normalized_set) | set(normalized_unset)):
+                touched = set(normalized_set) | set(normalized_unset)
+                if {"OPENAI_COMPATIBLE_TOOLS", "OPENAI_COMPATIBLE_API_MODE"} & touched:
                     try:
                         self.check_openai_compatible_tools_mode(
                             str(config_data.get("OPENAI_COMPATIBLE_TOOLS") or ""),
@@ -533,6 +543,16 @@ class Config:
                         )
                     except ValueError as e:
                         return {"ok": False, "errors": [{"key": "OPENAI_COMPATIBLE_TOOLS", "error": str(e)}],
+                                "saved": [], "unset": []}
+                if {"OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH", "OPENAI_COMPATIBLE_TOOLS", "OPENAI_COMPATIBLE_API_MODE"} & touched:
+                    try:
+                        self.check_openai_compatible_web_search_policy(
+                            str(config_data.get("OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH") or ""),
+                            str(config_data.get("OPENAI_COMPATIBLE_TOOLS") or ""),
+                            str(config_data.get("OPENAI_COMPATIBLE_API_MODE") or ""),
+                        )
+                    except ValueError as e:
+                        return {"ok": False, "errors": [{"key": "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH", "error": str(e)}],
                                 "saved": [], "unset": []}
                 self._save_config_file(config_data)
         except OSError:
@@ -675,6 +695,31 @@ class Config:
                 'Set the API mode to responses, or clear OPENAI_COMPATIBLE_TOOLS.'
             ))
 
+    @property
+    def openai_compatible_require_web_search(self) -> bool:
+        """Whether Responses search must prove a completed web_search call; raises when it never could."""
+        raw = self._get_config_value("OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH", "") or ""
+        self.check_openai_compatible_web_search_policy(
+            raw, self.openai_compatible_tools_raw, self._get_config_value("OPENAI_COMPATIBLE_API_MODE", "") or "",
+        )
+        return raw.strip().lower() in self._TRUE_VALUES
+
+    def check_openai_compatible_web_search_policy(self, require_raw: str, tools_raw: str, api_mode: str) -> None:
+        """Requiring a web search is only provable when search() sends a web_search tool."""
+        require = str(require_raw or "").strip().lower()
+        if not require:
+            return
+        self._validate_enum_value("OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH", require, self._BOOL_VALUES)
+        if require not in self._TRUE_VALUES:
+            return
+        tools, _ = self._split_tool_list(tools_raw, self._ALLOWED_OPENAI_COMPATIBLE_TOOLS)
+        if not tools or (api_mode or self._DEFAULT_OPENAI_COMPATIBLE_API_MODE).strip().lower() != "responses":
+            raise ValueError(tr(
+                'OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=true needs OPENAI_COMPATIBLE_API_MODE=responses and '
+                'OPENAI_COMPATIBLE_TOOLS=web_search (or web_search_preview). Set both, or turn '
+                'OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH off.'
+            ))
+
     @staticmethod
     def _split_tool_list(raw: str, allowed: set[str]) -> tuple[list[str], list[str]]:
         tools: list[str] = []
@@ -768,7 +813,8 @@ class Config:
         if key in JEV_DEFAULTS:
             validate_jev_value(key, value)
             return
-        if key in {"SMART_SEARCH_TIMEOUT_SECONDS", "TINYFISH_TIMEOUT_SECONDS", "YUANBAO_TIMEOUT_SECONDS", "DEEPSEEK_TIMEOUT_SECONDS"}:
+        if key in {"SMART_SEARCH_TIMEOUT_SECONDS", "TINYFISH_TIMEOUT_SECONDS", "YUANBAO_TIMEOUT_SECONDS", "DEEPSEEK_TIMEOUT_SECONDS",
+                   "SPECSTREAM_TIMEOUT_SECONDS"}:
             self._parse_positive_float_value(key, value)
             return
         if key == "SMART_SEARCH_PROVIDER_COOLDOWN_SECONDS":
@@ -796,6 +842,7 @@ class Config:
         enum_allowed = {
             "XAI_REASONING_EFFORT": self._ALLOWED_XAI_REASONING_EFFORTS,
             "XAI_STREAM": {"true", "false", "1", "0", "yes", "no"},
+            "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH": self._BOOL_VALUES,
             "SMART_SEARCH_VALIDATION_LEVEL": self._ALLOWED_VALIDATION_LEVELS,
             "SMART_SEARCH_FALLBACK_MODE": self._ALLOWED_FALLBACK_MODES,
             "SMART_SEARCH_MINIMUM_PROFILE": self._ALLOWED_MINIMUM_PROFILES,
@@ -1007,6 +1054,31 @@ class Config:
     @property
     def firecrawl_api_key(self) -> str | None:
         return self._get_config_value("FIRECRAWL_API_KEY")
+
+    @property
+    def specstream_api_key(self) -> str | None:
+        return self._get_config_value("SPECSTREAM_API_KEY")
+
+    @property
+    def specstream_search_api_url(self) -> str:
+        return (
+            self._get_config_value("SPECSTREAM_SEARCH_API_URL", "https://api.specstream.ai/v1/web-search")
+            or "https://api.specstream.ai/v1/web-search"
+        )
+
+    @property
+    def specstream_fetch_api_url(self) -> str:
+        return (
+            self._get_config_value("SPECSTREAM_FETCH_API_URL", "https://api.specstream.ai/v1/extract")
+            or "https://api.specstream.ai/v1/extract"
+        )
+
+    @property
+    def specstream_timeout(self) -> float:
+        return self._parse_positive_float_value(
+            "SPECSTREAM_TIMEOUT_SECONDS",
+            self._get_config_value("SPECSTREAM_TIMEOUT_SECONDS", "30") or "30",
+        )
 
     @property
     def tinyfish_api_key(self) -> str | None:
@@ -1270,10 +1342,19 @@ class Config:
             self._ALLOWED_OPENAI_COMPATIBLE_API_MODES,
         )
         openai_compatible_tools = self.openai_compatible_tools_raw
+        openai_compatible_tools_error = ""
         try:
             openai_compatible_tools = ",".join(self.openai_compatible_tools)
         except ValueError as exc:
+            openai_compatible_tools_error = str(exc)
             if not openai_compatible_api_mode_error:
+                config_parameter_errors.append(str(exc))
+        openai_compatible_require_web_search_raw = self._get_config_value("OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH", "") or ""
+        openai_compatible_require_web_search = openai_compatible_require_web_search_raw.strip().lower() in self._TRUE_VALUES
+        try:
+            openai_compatible_require_web_search = self.openai_compatible_require_web_search
+        except ValueError as exc:
+            if not openai_compatible_api_mode_error and not openai_compatible_tools_error:
                 config_parameter_errors.append(str(exc))
         primary_api_mode = tr('未配置')
         if xai_configured:
@@ -1324,6 +1405,7 @@ class Config:
             "OPENAI_COMPATIBLE_FALLBACK_MODELS": ",".join(self.openai_compatible_fallback_models),
             "OPENAI_COMPATIBLE_API_MODE": openai_compatible_api_mode,
             "OPENAI_COMPATIBLE_TOOLS": openai_compatible_tools,
+            "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH": openai_compatible_require_web_search,
             "OPENAI_COMPATIBLE_STREAM": self.openai_compatible_stream,
             "SMART_SEARCH_VALIDATION_LEVEL": validation_level,
             "SMART_SEARCH_FALLBACK_MODE": fallback_mode,
@@ -1356,6 +1438,10 @@ class Config:
             "DEEPSEEK_API_URL": self.deepseek_api_url,
             "DEEPSEEK_API_KEY": self._mask_api_key(self.deepseek_api_key) if self.deepseek_api_key else tr('未配置'),
             "DEEPSEEK_TIMEOUT_SECONDS": self.deepseek_timeout,
+            "SPECSTREAM_SEARCH_API_URL": self.specstream_search_api_url,
+            "SPECSTREAM_FETCH_API_URL": self.specstream_fetch_api_url,
+            "SPECSTREAM_API_KEY": self._mask_api_key(self.specstream_api_key) if self.specstream_api_key else tr('未配置'),
+            "SPECSTREAM_TIMEOUT_SECONDS": self.specstream_timeout,
             "ANYSEARCH_API_URL": self.anysearch_api_url,
             "ANYSEARCH_API_KEY": self._mask_api_key(self.anysearch_api_key) if self.anysearch_api_key else tr('未配置'),
             "ANYSEARCH_TIMEOUT_SECONDS": self.anysearch_timeout,

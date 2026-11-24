@@ -99,6 +99,20 @@ PROVIDER_DESCRIPTIONS: dict[str, dict[str, dict[str, str]]] = {
             "guidance_zh": "擅长抓取需要渲染的已知页面；此操作不适合发现新页面或请求 JSON 提取。",
         },
     },
+    "specstream": {
+        "search": {
+            "en": "Searches the web through SpecStream Web Search and returns linked results with excerpts.",
+            "zh": "通过 SpecStream Web Search 检索网页，返回链接和摘录。",
+            "guidance_en": "Best for broad web source discovery; excerpts are not full page text, so read key pages before citing them. This action passes only the query and a result count, so it cannot restrict sites or dates.",
+            "guidance_zh": "擅长广泛发现网页来源；摘录不是网页全文，引用关键结论前应读取原页。此操作只传入查询词和结果数，不能限定网站或时间。",
+        },
+        "fetch": {
+            "en": "Reads a known URL as markdown or plain text through SpecStream Extract.",
+            "zh": "通过 SpecStream Extract 将已知链接读取为 Markdown 或纯文本。",
+            "guidance_en": "Best for reading pages already found; unsuitable for discovering new pages without a URL.",
+            "guidance_zh": "擅长读取已找到的页面；没有 URL 时不适合用于发现新页面。",
+        },
+    },
     "tinyfish": {
         "search": {
             "en": "Finds web URLs and snippets through TinyFish Search.",

@@ -168,8 +168,8 @@ flowchart LR
 | --- | --- | --- |
 | 主搜索 | xAI、OpenAI 兼容接口 | 由模型联网搜索并回答，附引用 |
 | 文档检索 | Context7、Exa | 查软件库、API 文档和官方页面 |
-| 网页搜索 | 智谱、智谱 Coding Plan、Tavily、TinyFish、DeepSeek、Firecrawl、元宝搜索 | 发现网页和摘录 |
-| 网页抓取 | Jina、Firecrawl、智谱网页阅读、Tavily、TinyFish、DeepSeek | 把已知网址读成正文 |
+| 网页搜索 | 智谱、智谱 Coding Plan、Tavily、TinyFish、DeepSeek、Firecrawl、元宝搜索、SpecStream（实验性） | 发现网页和摘录 |
+| 网页抓取 | Jina、Firecrawl、智谱网页阅读、Tavily、TinyFish、DeepSeek、SpecStream（实验性） | 把已知网址读成正文 |
 | 垂直检索（实验性） | AnySearch、SciVerse | 特定领域与学术检索；SciVerse 只在明确指定时调用 |
 | 意图路由（可选） | Jev（TypeSafe） | 给候选渠道打分并选路 |
 
@@ -232,7 +232,7 @@ Smart Search 本身免费开源。服务商测试、搜索、`doctor` 和 `route
 <details>
 <summary><strong>Windows 提示 SmartScreen，macOS 提示无法验证开发者？</strong></summary>
 
-Windows 的 `-signed.exe` 安装包使用自签名证书，仍可能出现 SmartScreen 提示，详见 [Windows 签名与首次启动](docs/windows-signing.md)。macOS 包使用 ad-hoc 完整性签名和独立的 Sparkle EdDSA 更新签名，尚无 Developer ID 签名或公证。
+Windows 的 `-signed.exe` 安装包使用自签名证书，仍可能出现 SmartScreen 提示，详见 [Windows 签名与首次启动](docs/windows-signing.md)。macOS 正式包使用维护者的固定自签名证书和独立的 Sparkle EdDSA 更新签名，尚无 Developer ID 签名或公证，详见 [macOS 签名](docs/macos-signing.md)。
 
 </details>
 

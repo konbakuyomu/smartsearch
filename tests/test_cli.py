@@ -970,6 +970,35 @@ def test_setup_rejects_openai_compatible_tools_without_responses_before_saving(m
     assert data["saved"] == {} and saved == {}
 
 
+@pytest.mark.parametrize("extra_args, saved_ok", [
+    ([], False),
+    (["--openai-compatible-api-mode", "responses"], False),
+    (["--openai-compatible-api-mode", "responses", "--openai-compatible-tools", "web_search"], True),
+])
+def test_setup_checks_required_web_search_against_tools_before_saving(monkeypatch, capsys, extra_args, saved_ok):
+    saved = {}
+
+    def fake_config_set(key, value):
+        saved[key] = value
+        return {"ok": True, "key": key, "value": value, "config_file": "C:/tmp/config.json"}
+
+    monkeypatch.setattr(cli.service.config, "_get_config_value", lambda key, default=None: default)
+    monkeypatch.setattr(cli.service, "config_set", fake_config_set)
+    monkeypatch.setattr(cli.service, "config_path", lambda: {"ok": True, "config_file": "C:/tmp/config.json"})
+
+    code = cli.main(["setup", "--non-interactive", "--skip-skills", "--format", "json", "--openai-compatible-api-key", "sk-test",
+                     *extra_args, "--openai-compatible-require-web-search", "true"])
+    data = json.loads(capsys.readouterr().out)
+
+    if saved_ok:
+        assert code == cli.EXIT_OK
+        assert saved["OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH"] == "true"
+    else:
+        assert code == cli.EXIT_PARAMETER_ERROR
+        assert "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH" in data["error"]
+        assert data["saved"] == {} and saved == {}
+
+
 def test_markdown_search_includes_sources(monkeypatch, capsys):
     async def fake_search(query, platform="", model="", extra_sources=0, validation="", fallback="", providers="auto"):
         return {

@@ -40,6 +40,7 @@ from .providers.openai_compatible import (
     openai_compatible_endpoint,
 )
 from .providers.sciverse import SciverseProvider
+from .providers.specstream import SpecStreamFetchProvider, SpecStreamSearchProvider
 from .providers.tinyfish import TinyFishFetchProvider, TinyFishSearchProvider
 from .providers.xai_responses import XAIResponsesSearchProvider
 from .providers.yuanbao import YuanbaoSearchProvider
@@ -48,6 +49,7 @@ from .providers.zhipu_mcp import ZhipuMCPProvider
 from .provider_errors import (
     APPROVED_PROVIDER_ERROR_TYPES,
     ProviderCallError,
+    QueryMissError,
     classify_provider_exception,
     provider_call_error,
     sanitize_provider_error_message,
@@ -178,9 +180,9 @@ RESEARCH_JS_HEAVY_KEYWORDS = {
 RESEARCH_PDF_KEYWORDS = {"pdf", "arxiv", "论文", "paper", ".pdf"}
 RESEARCH_PROFILE_ORDER = {
     "main_search": ["xai-responses", "openai-compatible"],
-    "web_search": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek", "yuanbao"],
+    "web_search": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek", "yuanbao", "specstream"],
     "docs_search": ["context7", "exa"],
-    "web_fetch": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish", "deepseek"],
+    "web_fetch": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish", "deepseek", "specstream"],
     "vertical_search": ["anysearch"],
     "site_map": ["tavily"],
     "synthesis": ["main-search"],
@@ -280,6 +282,18 @@ PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
         "minimum_profile_role": "",
         "quality_filters": ["non-empty normalized result"],
         "route_reasons": ["Chinese/current discovery", "Tencent ecosystem sources"],
+    },
+    # Last on purpose: local rule routing stable-sorts candidates by this
+    # insertion order, so SpecStream ranks after every established web provider.
+    # Experimental until maintainers verify it against the live API.
+    "specstream": {
+        "capability": "web_search",
+        "capabilities": ["web_search", "web_fetch"],
+        "fallback_group": "web_search/web_fetch",
+        "minimum_profile_role": "",
+        "quality_filters": ["non-empty normalized result", "non-empty extracted content", "challenge page rejection"],
+        "route_reasons": ["broad source discovery", "known URL extraction"],
+        "experimental": True,
     },
     "anysearch": {
         "capability": "vertical_search",
@@ -505,6 +519,9 @@ def _attempt_from_exception(capability: str, provider: str, start: float, exc: B
 def _attempt_with_health(capability: str, provider: str, start: float, exc: BaseException) -> dict[str, Any]:
     """Record a raised optional-provider failure in persisted health, then report it."""
     error_type, error = classify_provider_exception(exc)
+    if isinstance(exc, QueryMissError):
+        # Nothing fit this one query; the provider itself answered normally.
+        return _attempt(capability, provider, "empty", start, error_type=error_type, error=error)
     health_extra = _record_provider_result(provider, "error", error_type, error)
     return _attempt(capability, provider, "error", start, error_type=error_type, error=error, extra=health_extra)
 
@@ -540,6 +557,7 @@ PROVIDER_CREDENTIAL_SOURCES: dict[str, Any] = {
     "zhipu-mcp-reader": lambda: (config.zhipu_mcp_api_key, config.zhipu_mcp_reader_api_url),
     "tavily": lambda: (config.tavily_api_key, config.tavily_api_url),
     "firecrawl": lambda: (config.firecrawl_api_key, config.firecrawl_api_url),
+    "specstream": lambda: (config.specstream_api_key, config.specstream_search_api_url, config.specstream_fetch_api_url),
     "tinyfish": lambda: (config.tinyfish_api_key, config.tinyfish_search_api_url, config.tinyfish_fetch_api_url),
     "yuanbao": lambda: (config.yuanbao_secret_id, config.yuanbao_secret_key, config.yuanbao_api_url),
     "deepseek": lambda: (config.deepseek_api_key, config.deepseek_api_url),
@@ -998,6 +1016,8 @@ def _provider_configured(provider: str) -> bool:
         return bool(config.zhipu_mcp_api_key)
     if provider == "firecrawl":
         return bool(config.firecrawl_api_key)
+    if provider == "specstream":
+        return bool(config.specstream_api_key)
     if provider == "tinyfish":
         return bool(config.tinyfish_api_key)
     if provider == "yuanbao":
@@ -1106,16 +1126,16 @@ def _citation_items(evidence_items: list[dict[str, Any]]) -> list[dict[str, str]
 
 
 def _evidence_only_synthesis(question: str, evidence_items: list[dict[str, Any]], gaps: list[dict[str, Any]]) -> str:
+    from .evidence import relevant_excerpt
     if not evidence_items:
         return (
             f"未能为 `{question}` 获取可引用的页面正文证据。"
             "本次 research 已停止在降级状态，未对缺证据的结论做断言。"
         )
     lines = [f"Research result for: {question}", ""]
-    lines.append("Evidence-backed findings:")
+    lines.append("Retrieved source excerpts:")
     for index, item in enumerate(evidence_items, 1):
-        content = re.sub(r"\s+", " ", (item.get("content") or "").strip())
-        excerpt = content[:360]
+        excerpt = relevant_excerpt((item.get("content") or "").strip(), question, 1600)
         lines.append(f"{index}. {item.get('title') or item.get('url')} ({item.get('provider')})")
         if excerpt:
             lines.append(f"   Evidence excerpt: {excerpt}")
@@ -1533,10 +1553,11 @@ def get_capability_status() -> dict[str, Any]:
                     ("tinyfish", _provider_configured("tinyfish")),
                     ("deepseek", _provider_configured("deepseek")),
                     ("yuanbao", _provider_configured("yuanbao")),
+                    ("specstream", _provider_configured("specstream")),
                 ]
                 if enabled
             ],
-            "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek", "yuanbao"],
+            "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek", "yuanbao", "specstream"],
         },
         "docs_search": {
             "configured": [
@@ -1559,10 +1580,11 @@ def get_capability_status() -> dict[str, Any]:
                     ("firecrawl", _provider_configured("firecrawl")),
                     ("tinyfish", _provider_configured("tinyfish")),
                     ("deepseek", _provider_configured("deepseek")),
+                    ("specstream", _provider_configured("specstream")),
                 ]
                 if enabled
             ],
-            "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish", "deepseek"],
+            "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish", "deepseek", "specstream"],
         },
         "vertical_search": {
             "configured": [
@@ -1657,6 +1679,7 @@ def _main_search_provider_configs(model_override: str = "", providers: str = "au
             "fallback_models": [] if model_override else config.openai_compatible_fallback_models,
             "stream": config.openai_compatible_stream,
             "tools": config.openai_compatible_tools,
+            "require_web_search": config.openai_compatible_require_web_search,
             "source": "OPENAI_COMPATIBLE_*",
         }
 
@@ -1691,6 +1714,7 @@ def _main_search_providers(provider_configs: list[dict[str, Any]], fallback: str
                     provider_config.get("stream", False),
                     provider_config.get("api_mode", provider_config.get("mode", "chat-completions")),
                     tools=provider_config.get("tools") or [],
+                    require_web_search=bool(provider_config.get("require_web_search")),
                 )
             )
     return providers
@@ -1817,8 +1841,13 @@ async def _run_web_fetch_fallback(
     preferred_order: list[str] | None = None,
     *,
     deadline: float | None = None,
+    allowed_providers: set[str] | None = None,
+    attempts: list[dict] | None = None,
+    claimed: set[str] | None = None,
 ) -> tuple[dict[str, Any] | None, list[dict]]:
-    attempts: list[dict] = []
+    # `claimed` holds the readers already used, or in flight, for this URL in
+    # the same research run; they are skipped and each new call is added.
+    attempts = [] if attempts is None else attempts
     providers = []
     if _provider_configured("tavily"):
         providers.append("tavily")
@@ -1832,9 +1861,13 @@ async def _run_web_fetch_fallback(
         providers.append("tinyfish")
     if _provider_configured("deepseek"):
         providers.append("deepseek")
+    if _provider_configured("specstream"):
+        providers.append("specstream")
+    if allowed_providers is not None:
+        providers = [provider for provider in providers if provider in allowed_providers]
     if preferred_order:
         allowed = {provider for provider in providers}
-        ordered = [provider for provider in preferred_order if provider in allowed]
+        ordered = list(dict.fromkeys(provider for provider in preferred_order if provider in allowed))
         ordered.extend(provider for provider in providers if provider not in ordered)
         providers = ordered
     if fallback == "off":
@@ -1847,6 +1880,10 @@ async def _run_web_fetch_fallback(
         return call if deadline is None else asyncio.wait_for(call, deadline - time.monotonic())
 
     for provider in providers:
+        if claimed is not None:
+            if provider in claimed:
+                continue
+            claimed.add(provider)
         start = time.time()
         remaining = deadline - time.monotonic() if deadline is not None else None
         if remaining is not None and remaining <= _CLOCK_RESOLUTION:
@@ -1883,6 +1920,14 @@ async def _run_web_fetch_fallback(
                     continue
             elif provider == "deepseek":
                 content = await bounded(call_deepseek_fetch(url))
+            elif provider == "specstream":
+                data = await bounded(call_specstream_fetch(url))
+                content = data.get("content") if data.get("ok") else None
+                if not data.get("ok"):
+                    status = _attempt_status_for_result(data)
+                    health_extra = _record_provider_result(provider, status, data.get("error_type", ""), data.get("error", ""))
+                    attempts.append(_attempt("web_fetch", provider, status, start, error_type=data.get("error_type", ""), error=data.get("error", ""), extra=health_extra))
+                    continue
             else:
                 content = await bounded(call_firecrawl_scrape(url))
             if content and content.strip():
@@ -1895,6 +1940,9 @@ async def _run_web_fetch_fallback(
                     "content": content,
                 }, attempts
             attempts.append(_attempt("web_fetch", provider, "empty", start))
+        except asyncio.CancelledError:
+            attempts.append(_attempt("web_fetch", provider, "cancelled", start, error_type="cancelled", error="fetch cancelled"))
+            raise
         except Exception as e:
             attempts.append(_attempt_with_health("web_fetch", provider, start, e))
     return None, attempts
@@ -2065,6 +2113,59 @@ async def call_firecrawl_scrape(url: str, ctx=None) -> str | None:
             return markdown
         await log_info(ctx, f"Firecrawl: markdown empty, retry {attempt + 1}/{config.retry_max_attempts}", config.debug_enabled)
     return None
+
+
+def _specstream_search_provider() -> SpecStreamSearchProvider:
+    return SpecStreamSearchProvider(
+        config.specstream_search_api_url, config.specstream_api_key or "", config.specstream_timeout,
+        verify=config.ssl_verify_enabled,
+    )
+
+
+def _specstream_fetch_provider() -> SpecStreamFetchProvider:
+    return SpecStreamFetchProvider(
+        config.specstream_fetch_api_url, config.specstream_api_key or "", config.specstream_timeout,
+        verify=config.ssl_verify_enabled,
+    )
+
+
+async def call_specstream_search(query: str, max_results: int = 6) -> list[dict] | None:
+    """Return normalized SpecStream candidates; a provider failure raises like TinyFish's."""
+    if not config.provider_enabled("specstream"):
+        return None
+    api_key = config.specstream_api_key
+    if not api_key:
+        return None
+    data = await _decode_provider_json(
+        await _specstream_search_provider().search(query, max_results=max_results),
+        provider="specstream",
+    )
+    if not data.get("ok"):
+        raise ProviderCallError(
+            str(data.get("error_type") or "provider_error"),
+            str(data.get("error") or "SpecStream search failed"),
+            additional_secrets=(api_key,),
+        )
+    results = data.get("results")
+    if not isinstance(results, list):
+        raise ProviderCallError("parse_error", source_message("SpecStream search payload is missing results"))
+    return [item for item in results if isinstance(item, dict)]
+
+
+async def call_specstream_fetch(url: str) -> dict[str, Any]:
+    if disabled := _provider_disabled_result("specstream"):
+        return disabled
+    api_key = config.specstream_api_key
+    if not api_key:
+        return {
+            "ok": False,
+            "provider": "specstream",
+            "url": url,
+            "error_type": "config_error",
+            "error": source_message("SPECSTREAM_API_KEY is not configured."),
+        }
+    raw = await _specstream_fetch_provider().fetch(url)
+    return await _decode_provider_json(raw, provider="specstream")
 
 
 async def call_tinyfish_search(query: str, max_results: int = 6) -> list[dict] | None:
@@ -2297,7 +2398,7 @@ async def fetch(url: str, timeout_seconds: float | None = None) -> dict[str, Any
 
     configured_fetch_providers = [
         provider
-        for provider in ("tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish", "deepseek")
+        for provider in ("tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish", "deepseek", "specstream")
         if _provider_configured(provider)
     ]
     if not configured_fetch_providers:
@@ -2904,10 +3005,12 @@ async def _probe_openai_compatible_search_shape(
     timeout_seconds: float,
     api_mode: str = "chat-completions",
     tools: list[str] | None = None,
+    require_web_search: bool = False,
 ) -> dict[str, Any]:
     name = f"真实 {api_mode} search 请求 (stream={'true' if stream else 'false'})"
     start = time.time()
-    provider = OpenAICompatibleSearchProvider(api_url, api_key, model, stream=stream, api_mode=api_mode, tools=tools)
+    provider = OpenAICompatibleSearchProvider(api_url, api_key, model, stream=stream, api_mode=api_mode, tools=tools,
+                                              require_web_search=require_web_search)
     payload = provider._build_search_payload(search_prompt, get_local_time_info() + "\nping", stream=stream)
     headers = provider._build_api_headers()
     headers["User-Agent"] = "smart-search/diagnose"
@@ -3009,10 +3112,12 @@ async def _probe_openai_compatible_web_search(
     stream: bool,
     timeout_seconds: float,
     tools: list[str] | None = None,
+    require_web_search: bool = False,
 ) -> dict:
     name = "联网搜索能力"
     start = time.time()
-    provider = OpenAICompatibleSearchProvider(api_url, api_key, model, stream=stream, api_mode=api_mode, tools=tools)
+    provider = OpenAICompatibleSearchProvider(api_url, api_key, model, stream=stream, api_mode=api_mode, tools=tools,
+                                              require_web_search=require_web_search)
     answer = ""
     try:
         content = await asyncio.wait_for(provider.search("What is the latest stable Python release? Cite the source URL."), timeout_seconds)
@@ -3072,6 +3177,12 @@ async def diagnose_openai_compatible(timeout_seconds: float = 30.0) -> dict[str,
         return invalid_config(e, api_mode, source_message('OpenAI-compatible tools are invalid.'),
                               source_message('Use OPENAI_COMPATIBLE_TOOLS=web_search (or web_search_preview) only with '
                                              'OPENAI_COMPATIBLE_API_MODE=responses; otherwise leave it empty.'))
+    try:
+        require_web_search = config.openai_compatible_require_web_search
+    except ValueError as e:
+        return invalid_config(e, api_mode, source_message('OpenAI-compatible web search verification is invalid.'),
+                              source_message('Turn OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH on only together with '
+                                             'OPENAI_COMPATIBLE_API_MODE=responses and OPENAI_COMPATIBLE_TOOLS=web_search.'))
     endpoint = openai_compatible_endpoint(api_url or "", api_mode)
     result: dict[str, Any] = {
         "ok": False,
@@ -3081,6 +3192,7 @@ async def diagnose_openai_compatible(timeout_seconds: float = 30.0) -> dict[str,
         "model": model,
         "configured_api_mode": api_mode,
         "configured_tools": tools,
+        "configured_require_web_search": require_web_search,
         "endpoint": endpoint if api_url else "",
         "configured_stream": config.openai_compatible_stream,
         "timeout_seconds": timeout_seconds,
@@ -3130,7 +3242,9 @@ async def diagnose_openai_compatible(timeout_seconds: float = 30.0) -> dict[str,
     }
     result["checks"].append(quick_check)
     # Probes send what a real search sends, tools included; the quick check above never does.
-    tool_kwargs = {"tools": tools} if tools else {}
+    tool_kwargs: dict[str, Any] = {"tools": tools} if tools else {}
+    if require_web_search:
+        tool_kwargs["require_web_search"] = True
     probe_kwargs = {"stream": False, "timeout_seconds": timeout_seconds, **tool_kwargs}
     if api_mode != "chat-completions":
         probe_kwargs["api_mode"] = api_mode
@@ -3534,6 +3648,31 @@ async def _test_deepseek_connection() -> dict[str, Any]:
     return {"status": "ok", "message": source_message('DeepSeek 搜索与抓取 API 均可用'), "response_time_ms": _elapsed_ms(start)}
 
 
+async def _test_specstream_connection() -> dict[str, Any]:
+    """Probe search and fetch once each; one key and one health fingerprint cover both."""
+    if disabled := _provider_disabled_result("specstream"):
+        return disabled
+    if not config.specstream_api_key:
+        return {"status": "not_configured", "message": source_message("SPECSTREAM_API_KEY is not configured.")}
+    start = time.time()
+    raw_results = await asyncio.gather(
+        _specstream_search_provider().search("specstream connectivity check", max_results=1),
+        _specstream_fetch_provider().fetch("https://example.com"),
+    )
+    # Search alone cannot clear a fetch failure: either failing fails the probe.
+    for operation, raw in zip(("search", "fetch"), raw_results):
+        data = await _decode_provider_json(raw, provider="specstream")
+        if not data.get("ok"):
+            error_type = str(data.get("error_type") or "")
+            status = error_type if error_type in APPROVED_PROVIDER_ERROR_TYPES else "warning"
+            error = data.get("error") or source_message("request did not succeed")
+            message = (source_message("SpecStream search: {0}", error) if operation == "search"
+                       else source_message("SpecStream fetch: {0}", error))
+            return {"status": status, "message": message, "response_time_ms": _elapsed_ms(start)}
+    return {"status": "ok", "message": source_message("Both SpecStream search and fetch APIs are available"),
+            "response_time_ms": _elapsed_ms(start)}
+
+
 async def _test_yuanbao_connection() -> dict[str, Any]:
     """Run one small search; each call counts against the Tencent Cloud quota."""
     if disabled := _provider_disabled_result("yuanbao"):
@@ -3560,6 +3699,7 @@ DOCTOR_PROBE_PROVIDERS = {
     "tinyfish_connection_test": "tinyfish",
     "deepseek_connection_test": "deepseek",
     "yuanbao_connection_test": "yuanbao",
+    "specstream_connection_test": "specstream",
 }
 DOCTOR_PROBE_NEUTRAL_STATUSES = {"not_configured", "configured", "skipped", "disabled"}
 
@@ -3605,6 +3745,7 @@ PROBE_KIND: dict[str, str] = {
     "tinyfish": "live",
     "yuanbao": "live",
     "deepseek": "live",
+    "specstream": "live",
     "anysearch": "live",
     "sciverse": "live",
     "zhipu-mcp-reader": "shared:zhipu-mcp",
@@ -3620,6 +3761,7 @@ _LIVE_PROBES: dict[str, Any] = {
     "tinyfish": _test_tinyfish_connection,
     "yuanbao": _test_yuanbao_connection,
     "deepseek": _test_deepseek_connection,
+    "specstream": _test_specstream_connection,
     "anysearch": _test_anysearch_connection,
     "sciverse": _test_sciverse_connection,
     "firecrawl": _test_firecrawl_presence,
@@ -3835,6 +3977,13 @@ async def doctor() -> dict[str, Any]:
     except Exception as e:
         info["yuanbao_connection_test"] = {"status": "error", "message": sanitize_provider_error_message(e)}
 
+    try:
+        info["specstream_connection_test"] = await _test_specstream_connection()
+    except httpx.TimeoutException:
+        info["specstream_connection_test"] = {"status": "timeout", "message": source_message("SpecStream API request timed out")}
+    except Exception as e:
+        info["specstream_connection_test"] = {"status": "error", "message": sanitize_provider_error_message(e)}
+
     _record_doctor_probes(info)
     info["provider_health"] = provider_health_status()
 
@@ -3904,7 +4053,7 @@ async def doctor() -> dict[str, Any]:
     else:
         info["jev_connection_test"] = {"status": "skipped", "message": source_message('Using local routing; no Jev probe was sent.')}
     retrieval_tests = [*main_connection_tests.values(), *(info.get(f"{name}_connection_test", {}) for name in (
-        "exa", "tavily", "jina", "firecrawl", "zhipu", "zhipu_mcp", "context7", "tinyfish", "deepseek", "yuanbao",
+        "exa", "tavily", "jina", "firecrawl", "zhipu", "zhipu_mcp", "context7", "tinyfish", "deepseek", "yuanbao", "specstream",
     ))]
     retrieval_ready = any(test.get("status") in {"ok", "configured"} for test in retrieval_tests)
     info["retrieval_connection_verified"] = any(test.get("status") == "ok" for test in retrieval_tests)
@@ -3939,6 +4088,7 @@ def current_model() -> dict[str, Any]:
     try:
         api_mode = config.openai_compatible_api_mode
         tools = config.openai_compatible_tools
+        require_web_search = config.openai_compatible_require_web_search
     except ValueError as e:
         return {
             "ok": False,
@@ -3954,6 +4104,7 @@ def current_model() -> dict[str, Any]:
         "openai_compatible_fallback_models": config.openai_compatible_fallback_models,
         "openai_compatible_api_mode": api_mode,
         "openai_compatible_tools": tools,
+        "openai_compatible_require_web_search": require_web_search,
         "config_file": str(config.config_file),
     }
 
@@ -4093,9 +4244,9 @@ async def _smoke_mock(start: float) -> dict[str, Any]:
             "fallback_chain": MAIN_SEARCH_FALLBACK_CHAIN,
             "ok": True,
         },
-        "web_search": {"configured": ["zhipu"], "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek", "yuanbao"], "ok": True},
+        "web_search": {"configured": ["zhipu"], "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek", "yuanbao", "specstream"], "ok": True},
         "docs_search": {"configured": ["context7"], "fallback_chain": ["context7", "exa"], "ok": True},
-        "web_fetch": {"configured": ["tavily"], "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish", "deepseek"], "ok": True},
+        "web_fetch": {"configured": ["tavily"], "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish", "deepseek", "specstream"], "ok": True},
         "vertical_search": {
             "configured": [],
             "fallback_chain": ["anysearch"],
@@ -4324,13 +4475,13 @@ async def _smoke_mock(start: float) -> dict[str, Any]:
         **minimum_status,
         "web_search": {
             "configured": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish"],
-            "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek", "yuanbao"],
+            "fallback_chain": ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek", "yuanbao", "specstream"],
             "ok": True,
         },
         "docs_search": {"configured": ["context7", "exa"], "fallback_chain": ["context7", "exa"], "ok": True},
         "web_fetch": {
             "configured": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish"],
-            "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish", "deepseek"],
+            "fallback_chain": ["tavily", "jina", "zhipu-mcp-reader", "firecrawl", "tinyfish", "deepseek", "specstream"],
             "ok": True,
         },
         "vertical_search": {

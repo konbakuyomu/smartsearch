@@ -264,6 +264,76 @@ async def test_search_rejects_tools_without_responses_mode_before_a_request(monk
     assert "OPENAI_COMPATIBLE_API_MODE=responses" in result["error"]
 
 
+def test_web_search_verification_is_off_by_default_and_needs_tools_to_turn_on(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+    assert service.config.openai_compatible_require_web_search is False
+    assert service.config.get_config_info()["OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH"] is False
+
+    invalid = service.config_set("OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH", "sometimes")
+    assert invalid["ok"] is False and "Invalid OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH" in invalid["error"]
+    without_tools = service.config_set("OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH", "true")
+    assert without_tools["ok"] is False and without_tools["error_type"] == "parameter_error"
+    assert "OPENAI_COMPATIBLE_TOOLS=web_search" in without_tools["error"]
+    assert service.config_set("OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH", "false")["ok"] is True
+
+    batch = service.config.update_config_values({"OPENAI_COMPATIBLE_API_MODE": "responses", "OPENAI_COMPATIBLE_TOOLS": "web_search",
+                                                 "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH": "true"})
+    assert batch["ok"] is True
+    assert service.config.openai_compatible_require_web_search is True
+    assert service.config.get_config_info()["OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH"] is True
+
+    # The tools cannot go while verification still depends on them.
+    clear_tools = service.config_set("OPENAI_COMPATIBLE_TOOLS", "")
+    assert clear_tools["ok"] is False and "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH" in clear_tools["error"]
+    assert service.config.openai_compatible_tools == ["web_search"]
+    assert service.config_set("OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH", "")["ok"] is True
+    assert service.config_set("OPENAI_COMPATIBLE_TOOLS", "")["ok"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode,tools", [("chat-completions", ""), ("responses", "")])
+async def test_required_web_search_without_a_web_search_tool_is_a_parameter_error(monkeypatch, tmp_path, mode, tools):
+    _reset_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://api.openai.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_MODE", mode)
+    monkeypatch.setenv("OPENAI_COMPATIBLE_TOOLS", tools)
+    monkeypatch.setenv("OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH", "true")
+
+    async def should_not_run(self, query, platform="", ctx=None):
+        raise AssertionError("an unprovable verification must be reported before any request")
+
+    monkeypatch.setattr(service.OpenAICompatibleSearchProvider, "search", should_not_run)
+    result = await service.search("what is example", providers="openai-compatible")
+    assert result["ok"] is False and result["error_type"] == "parameter_error"
+    assert "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH" in result["error"]
+    model = service.current_model()
+    assert model["ok"] is False and model["error_type"] == "parameter_error"
+    diagnosis = await service.diagnose_openai_compatible()
+    assert diagnosis["error_type"] == "parameter_error" and diagnosis["checks"] == []
+    assert "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH" in service.config.get_config_info()["config_status"]
+
+
+def test_required_web_search_reaches_the_provider_and_fallback_models(monkeypatch, tmp_path):
+    _reset_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_URL", "https://api.openai.com/v1")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_MODEL", "gpt-6.1-sol")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_FALLBACK_MODELS", "gpt-6-astra")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_API_MODE", "responses")
+    monkeypatch.setenv("OPENAI_COMPATIBLE_TOOLS", "web_search")
+
+    configs = service._main_search_provider_configs(providers="openai-compatible")
+    assert configs[0]["require_web_search"] is False
+    monkeypatch.setenv("OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH", "true")
+    configs = service._main_search_provider_configs(providers="openai-compatible")
+    candidates = service._openai_model_candidates(configs[0], fallback_mode="auto", model_override="")
+    providers = service._main_search_providers(candidates, fallback="auto")
+
+    assert [(item.model, item.require_web_search) for item in providers] == [("gpt-6.1-sol", True), ("gpt-6-astra", True)]
+    assert service.current_model()["openai_compatible_require_web_search"] is True
+
+
 def test_current_model_rejects_invalid_openai_compatible_api_mode(monkeypatch, tmp_path):
     _reset_config(monkeypatch, tmp_path)
     monkeypatch.setenv("OPENAI_COMPATIBLE_API_MODE", "invalid")
@@ -561,13 +631,13 @@ async def test_research_context7_docs_uses_selected_library(monkeypatch, tmp_pat
             {"id": "/wrong/library", "title": "Unrelated"},
             {"id": "/reactjs/react.dev", "title": "React"}]}
     async def docs(library_id, query):
-        assert library_id == "/wrong/library"
+        assert library_id == "/reactjs/react.dev"
         return {"ok": True, "content": "React useEffect cleanup docs"}
     monkeypatch.setattr(service, "context7_library", libraries)
     monkeypatch.setattr(service, "context7_docs", docs)
     result = await service.research("React useEffect API docs", budget="standard", evidence_dir=str(tmp_path))
     assert result["ok"]
-    assert result["citations"][0]["url"] == "context7:/wrong/library"
+    assert result["citations"][0]["url"] == "context7:/reactjs/react.dev"
     assert result["degraded"]  # Retrieval succeeded; Jev verification was unavailable.
 
 
@@ -584,7 +654,7 @@ async def test_research_keeps_discovery_metadata_for_fetch(monkeypatch, tmp_path
     result = await service.research("React API docs", budget="standard", evidence_dir=str(tmp_path))
     assert result["ok"]
     assert result["discovery_sources"][0]["kind"] == "discovery"
-    assert result["citations"] == [{"url": "https://react.dev/reference", "title": "https://react.dev/reference", "provider": "jina"}]
+    assert result["citations"] == [{"url": "https://react.dev/reference", "title": "React docs", "provider": "jina"}]
     assert "Fetched React API documentation" in result["content"]
 
 
@@ -621,10 +691,13 @@ async def test_docs_search_falls_back_to_exa_when_context7_has_no_eligible_candi
     sources, attempts = result["sources"], result["provider_attempts"]
 
     assert sources[0]["provider"] == "exa"
+    # An unrelated library is a miss for this question, not a Context7 failure.
     assert [(attempt["provider"], attempt["status"]) for attempt in attempts] == [
         ("context7", "empty"),
         ("exa", "ok"),
     ]
+    assert attempts[0]["error_type"] == "quality_error"
+    assert "provider_health" not in attempts[0]
 
 
 def test_research_provider_profiles_are_registered_with_capability_boundaries():
@@ -1540,7 +1613,7 @@ def test_zhipu_mcp_key_satisfies_web_search_and_reader_fetch_as_separate_provide
     assert result["ok"] is True
     assert result["missing"] == []
     assert result["capability_status"]["web_search"]["configured"] == ["zhipu-mcp"]
-    assert result["capability_status"]["web_search"]["fallback_chain"] == ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek", "yuanbao"]
+    assert result["capability_status"]["web_search"]["fallback_chain"] == ["zhipu", "zhipu-mcp", "tavily", "firecrawl", "tinyfish", "deepseek", "yuanbao", "specstream"]
     assert result["capability_status"]["web_fetch"]["configured"] == ["zhipu-mcp-reader"]
 
 
