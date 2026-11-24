@@ -1495,6 +1495,34 @@
     "只在 OPENAI_COMPATIBLE_API_MODE=responses 时把 OPENAI_COMPATIBLE_TOOLS 设为 web_search（或 web_search_preview）；其他情况留空。",
     "Use OPENAI_COMPATIBLE_TOOLS=web_search (or web_search_preview) only with OPENAI_COMPATIBLE_API_MODE=responses; otherwise leave it empty."
   ],
+  "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=true needs OPENAI_COMPATIBLE_API_MODE=responses and OPENAI_COMPATIBLE_TOOLS=web_search (or web_search_preview). Set both, or turn OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH off.": [
+    "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=true 需要 OPENAI_COMPATIBLE_API_MODE=responses，并且 OPENAI_COMPATIBLE_TOOLS 填 web_search（或 web_search_preview）。请把这两项设好，或关闭 OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH。",
+    "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=true needs OPENAI_COMPATIBLE_API_MODE=responses and OPENAI_COMPATIBLE_TOOLS=web_search (or web_search_preview). Set both, or turn OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH off."
+  ],
+  "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=true 需要 OPENAI_COMPATIBLE_API_MODE=responses，并且 OPENAI_COMPATIBLE_TOOLS 填 web_search（或 web_search_preview）。请把这两项设好，或关闭 OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH。": [
+    "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=true 需要 OPENAI_COMPATIBLE_API_MODE=responses，并且 OPENAI_COMPATIBLE_TOOLS 填 web_search（或 web_search_preview）。请把这两项设好，或关闭 OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH。",
+    "OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=true needs OPENAI_COMPATIBLE_API_MODE=responses and OPENAI_COMPATIBLE_TOOLS=web_search (or web_search_preview). Set both, or turn OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH off."
+  ],
+  "HTTP {0} with tool_choice=required: {1}. If this endpoint does not accept tool_choice, set OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=false.": [
+    "请求带 tool_choice=required 时返回 HTTP {0}：{1}。如果这个接口不接受 tool_choice，请把 OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH 设为 false。",
+    "HTTP {0} with tool_choice=required: {1}. If this endpoint does not accept tool_choice, set OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH=false."
+  ],
+  "OpenAI-compatible web search verification is invalid.": [
+    "OpenAI-compatible 联网核验配置无效。",
+    "OpenAI-compatible web search verification is invalid."
+  ],
+  "OpenAI-compatible 联网核验配置无效。": [
+    "OpenAI-compatible 联网核验配置无效。",
+    "OpenAI-compatible web search verification is invalid."
+  ],
+  "Turn OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH on only together with OPENAI_COMPATIBLE_API_MODE=responses and OPENAI_COMPATIBLE_TOOLS=web_search.": [
+    "只在 OPENAI_COMPATIBLE_API_MODE=responses 且 OPENAI_COMPATIBLE_TOOLS=web_search 时开启 OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH。",
+    "Turn OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH on only together with OPENAI_COMPATIBLE_API_MODE=responses and OPENAI_COMPATIBLE_TOOLS=web_search."
+  ],
+  "Save OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH (true or false; true forces tool_choice=required and needs --openai-compatible-tools web_search).": [
+    "保存 OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH（true 或 false；true 会强制 tool_choice=required，需要 --openai-compatible-tools web_search）。",
+    "Save OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH (true or false; true forces tool_choice=required and needs --openai-compatible-tools web_search)."
+  ],
   "Yuanbao Search API is available": [
     "元宝搜索 API 可用",
     "Yuanbao Search API is available"

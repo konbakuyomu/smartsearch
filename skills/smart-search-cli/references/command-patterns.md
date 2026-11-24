@@ -79,6 +79,7 @@ smart-search config set OPENAI_COMPATIBLE_API_KEY "key" --format json
 smart-search config set OPENAI_COMPATIBLE_MODEL "model-id" --format json
 smart-search config set OPENAI_COMPATIBLE_API_MODE "responses" --format json
 smart-search config set OPENAI_COMPATIBLE_TOOLS "web_search" --format json
+smart-search config set OPENAI_COMPATIBLE_REQUIRE_WEB_SEARCH "true" --format json
 smart-search config set OPENAI_COMPATIBLE_FALLBACK_MODELS "model-a,model-b" --format json
 smart-search config set OPENAI_COMPATIBLE_STREAM "true" --format json
 smart-search config set SMART_SEARCH_TIMEOUT_SECONDS "180" --format json
