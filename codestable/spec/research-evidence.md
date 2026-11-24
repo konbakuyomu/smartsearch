@@ -30,7 +30,7 @@ Context7 分开传递技术名称和完整问题。Jev 可以在普通搜索和�
 
 证据闭合要求全局 sufficient 达到既有配置门槛，且没有分数达到 0.5 的单项实质缺口。单项缺口让 sufficient=false、研究继续补缺、completion.evidence 与 answer 降为 degraded / partial，但不改变 ok 和退出码：assessment 另给 global_sufficient（只看全局门槛），strict 的 ok 仍按它判断，与引入单项缺口之前相同（达到门槛 ok=true、退出码 0；未达到仍是 evidence_error、退出码 4）。输出保留 sufficiency_threshold 和 sufficiency_margin，不为消除边界波动降低阈值。相同问题、验证级别与已读证据身份在同次研究内复用原判断；新正文进入后重新评估。概率服务跨调用仍可能波动，不能把分数当作经校准的正确率。
 
-总结失败时保留证据报告及原始错误，degraded=true、partial_success=true、completion.answer=partial；不把已齐的证据缺口伪装成未齐，也不把检索成功等同于总结成功。调用方需要完整答案时应检查 completion.answer。
+总结失败时保留证据报告及原始错误，degraded=true、partial_success=true、completion.answer=partial；不把已齐的证据缺口伪装成未齐，也不把检索成功等同于总结成功。调用方需要完整答案时应检查 completion.answer；公开与打包的 smart-search-cli 技能同样提示调用方读 completion.answer、reason、gap_check 和 synthesis，不只看 ok。
 
 ok=true 而 answer=partial 时，CLI Markdown 的状态行写成「成功（答案不完整：<原因>）」/「OK (answer partial: <reason>)」，原因按 reason 取中英文说明，不再只写成功 / OK；桌面 App 的结果正文来自同一 Markdown（display_text），任务状态和退出码仍随 ok（完成、0）。
 
